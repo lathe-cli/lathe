@@ -310,6 +310,9 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 func moduleName(mod SkillModule) string {
+	if mod.Source != nil && mod.Source.DisplayName != "" {
+		return mod.Source.DisplayName
+	}
 	if mod.Source != nil && mod.Source.Name != "" {
 		return mod.Source.Name
 	}

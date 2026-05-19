@@ -184,7 +184,11 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 
 		specs := normalize.Normalize(mod)
 		specs = render.MergeOverlay(specs, overlays[src.Name])
-		if err := render.RenderModule(src.Name, specs, nil); err != nil {
+		cliName := src.Name
+		if src.DisplayName != "" {
+			cliName = src.DisplayName
+		}
+		if err := render.RenderModule(src.Name, cliName, specs, nil); err != nil {
 			return err
 		}
 		names = append(names, src.Name)

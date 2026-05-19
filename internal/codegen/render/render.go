@@ -20,6 +20,7 @@ const (
 
 type moduleCtx struct {
 	Module        string
+	CLIName       string
 	RuntimePkg    string
 	SchemaVersion int
 	Ops           []runtime.CommandSpec
@@ -34,9 +35,14 @@ const RuntimePkg = "github.com/samzong/lathe/pkg/runtime"
 // keyed by command Use string; each override's non-empty fields are baked into
 // the corresponding CommandSpec (Aliases are appended, not replaced). Passing
 // a nil map means "no overlay", equivalent to the pre-overlay behavior.
-func RenderModule(name string, specs []runtime.CommandSpec, overrides map[string]overlay.Override) error {
+// cliName is the name used in runtime.Build (the CLI-visible module path
+// segment); if empty it falls back to name.
+func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides map[string]overlay.Override) error {
+	if cliName == "" {
+		cliName = name
+	}
 	merged := MergeOverlay(specs, overrides)
-	return renderModuleSpecs(name, merged)
+	return renderModuleSpecs(name, cliName, merged)
 }
 
 func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
@@ -94,10 +100,11 @@ func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Over
 	return merged
 }
 
-func renderModuleSpecs(name string, specs []runtime.CommandSpec) error {
+func renderModuleSpecs(name, cliName string, specs []runtime.CommandSpec) error {
 	var buf strings.Builder
 	ctx := moduleCtx{
 		Module:        name,
+		CLIName:       cliName,
 		RuntimePkg:    RuntimePkg,
 		SchemaVersion: runtime.SchemaVersion,
 		Ops:           specs,
@@ -206,7 +213,7 @@ func Mount(root *cobra.Command) error {
 	if err := runtime.AssertSchema(generatedSchemaVersion); err != nil {
 		return err
 	}
-	runtime.Build(root, {{printf "%q" .Module}}, Specs)
+	runtime.Build(root, {{printf "%q" .CLIName}}, Specs)
 	return nil
 }
 

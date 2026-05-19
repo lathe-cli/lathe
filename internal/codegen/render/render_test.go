@@ -29,7 +29,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		},
 	}
 
-	if err := RenderModule("demo", specs, overrides); err != nil {
+	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
 	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
@@ -75,7 +75,7 @@ func TestRenderModule_IgnoreDropsCommand(t *testing.T) {
 	overrides := map[string]overlay.Override{
 		"delete-addon": {Ignore: true},
 	}
-	if err := RenderModule("demo", specs, overrides); err != nil {
+	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
 	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
@@ -103,7 +103,7 @@ func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
 	overrides := map[string]overlay.Override{
 		"get-item": {Group: "Items", Hidden: &hidden},
 	}
-	if err := RenderModule("demo", specs, overrides); err != nil {
+	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
 	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
@@ -142,7 +142,7 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 			},
 		},
 	}
-	if err := RenderModule("demo", specs, overrides); err != nil {
+	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
 	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
@@ -173,7 +173,7 @@ func TestRenderModule_NilOverrides(t *testing.T) {
 	specs := []runtime.CommandSpec{
 		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/x"},
 	}
-	if err := RenderModule("demo", specs, nil); err != nil {
+	if err := RenderModule("demo", "", specs, nil); err != nil {
 		t.Fatalf("RenderModule nil overrides: %v", err)
 	}
 	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))

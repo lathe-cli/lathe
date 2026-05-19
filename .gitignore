@@ -4,6 +4,7 @@
 /go.work
 /go.work.sum
 .DS_Store
+.idea
 
 /.cache/
 /internal/generated/
