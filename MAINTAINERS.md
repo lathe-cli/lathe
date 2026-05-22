@@ -6,6 +6,8 @@
   - GitHub: https://github.com/samzong
 - scydas - project collaborator and code reviewer
   - GitHub: https://github.com/scydas
+- Frapschen - project collaborator and code reviewer
+  - GitHub: https://github.com/Frapschen
 
 ## Responsibilities
 
