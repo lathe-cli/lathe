@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/samzong/lathe/internal/codegen/rawir"
-	"github.com/samzong/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 func anyToString(v any) string {

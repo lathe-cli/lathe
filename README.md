@@ -4,7 +4,7 @@
 
 > Generate agent-friendly Cobra CLIs from OpenAPI, Swagger, and protobuf API specs.
 
-[![CI](https://github.com/samzong/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/samzong/lathe/actions/workflows/ci.yml)
+[![CI](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Lathe is an API-to-CLI generator for teams that want one binary humans can use
@@ -90,7 +90,7 @@ built, and which output format to prefer.
 
 ## Quick Start
 
-Create a repository from [github.com/samzong/lathe](https://github.com/samzong/lathe),
+Create a repository from [github.com/lathe-cli/lathe](https://github.com/lathe-cli/lathe),
 then configure two files.
 
 ### Install the Tools
@@ -102,7 +102,7 @@ subcommands:
 - `lathe codegen`: generate runtime command specs and optional Skill files.
 - `lathe bootstrap`: run `specsync` and `codegen` in one pass.
 
-Download the archive for your platform from the [latest release](https://github.com/samzong/lathe/releases/latest), unpack it, and put `lathe` on your `PATH`.
+Download the archive for your platform from the [latest release](https://github.com/lathe-cli/lathe/releases/latest), unpack it, and put `lathe` on your `PATH`.
 
 When working from a source checkout, you can use the Make targets shown below instead of installing the release tools.
 

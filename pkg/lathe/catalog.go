@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/samzong/lathe/pkg/config"
-	"github.com/samzong/lathe/pkg/runtime"
+	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func commandsCmd(m *config.Manifest) *cobra.Command {

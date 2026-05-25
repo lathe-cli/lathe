@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samzong/lathe/internal/overlay"
-	"github.com/samzong/lathe/pkg/runtime"
+	"github.com/lathe-cli/lathe/internal/overlay"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestRenderModule_AppliesOverlay(t *testing.T) {

@@ -5,7 +5,7 @@ Thanks for your interest in lathe.
 ## Local setup
 
 ```sh
-git clone https://github.com/samzong/lathe.git
+git clone https://github.com/lathe-cli/lathe.git
 cd lathe
 make check        # fmt-check, vet, lint, test — the full quality gate
 ```

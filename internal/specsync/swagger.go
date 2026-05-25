@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/samzong/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 func syncSwagger(src *sourceconfig.Source, workDir, syncDir string) error {

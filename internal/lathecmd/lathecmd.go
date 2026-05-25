@@ -8,17 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/samzong/lathe/internal/codegen/backends/openapi3"
-	"github.com/samzong/lathe/internal/codegen/backends/proto"
-	"github.com/samzong/lathe/internal/codegen/backends/swagger"
-	"github.com/samzong/lathe/internal/codegen/normalize"
-	"github.com/samzong/lathe/internal/codegen/rawir"
-	"github.com/samzong/lathe/internal/codegen/render"
-	"github.com/samzong/lathe/internal/overlay"
-	"github.com/samzong/lathe/internal/sourceconfig"
-	"github.com/samzong/lathe/internal/specsync"
-	"github.com/samzong/lathe/pkg/config"
-	"github.com/samzong/lathe/pkg/lathe"
+	"github.com/lathe-cli/lathe/internal/codegen/backends/openapi3"
+	"github.com/lathe-cli/lathe/internal/codegen/backends/proto"
+	"github.com/lathe-cli/lathe/internal/codegen/backends/swagger"
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
+	"github.com/lathe-cli/lathe/internal/codegen/render"
+	"github.com/lathe-cli/lathe/internal/overlay"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/specsync"
+	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/lathe"
 )
 
 func Run(args []string) error {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/samzong/lathe/internal/lathecmd"
+	"github.com/lathe-cli/lathe/internal/lathecmd"
 )
 
 func main() {

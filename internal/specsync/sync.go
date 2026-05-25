@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/samzong/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 const (

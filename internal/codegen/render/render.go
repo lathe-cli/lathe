@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/samzong/lathe/internal/overlay"
-	"github.com/samzong/lathe/pkg/runtime"
+	"github.com/lathe-cli/lathe/internal/overlay"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 const (
@@ -29,7 +29,7 @@ type moduleCtx struct {
 // RuntimePkg is the import path downstream-generated modules use to reach
 // lathe's runtime. Downstream forks import lathe as a library; they do not
 // vendor or copy the runtime package into their own tree.
-const RuntimePkg = "github.com/samzong/lathe/pkg/runtime"
+const RuntimePkg = "github.com/lathe-cli/lathe/pkg/runtime"
 
 // RenderModule emits internal/generated/<name>/<name>_gen.go. overrides is
 // keyed by command Use string; each override's non-empty fields are baked into

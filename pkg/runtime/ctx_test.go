@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/samzong/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func bindTestManifest(t *testing.T, name, hostEnv string) {

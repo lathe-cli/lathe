@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/samzong/lathe/internal/codegen/rawir"
-	"github.com/samzong/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 // Each case supplies a constructed rawir.RawModule and asserts the
