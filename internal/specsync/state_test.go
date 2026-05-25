@@ -86,7 +86,7 @@ func TestVerifyState_RejectsMissingFile(t *testing.T) {
 	if err == nil {
 		t.Fatalf("VerifyState accepted missing sync-state")
 	}
-	if !strings.Contains(err.Error(), "make sync-specs") {
-		t.Errorf("error should tell user to run make sync-specs: %v", err)
+	if !strings.Contains(err.Error(), "lathe specsync") {
+		t.Errorf("error should tell user to run lathe specsync: %v", err)
 	}
 }

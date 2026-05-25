@@ -43,19 +43,19 @@ func SaveState(syncDir string, s *State) error {
 func VerifyState(syncDir, source, backend, wantTag string) error {
 	s, err := LoadState(syncDir)
 	if err != nil {
-		return fmt.Errorf("source %q: sync-state missing or unreadable (run `make sync-specs`): %w", source, err)
+		return fmt.Errorf("source %q: sync-state missing or unreadable (run `lathe specsync`): %w", source, err)
 	}
 	if s.Source != source {
 		return fmt.Errorf("source %q: sync-state mismatch (got %q)", source, s.Source)
 	}
 	if s.Backend != backend {
-		return fmt.Errorf("source %q: sync-state backend %q != config %q (re-run sync)", source, s.Backend, backend)
+		return fmt.Errorf("source %q: sync-state backend %q != config %q (re-run `lathe specsync`)", source, s.Backend, backend)
 	}
 	if s.SyncedFrom != wantTag {
-		return fmt.Errorf("source %q: synced_from=%q but pinned_tag=%q (re-run sync)", source, s.SyncedFrom, wantTag)
+		return fmt.Errorf("source %q: synced_from=%q but pinned_tag=%q (re-run `lathe specsync`)", source, s.SyncedFrom, wantTag)
 	}
 	if s.ResolvedSHA == "" {
-		return fmt.Errorf("source %q: sync-state missing resolved_sha (re-run `make sync-specs`)", source)
+		return fmt.Errorf("source %q: sync-state missing resolved_sha (re-run `lathe specsync`)", source)
 	}
 	return nil
 }

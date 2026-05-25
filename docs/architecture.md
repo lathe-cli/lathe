@@ -14,8 +14,8 @@ lathe has two disjoint phases. They share types (`runtime.CommandSpec`) but run 
 flowchart LR
     subgraph codegen["Codegen-time (in the template repo)"]
         direction TB
-        S1[specs/sources.yaml] --> S2[make sync-specs]
-        S2 --> S3[make gen]
+        S1[specs/sources.yaml] --> S2[lathe specsync]
+        S2 --> S3[lathe codegen]
         S3 --> S4[internal/generated/*]
     end
 
@@ -164,7 +164,7 @@ graph TD
 ```mermaid
 stateDiagram-v2
     [*] --> Declared: edit specs/sources.yaml
-    Declared --> Cloned: make sync-specs\n(git clone + checkout pinned_tag)
+    Declared --> Cloned: lathe specsync\n(git clone + checkout pinned_tag)
     Cloned --> Staged: backend-specific staging\n(.cache/specs-sync/&lt;mod&gt;/)
     Staged --> Parsed: backend.Parse\n→ RawModule
     Parsed --> Normalized: normalize.Normalize\n→ []CommandSpec
@@ -277,7 +277,7 @@ These are structural, not stylistic. Violating any means the architecture breaks
 3. **Codegen is never invoked at `go build` time.** Downstream consumers need no Go toolchain tags, build flags, or network access to install.
 4. **Overlays bake at codegen-time.** The runtime has no overlay concept. This keeps `pkg/runtime` small and overlay bugs from being runtime bugs.
 5. **No ambient "current host".** The host is a per-invocation input. This mirrors `gh` and avoids the "oops, wrong cluster" class of bug.
-6. **`sync-state.yaml` guards the cache.** `make gen` refuses a cache that doesn't match `pinned_tag`. Stale generation fails loud, not silent.
+6. **`sync-state.yaml` guards the cache.** `lathe codegen` refuses a cache that doesn't match `pinned_tag`. Stale generation fails loud, not silent.
 7. **Static codegen.** Downstream binaries carry no spec parser. The generated file is a pure data literal.
 8. **Single Go binary.** No `protoc`, `buf`, or other toolchain at install time. `go install` is the install path.
 

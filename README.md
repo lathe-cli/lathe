@@ -161,11 +161,11 @@ sources:
 ### 3. Generate and Build
 
 ```sh
-make bootstrap
+lathe bootstrap
 go build -o bin/acmectl ./cmd/acmectl
 ```
 
-`make bootstrap` syncs pinned specs and runs codegen. Codegen emits generated Go
+`lathe bootstrap` syncs pinned specs and runs codegen. Codegen emits generated Go
 modules and, by default, a Skill directory at `skills/acmectl/`.
 
 ### 4. Use the CLI

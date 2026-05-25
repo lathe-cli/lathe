@@ -38,7 +38,7 @@ go build -o bin/lathe ./cmd/lathe
 ```
 
 Use the built binary as `lathe`, or pass its path explicitly in examples.
-For a Goreleaser-shaped local snapshot, install Goreleaser and run `make build`.
+Release-shaped snapshots are built by the release workflow with Goreleaser.
 
 ## Initialize the Go Module
 

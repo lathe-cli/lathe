@@ -1,5 +1,4 @@
 GO          ?= go
-GORELEASER ?= goreleaser
 OUT_DIR     := ./bin
 
 BOLD  := \033[1m
@@ -15,22 +14,8 @@ RESET := \033[0m
 
 build: ## Build local lathe binary into ./bin/lathe
 	@mkdir -p $(OUT_DIR)
-	$(GORELEASER) build --snapshot --clean --single-target --output $(OUT_DIR)/lathe
+	$(GO) build -trimpath -o $(OUT_DIR)/lathe ./cmd/lathe
 	@printf '\n$(GREEN)  ✓ built $(CYAN)$(OUT_DIR)/lathe$(RESET)\n\n'
-
-# ── Bootstrap ────────────────────────────────────────────────────────────────
-
-.PHONY: bootstrap sync-specs gen
-
-bootstrap: ## First-time setup — sync upstream specs + generate command tree
-	$(GO) run ./cmd/lathe bootstrap
-	@printf '\n$(GREEN)  ✓ bootstrap complete$(RESET) — next: $(CYAN)go build -o $(OUT_DIR)/<name> ./cmd/<name>$(RESET)\n\n'
-
-sync-specs: ## Fetch upstream specs pinned in specs/sources.yaml
-	$(GO) run ./cmd/lathe specsync
-
-gen: ## Regenerate internal/generated from cached specs
-	$(GO) run ./cmd/lathe codegen
 
 # ── Quality ──────────────────────────────────────────────────────────────────
 

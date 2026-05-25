@@ -152,11 +152,11 @@ sources:
 ### 3. 生成并构建
 
 ```sh
-make bootstrap
+lathe bootstrap
 go build -o bin/acmectl ./cmd/acmectl
 ```
 
-`make bootstrap` 会同步锁定的规格并运行 codegen。Codegen 会生成 Go 模块，
+`lathe bootstrap` 会同步锁定的规格并运行 codegen。Codegen 会生成 Go 模块，
 并默认生成 Skill 目录 `skills/acmectl/`。
 
 ### 4. 使用 CLI
