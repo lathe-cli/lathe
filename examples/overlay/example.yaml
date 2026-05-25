@@ -4,7 +4,7 @@
 # matching a key under specs/sources.yaml in your own repo, then pass the
 # containing directory to codegen via -overlay, e.g.:
 #
-#   go run github.com/samzong/lathe/cmd/lathe codegen \
+#   go run github.com/lathe-cli/lathe/cmd/lathe codegen \
 #     -sources specs/sources.yaml \
 #     -overlay internal/overlay
 #

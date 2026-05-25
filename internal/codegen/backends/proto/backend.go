@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/samzong/lathe/internal/codegen/rawir"
-	"github.com/samzong/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 const descriptorFile = "descriptor_set.pb"

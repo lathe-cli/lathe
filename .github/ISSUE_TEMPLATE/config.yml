@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/samzong/lathe/security/advisories/new
+    url: https://github.com/lathe-cli/lathe/security/advisories/new
     about: Please report vulnerabilities privately through GitHub Security Advisories.
   - name: Contribution guide
-    url: https://github.com/samzong/lathe/blob/main/CONTRIBUTING.md
+    url: https://github.com/lathe-cli/lathe/blob/main/CONTRIBUTING.md
     about: Read contribution workflow, scope, and local verification guidance.

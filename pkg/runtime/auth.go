@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/samzong/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 type Authenticator interface {

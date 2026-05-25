@@ -10,8 +10,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/samzong/lathe/internal/codegen/rawir"
-	"github.com/samzong/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 type oas3Doc struct {

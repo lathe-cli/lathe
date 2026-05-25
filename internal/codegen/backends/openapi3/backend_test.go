@@ -7,8 +7,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/samzong/lathe/internal/sourceconfig"
-	"github.com/samzong/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestParse_Golden(t *testing.T) {

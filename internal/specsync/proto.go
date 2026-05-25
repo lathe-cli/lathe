@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/samzong/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 func syncProto(src *sourceconfig.Source, workDir, syncDir string) error {

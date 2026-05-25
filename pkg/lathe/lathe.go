@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/samzong/lathe/internal/auth"
-	"github.com/samzong/lathe/pkg/config"
-	"github.com/samzong/lathe/pkg/runtime"
+	"github.com/lathe-cli/lathe/internal/auth"
+	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 const authGroupID = "auth"

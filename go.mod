@@ -1,4 +1,4 @@
-module github.com/samzong/lathe
+module github.com/lathe-cli/lathe
 
 go 1.25.7
 

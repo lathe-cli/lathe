@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/samzong/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func TestBearerAuth_Apply(t *testing.T) {

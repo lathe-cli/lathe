@@ -3,7 +3,7 @@ module example/richapi
 go 1.25.7
 
 require (
-	github.com/samzong/lathe v0.0.0
+	github.com/lathe-cli/lathe v0.0.0
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -15,4 +15,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/samzong/lathe => ../..
+replace github.com/lathe-cli/lathe => ../..

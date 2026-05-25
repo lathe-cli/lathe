@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/samzong/lathe/internal/sourceconfig"
-	"github.com/samzong/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestParse_Golden(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samzong/lathe/internal/overlay"
-	"github.com/samzong/lathe/internal/sourceconfig"
-	"github.com/samzong/lathe/internal/specsync"
-	"github.com/samzong/lathe/pkg/config"
-	"github.com/samzong/lathe/pkg/runtime"
+	"github.com/lathe-cli/lathe/internal/overlay"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/specsync"
+	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {

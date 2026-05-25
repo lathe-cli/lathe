@@ -12,9 +12,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/samzong/lathe/pkg/lathe.Version={{ .Version }}
-      - -X github.com/samzong/lathe/pkg/lathe.Commit={{ .ShortCommit }}
-      - -X github.com/samzong/lathe/pkg/lathe.Date={{ .Date }}
+      - -X github.com/lathe-cli/lathe/pkg/lathe.Version={{ .Version }}
+      - -X github.com/lathe-cli/lathe/pkg/lathe.Commit={{ .ShortCommit }}
+      - -X github.com/lathe-cli/lathe/pkg/lathe.Date={{ .Date }}
     goos:
       - linux
       - darwin
