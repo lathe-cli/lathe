@@ -157,7 +157,7 @@ graph TD
 | `internal/auth` | runtime | `auth login/logout/status`. Calls the configured validate endpoint. |
 | `pkg/config` | runtime | `Manifest` (CLI identity) and `Hosts` (per-hostname credentials). `Bind(m)` seeds package-level helpers. |
 | `pkg/runtime` | runtime | `CommandSpec` IR, `Build`, body builder, HTTP client with retry, `Authenticator` interface, `Formatter` registry, `LatheError`, schema version contract. |
-| `pkg/lathe` | runtime | `NewApp(m)` — root cobra command with auth subtree and module groups. |
+| `pkg/lathe` | runtime | `Run(opts)` standard generated-CLI entrypoint; `NewApp(m)` for advanced root command composition. |
 
 ## Spec lifecycle
 
