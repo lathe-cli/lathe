@@ -13,13 +13,13 @@ import (
 const authGroupID = "auth"
 
 // NewApp builds the root cobra command for a lathe-style CLI identified by m.
-// Callers (typically a small main.go) are responsible for:
-//   - calling config.Bind(m) before Execute() so package-level helpers
-//     (hosts.configDir, runtime.ResolveHost) can reach the bound manifest;
-//   - mounting generated module command trees onto the returned *cobra.Command;
-//   - invoking .Execute() and mapping runtime.ErrNotAuthenticated to the
-//     desired exit code.
+// It binds m for package-level helpers before returning the command.
+// Callers that need the standard generated-CLI entrypoint should use Run.
+// Advanced callers may still mount generated module command trees directly
+// onto the returned *cobra.Command and execute it themselves.
 func NewApp(m *config.Manifest) *cobra.Command {
+	config.Bind(m)
+
 	cmd := &cobra.Command{
 		Use:          m.CLI.Name,
 		Short:        m.CLI.Short,

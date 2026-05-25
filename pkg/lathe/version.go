@@ -1,10 +1,6 @@
 package lathe
 
-import (
-	"fmt"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 var (
 	Version = "dev"
@@ -17,7 +13,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Printf("%s %s (%s, %s)\n", cmd.Root().Use, Version, Commit, Date)
+			cmd.Printf("%s %s (%s, %s)\n", cmd.Root().Use, Version, Commit, Date)
 		},
 	}
 }
