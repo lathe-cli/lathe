@@ -264,12 +264,30 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule) string {
 				fmt.Fprintf(&b, "- Output: %s\n", out)
 			}
 			if spec.Example != "" {
-				fmt.Fprintf(&b, "- Example: `%s`\n", strings.ReplaceAll(oneLine(spec.Example), "`", "'"))
+				writeExample(&b, spec.Example)
 			}
 			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+func writeExample(b *strings.Builder, example string) {
+	text := strings.TrimRight(example, "\n")
+	if strings.Contains(text, "\n") {
+		fence := markdownFence(text)
+		fmt.Fprintf(b, "- Example:\n\n%s\n%s\n%s\n", fence, text, fence)
+		return
+	}
+	fmt.Fprintf(b, "- Example: `%s`\n", strings.ReplaceAll(oneLine(text), "`", "'"))
+}
+
+func markdownFence(text string) string {
+	fence := "```"
+	for strings.Contains(text, fence) {
+		fence += "`"
+	}
+	return fence
 }
 
 func visibleSpecs(specs []runtime.CommandSpec) []runtime.CommandSpec {

@@ -112,6 +112,44 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 }
 
+func TestRenderModuleReference_FormatsExamples(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
+	module := SkillModule{
+		Source: &sourceconfig.Source{Name: "users"},
+		Specs: []runtime.CommandSpec{
+			{
+				Group:   "Users",
+				Use:     "get-user",
+				Short:   "Get user",
+				Method:  "GET",
+				PathTpl: "/users/{id}",
+				Example: "acmectl users users get-user --id 123",
+			},
+			{
+				Group:   "Users",
+				Use:     "query-logs",
+				Short:   "Query logs",
+				Method:  "POST",
+				PathTpl: "/logs/query",
+				Example: "END=$(date +%s); START=$((END - 3600))\n" +
+					"acmectl users users query-logs \\\n" +
+					"  --start $START --end $END -o json\n" +
+					"jq '.items[]'",
+			},
+		},
+	}
+
+	got := renderModuleReference(manifest, module)
+	for _, want := range []string{
+		"- Example: `acmectl users users get-user --id 123`",
+		"- Example:\n\n```\nEND=$(date +%s); START=$((END - 3600))\nacmectl users users query-logs \\\n  --start $START --end $END -o json\njq '.items[]'\n```",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("module reference missing %q\nfull output:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderSkillDirectory_RejectsUnsafeRoot(t *testing.T) {
 	err := RenderSkillDirectory("", &config.Manifest{CLI: config.CLIInfo{Name: "x"}}, nil)
 	if err == nil {
