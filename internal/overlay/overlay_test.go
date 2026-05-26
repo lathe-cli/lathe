@@ -83,6 +83,7 @@ commands:
       status:
         flag: user-status
         help: "Account status"
+        required: true
         default: "active"
         deprecated: true
       legacy:
@@ -128,6 +129,9 @@ commands:
 	}
 	if sp.Help != "Account status" {
 		t.Errorf("param help = %q, want Account status", sp.Help)
+	}
+	if !sp.Required {
+		t.Error("param required = false, want true")
 	}
 	if sp.Default != "active" {
 		t.Errorf("param default = %q, want active", sp.Default)

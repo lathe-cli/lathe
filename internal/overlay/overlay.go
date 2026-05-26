@@ -26,6 +26,7 @@ type Override struct {
 type ParamOverride struct {
 	Flag            string `yaml:"flag"`
 	Help            string `yaml:"help"`
+	Required        bool   `yaml:"required"`
 	Default         string `yaml:"default"`
 	DeprecatedAlias bool   `yaml:"hidden"`
 	Deprecated      bool   `yaml:"deprecated"`

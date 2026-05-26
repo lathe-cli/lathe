@@ -40,6 +40,9 @@ commands: {}
 #     group: "Identity"
 #     hidden: false
 #     params:
+#       type:
+#         help: "Required by the backend even when the upstream spec omits it"
+#         required: true
 #       workspace:
 #         flag: ws
 #         help: "Target workspace name"

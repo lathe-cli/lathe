@@ -152,6 +152,9 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 			if po.Help != "" {
 				spec.Params[j].Help = po.Help
 			}
+			if po.Required {
+				spec.Params[j].Required = true
+			}
 			if po.Default != "" {
 				spec.Params[j].Default = po.Default
 			}

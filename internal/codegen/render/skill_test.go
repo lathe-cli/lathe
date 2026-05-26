@@ -27,11 +27,14 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 	specs := []runtime.CommandSpec{
 		{
-			Group:       "Users",
-			Use:         "create-user",
-			Short:       "Raw summary",
-			Method:      "POST",
-			PathTpl:     "/users",
+			Group:   "Users",
+			Use:     "create-user",
+			Short:   "Raw summary",
+			Method:  "POST",
+			PathTpl: "/users",
+			Params: []runtime.ParamSpec{
+				{Name: "type", Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type"},
+			},
 			RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json"},
 			Output: runtime.OutputHints{
 				ListPath:          "items",
@@ -106,6 +109,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Summary: Create a user",
 		"Auth: required; scopes: `users:write`",
 		"Body: required; media type `application/json`",
+		"`--type` (query, required): Receiver type",
 		"pagination `cursor`",
 		"streaming `sse`",
 		"Notes:",
