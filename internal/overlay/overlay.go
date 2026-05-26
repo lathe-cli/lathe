@@ -24,11 +24,11 @@ type Override struct {
 }
 
 type ParamOverride struct {
-	Flag       string `yaml:"flag"`
-	Help       string `yaml:"help"`
-	Default    string `yaml:"default"`
-	Hidden     bool   `yaml:"hidden"`
-	Deprecated bool   `yaml:"deprecated"`
+	Flag            string `yaml:"flag"`
+	Help            string `yaml:"help"`
+	Default         string `yaml:"default"`
+	DeprecatedAlias bool   `yaml:"hidden"`
+	Deprecated      bool   `yaml:"deprecated"`
 }
 
 type KnownError struct {

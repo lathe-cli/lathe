@@ -214,9 +214,11 @@ Overlays apply at codegen-time. The runtime has no overlay types. This matrix sh
 | `Required` | `required` / path rule | relaxation only (post-v0.1) | overlay > spec |
 | `Default` | spec or overlay | value | overlay > spec |
 | `Enum`, `Format` | spec | override (post-v0.1) | overlay > spec |
-| `Deprecated` | `param.deprecated` | bool | overlay > spec |
+| `Deprecated` | `param.deprecated` | bool; `param.hidden` is a legacy alias | overlay > spec |
 
 Two restricted-override rules: **`Required`** may only relax (required → optional), never tighten. **`GoType`** may only narrow (e.g. `string` → typed enum), never widen.
+
+Command `ignore` drops an operation during codegen, so it is absent from the generated CLI and catalog. Command `hidden` keeps the operation generated but hides it from normal help, search, and catalog output; `--include-hidden` can still inspect it. Parameter `hidden` does not hide a flag; it is retained only as a legacy spelling for `deprecated: true`. Prefer `deprecated: true` for parameter overlays.
 
 ## Runtime request lifecycle
 
