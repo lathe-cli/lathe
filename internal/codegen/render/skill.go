@@ -180,7 +180,8 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, and help.\n")
 	b.WriteString("- `body`: request body requirement and media type.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
-	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints.\n\n")
+	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints.\n")
+	b.WriteString("- `notes`, `prerequisites`, and `known_errors`: overlay-provided operation context that is not inferred from the API spec.\n\n")
 	b.WriteString("## Command Detail\n\n")
 	fmt.Fprintf(&b, "Run `%s commands show <path...> --json` before executing an unfamiliar command. This is the source of truth for flags, body, auth, HTTP path, and output hints.\n\n", cli)
 	b.WriteString("## Schema\n\n")
@@ -263,6 +264,7 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule) string {
 			if out := outputSummary(spec.Output); out != "" {
 				fmt.Fprintf(&b, "- Output: %s\n", out)
 			}
+			writeOperationContext(&b, spec)
 			if spec.Example != "" {
 				writeExample(&b, spec.Example)
 			}
@@ -270,6 +272,37 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule) string {
 		}
 	}
 	return b.String()
+}
+
+func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
+	writeStringList(b, "Notes", spec.Notes)
+	writeStringList(b, "Prerequisites", spec.Prerequisites)
+	if len(spec.KnownErrors) == 0 {
+		return
+	}
+	b.WriteString("- Known errors:\n")
+	for _, err := range spec.KnownErrors {
+		label := "unspecified status"
+		if err.Status != 0 {
+			label = fmt.Sprintf("HTTP %d", err.Status)
+		}
+		cause := oneLine(err.Cause)
+		if cause == "" {
+			fmt.Fprintf(b, "  - %s\n", label)
+			continue
+		}
+		fmt.Fprintf(b, "  - %s: %s\n", label, cause)
+	}
+}
+
+func writeStringList(b *strings.Builder, label string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "- %s:\n", label)
+	for _, value := range values {
+		fmt.Fprintf(b, "  - %s\n", oneLine(value))
+	}
 }
 
 func writeExample(b *strings.Builder, example string) {

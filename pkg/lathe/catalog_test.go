@@ -42,6 +42,9 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 		Params: []runtime.ParamSpec{
 			{Name: "id", Flag: "id", In: runtime.InPath, GoType: "string", Required: true, Help: "User id"},
 		},
+		Notes:         []string{"Use the canonical user ID."},
+		Prerequisites: []string{"List users before fetching details."},
+		KnownErrors:   []runtime.KnownError{{Status: 400, Cause: "missing id"}},
 	}})
 
 	out, err := execute(root, "commands", "show", "demo", "users", "get-user", "--json")
@@ -54,6 +57,15 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 	}
 	if strings.Join(entry.Path, " ") != "demo users get-user" || entry.Group != "Users" {
 		t.Fatalf("entry = %+v", entry)
+	}
+	if len(entry.Notes) != 1 || entry.Notes[0] != "Use the canonical user ID." {
+		t.Fatalf("notes = %#v", entry.Notes)
+	}
+	if len(entry.Prerequisites) != 1 || entry.Prerequisites[0] != "List users before fetching details." {
+		t.Fatalf("prerequisites = %#v", entry.Prerequisites)
+	}
+	if len(entry.KnownErrors) != 1 || entry.KnownErrors[0].Status != 400 || entry.KnownErrors[0].Cause != "missing id" {
+		t.Fatalf("known errors = %#v", entry.KnownErrors)
 	}
 
 	out, err = execute(root, "search", "getUser", "--json")

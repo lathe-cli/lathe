@@ -22,10 +22,13 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	}
 	overrides := map[string]overlay.Override{
 		"install-addon": {
-			Aliases: []string{"addon-install"},
-			Short:   "OVERLAY SHORT",
-			Long:    "OVERLAY LONG DESC",
-			Example: "myctl demo install-addon --name foo",
+			Aliases:       []string{"addon-install"},
+			Short:         "OVERLAY SHORT",
+			Long:          "OVERLAY LONG DESC",
+			Example:       "myctl demo install-addon --name foo",
+			Notes:         []string{"Use the canonical addon ID."},
+			Prerequisites: []string{"List clusters before installing."},
+			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
 		},
 	}
 
@@ -43,6 +46,14 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`"OVERLAY LONG DESC"`,
 		`"myctl demo install-addon --name foo"`,
 		`"addon-install"`,
+		`Notes:`,
+		`"Use the canonical addon ID."`,
+		`Prerequisites:`,
+		`"List clusters before installing."`,
+		`KnownErrors:`,
+		`[]runtime.KnownError{`,
+		`Status: 400`,
+		`Cause: "missing addon name"`,
 		`"untouched short"`,
 		`generatedSchemaVersion`,
 		`func Mount(root *cobra.Command) error`,

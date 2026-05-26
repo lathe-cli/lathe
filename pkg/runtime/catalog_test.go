@@ -30,7 +30,10 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 				Pagination:        &PaginationHint{Strategy: "cursor", TokenParam: "page_token", TokenField: "next_page_token", LimitParam: "limit"},
 				Streaming:         &StreamingHint{Strategy: "sse"},
 			},
-			Security: &SecurityHint{Scopes: []string{"users:read"}},
+			Security:      &SecurityHint{Scopes: []string{"users:read"}},
+			Notes:         []string{"Use the canonical user ID."},
+			Prerequisites: []string{"List users before fetching details."},
+			KnownErrors:   []KnownError{{Status: 400, Cause: "missing id"}},
 		},
 	})
 
@@ -79,6 +82,15 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if cmd.Output.Streaming == nil || cmd.Output.Streaming.Strategy != "sse" {
 		t.Fatalf("streaming = %+v", cmd.Output.Streaming)
 	}
+	if !reflect.DeepEqual(cmd.Notes, []string{"Use the canonical user ID."}) {
+		t.Fatalf("notes = %#v", cmd.Notes)
+	}
+	if !reflect.DeepEqual(cmd.Prerequisites, []string{"List users before fetching details."}) {
+		t.Fatalf("prerequisites = %#v", cmd.Prerequisites)
+	}
+	if !reflect.DeepEqual(cmd.KnownErrors, []KnownError{{Status: 400, Cause: "missing id"}}) {
+		t.Fatalf("known errors = %#v", cmd.KnownErrors)
+	}
 
 	raw, err := json.Marshal(catalog)
 	if err != nil {
@@ -93,6 +105,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if roundTrip.Commands[0].Body.Schema.Properties["name"].Type != "string" {
 		t.Fatalf("round-trip body schema = %+v", roundTrip.Commands[0].Body.Schema)
+	}
+	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
+		t.Fatalf("round-trip known errors = %#v", roundTrip.Commands[0].KnownErrors)
 	}
 }
 
