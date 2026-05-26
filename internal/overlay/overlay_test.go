@@ -48,21 +48,27 @@ func TestLoadDir_ParsesMultipleModules(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want 2 modules, got %d: %v", len(got), got)
 	}
-	u := got["iam"]["create-user"]
+	u := got["iam"].Commands["create-user"]
 	if u.Short != "Create a user" || u.Long == "" || u.Example == "" {
 		t.Errorf("iam create-user override incomplete: %+v", u)
 	}
 	if len(u.Aliases) != 2 || u.Aliases[0] != "adduser" || u.Aliases[1] != "new-user" {
 		t.Errorf("iam create-user aliases: %v", u.Aliases)
 	}
-	if got["billing"]["list-invoices"].Short != "List invoices" {
-		t.Errorf("billing list-invoices: %+v", got["billing"]["list-invoices"])
+	if got["billing"].Commands["list-invoices"].Short != "List invoices" {
+		t.Errorf("billing list-invoices: %+v", got["billing"].Commands["list-invoices"])
 	}
 }
 
 func TestLoadDir_ParsesExtendedFields(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "iam.yaml"), `commands:
+	writeFile(t, filepath.Join(dir, "iam.yaml"), `defaults:
+  pagination:
+    match_commands: ["list-*", "query-*"]
+    params:
+      page: "1"
+      pageSize: "20"
+commands:
   create-user:
     group: "Identity"
     hidden: true
@@ -90,7 +96,17 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	cu := got["iam"]["create-user"]
+	mod := got["iam"]
+	if mod.Defaults.Pagination == nil {
+		t.Fatal("pagination defaults were not parsed")
+	}
+	if len(mod.Defaults.Pagination.MatchCommands) != 2 || mod.Defaults.Pagination.MatchCommands[0] != "list-*" {
+		t.Errorf("pagination match commands = %#v", mod.Defaults.Pagination.MatchCommands)
+	}
+	if mod.Defaults.Pagination.Params["page"] != "1" || mod.Defaults.Pagination.Params["pageSize"] != "20" {
+		t.Errorf("pagination params = %#v", mod.Defaults.Pagination.Params)
+	}
+	cu := mod.Commands["create-user"]
 	if cu.Group != "Identity" {
 		t.Errorf("group = %q, want Identity", cu.Group)
 	}
@@ -123,11 +139,11 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
 	if !lp.DeprecatedAlias {
 		t.Error("legacy param hidden alias = false, want true")
 	}
-	du := got["iam"]["delete-user"]
+	du := mod.Commands["delete-user"]
 	if !du.Ignore {
 		t.Error("delete-user ignore = false, want true")
 	}
-	gu := got["iam"]["get-user"]
+	gu := mod.Commands["get-user"]
 	if gu.Hidden == nil || *gu.Hidden {
 		t.Errorf("get-user hidden = %v, want false", gu.Hidden)
 	}

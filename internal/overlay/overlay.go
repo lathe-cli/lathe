@@ -36,15 +36,25 @@ type KnownError struct {
 	Cause  string `yaml:"cause"`
 }
 
-type moduleFile struct {
+type Module struct {
+	Defaults Defaults            `yaml:"defaults"`
 	Commands map[string]Override `yaml:"commands"`
 }
 
-// LoadDir reads every <module>.yaml under dir and returns a nested map keyed
-// by module name then command Use string. An empty or non-existent dir yields
-// an empty map without error — overlays are always optional.
-func LoadDir(dir string) (map[string]map[string]Override, error) {
-	out := map[string]map[string]Override{}
+type Defaults struct {
+	Pagination *PaginationDefaults `yaml:"pagination"`
+}
+
+type PaginationDefaults struct {
+	MatchCommands []string          `yaml:"match_commands"`
+	Params        map[string]string `yaml:"params"`
+}
+
+// LoadDir reads every <module>.yaml under dir and returns module overlays keyed
+// by module name. An empty or non-existent dir yields an empty map without
+// error; overlays are always optional.
+func LoadDir(dir string) (map[string]Module, error) {
+	out := map[string]Module{}
 	if dir == "" {
 		return out, nil
 	}
@@ -64,12 +74,12 @@ func LoadDir(dir string) (map[string]map[string]Override, error) {
 		if rerr != nil {
 			return nil, fmt.Errorf("overlay: read %s: %w", path, rerr)
 		}
-		var mf moduleFile
-		if yerr := yaml.Unmarshal(data, &mf); yerr != nil {
+		var mod Module
+		if yerr := yaml.Unmarshal(data, &mod); yerr != nil {
 			return nil, fmt.Errorf("overlay: parse %s: %w", path, yerr)
 		}
 		module := strings.TrimSuffix(e.Name(), ".yaml")
-		out[module] = mf.Commands
+		out[module] = mod
 	}
 	return out, nil
 }
