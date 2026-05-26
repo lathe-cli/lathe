@@ -143,13 +143,15 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 			Group: "Users", Use: "list-users", Short: "list", Method: "GET", PathTpl: "/users",
 			Params: []runtime.ParamSpec{
 				{Name: "status", Flag: "status", In: "query", GoType: "string", Help: "original help"},
+				{Name: "legacy", Flag: "legacy", In: "query", GoType: "string", Help: "legacy help"},
 			},
 		},
 	}
 	overrides := map[string]overlay.Override{
 		"list-users": {
 			Params: map[string]overlay.ParamOverride{
-				"status": {Flag: "user-status", Help: "override help", Default: "active"},
+				"status": {Flag: "user-status", Help: "override help", Default: "active", Deprecated: true},
+				"legacy": {DeprecatedAlias: true},
 			},
 		},
 	}
@@ -172,6 +174,9 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	}
 	if strings.Contains(got, `"original help"`) {
 		t.Error("original help should not appear")
+	}
+	if strings.Count(got, `Deprecated: true`) != 2 {
+		t.Errorf("deprecated and legacy hidden alias should both mark params deprecated; output:\n%s", got)
 	}
 }
 

@@ -283,6 +283,11 @@ commands:
         default: viewer
 ```
 
+Command `ignore: true` removes a generated command. Command `hidden: true`
+keeps it generated but hidden from normal help and catalog output unless
+`--include-hidden` is used. Parameter `hidden: true` is a legacy alias for
+`deprecated: true`; prefer `deprecated: true` for parameter overlays.
+
 Run codegen with an overlay directory:
 
 ```sh

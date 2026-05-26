@@ -102,7 +102,7 @@ func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Over
 				if po.Default != "" {
 					cs.Params[j].Default = po.Default
 				}
-				if po.Deprecated || po.Hidden {
+				if po.Deprecated || po.DeprecatedAlias {
 					cs.Params[j].Deprecated = true
 				}
 			}

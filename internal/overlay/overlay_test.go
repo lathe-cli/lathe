@@ -79,6 +79,8 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
         help: "Account status"
         default: "active"
         deprecated: true
+      legacy:
+        hidden: true
   delete-user:
     ignore: true
   get-user:
@@ -116,6 +118,10 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
 	}
 	if !sp.Deprecated {
 		t.Error("param deprecated = false, want true")
+	}
+	lp := cu.Params["legacy"]
+	if !lp.DeprecatedAlias {
+		t.Error("legacy param hidden alias = false, want true")
 	}
 	du := got["iam"]["delete-user"]
 	if !du.Ignore {
