@@ -10,14 +10,17 @@ import (
 )
 
 type Override struct {
-	Aliases []string                 `yaml:"aliases"`
-	Short   string                   `yaml:"short"`
-	Long    string                   `yaml:"long"`
-	Example string                   `yaml:"example"`
-	Group   string                   `yaml:"group"`
-	Hidden  *bool                    `yaml:"hidden"`
-	Ignore  bool                     `yaml:"ignore"`
-	Params  map[string]ParamOverride `yaml:"params"`
+	Aliases       []string                 `yaml:"aliases"`
+	Short         string                   `yaml:"short"`
+	Long          string                   `yaml:"long"`
+	Example       string                   `yaml:"example"`
+	Group         string                   `yaml:"group"`
+	Hidden        *bool                    `yaml:"hidden"`
+	Ignore        bool                     `yaml:"ignore"`
+	Params        map[string]ParamOverride `yaml:"params"`
+	Notes         []string                 `yaml:"notes"`
+	Prerequisites []string                 `yaml:"prerequisites"`
+	KnownErrors   []KnownError             `yaml:"known_errors"`
 }
 
 type ParamOverride struct {
@@ -26,6 +29,11 @@ type ParamOverride struct {
 	Default    string `yaml:"default"`
 	Hidden     bool   `yaml:"hidden"`
 	Deprecated bool   `yaml:"deprecated"`
+}
+
+type KnownError struct {
+	Status int    `yaml:"status"`
+	Cause  string `yaml:"cause"`
 }
 
 type moduleFile struct {

@@ -66,6 +66,13 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
   create-user:
     group: "Identity"
     hidden: true
+    notes:
+      - "Use the canonical user ID."
+    prerequisites:
+      - "List users before creating dependent resources."
+    known_errors:
+      - status: 400
+        cause: "missing user name"
     params:
       status:
         flag: user-status
@@ -87,6 +94,15 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
 	}
 	if cu.Hidden == nil || !*cu.Hidden {
 		t.Errorf("hidden = %v, want true", cu.Hidden)
+	}
+	if len(cu.Notes) != 1 || cu.Notes[0] != "Use the canonical user ID." {
+		t.Errorf("notes = %#v", cu.Notes)
+	}
+	if len(cu.Prerequisites) != 1 || cu.Prerequisites[0] != "List users before creating dependent resources." {
+		t.Errorf("prerequisites = %#v", cu.Prerequisites)
+	}
+	if len(cu.KnownErrors) != 1 || cu.KnownErrors[0].Status != 400 || cu.KnownErrors[0].Cause != "missing user name" {
+		t.Errorf("known errors = %#v", cu.KnownErrors)
 	}
 	sp := cu.Params["status"]
 	if sp.Flag != "user-status" {

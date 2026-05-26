@@ -44,7 +44,14 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		{Group: "Users", Use: "delete-user", Short: "Delete user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
 	}
 	merged := MergeOverlay(specs, map[string]overlay.Override{
-		"create-user": {Short: "Create a user", Group: "Accounts", Example: "acmectl users accounts create-user --set name=alice"},
+		"create-user": {
+			Short:         "Create a user",
+			Group:         "Accounts",
+			Example:       "acmectl users accounts create-user --set name=alice",
+			Notes:         []string{"clusterFilter expects a cluster UUID."},
+			Prerequisites: []string{"Find the cluster UUID first."},
+			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing start/end"}},
+		},
 	})
 
 	if err := RenderSkillDirectory(filepath.Join(dir, "skills", "acmectl"), manifest, []SkillModule{{
@@ -101,6 +108,12 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Body: required; media type `application/json`",
 		"pagination `cursor`",
 		"streaming `sse`",
+		"Notes:",
+		"clusterFilter expects a cluster UUID.",
+		"Prerequisites:",
+		"Find the cluster UUID first.",
+		"Known errors:",
+		"HTTP 400: missing start/end",
 		"Example: `acmectl users accounts create-user --set name=alice`",
 	} {
 		if !strings.Contains(module, want) {

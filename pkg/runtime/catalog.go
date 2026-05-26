@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 2
+const CatalogSchemaVersion = 3
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -43,22 +43,25 @@ type CatalogOutputFormats struct {
 }
 
 type CatalogCommand struct {
-	Path        []string      `json:"path"`
-	Service     string        `json:"service"`
-	Group       string        `json:"group"`
-	Use         string        `json:"use"`
-	Aliases     []string      `json:"aliases,omitempty"`
-	Summary     string        `json:"summary,omitempty"`
-	Description string        `json:"description,omitempty"`
-	Example     string        `json:"example,omitempty"`
-	OperationID string        `json:"operation_id,omitempty"`
-	HTTP        CatalogHTTP   `json:"http"`
-	Auth        CatalogAuth   `json:"auth"`
-	Body        *CatalogBody  `json:"body,omitempty"`
-	Flags       []CatalogFlag `json:"flags"`
-	Output      CatalogOutput `json:"output"`
-	Hidden      bool          `json:"hidden"`
-	Deprecated  bool          `json:"deprecated"`
+	Path          []string      `json:"path"`
+	Service       string        `json:"service"`
+	Group         string        `json:"group"`
+	Use           string        `json:"use"`
+	Aliases       []string      `json:"aliases,omitempty"`
+	Summary       string        `json:"summary,omitempty"`
+	Description   string        `json:"description,omitempty"`
+	Example       string        `json:"example,omitempty"`
+	OperationID   string        `json:"operation_id,omitempty"`
+	HTTP          CatalogHTTP   `json:"http"`
+	Auth          CatalogAuth   `json:"auth"`
+	Body          *CatalogBody  `json:"body,omitempty"`
+	Flags         []CatalogFlag `json:"flags"`
+	Output        CatalogOutput `json:"output"`
+	Hidden        bool          `json:"hidden"`
+	Deprecated    bool          `json:"deprecated"`
+	Notes         []string      `json:"notes,omitempty"`
+	Prerequisites []string      `json:"prerequisites,omitempty"`
+	KnownErrors   []KnownError  `json:"known_errors,omitempty"`
 }
 
 type CatalogHTTP struct {
@@ -267,8 +270,11 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 			Pagination:        catalogPagination(spec.Output.Pagination),
 			Streaming:         catalogStreaming(spec.Output.Streaming),
 		},
-		Hidden:     spec.Hidden,
-		Deprecated: spec.Deprecated,
+		Hidden:        spec.Hidden,
+		Deprecated:    spec.Deprecated,
+		Notes:         append([]string(nil), spec.Notes...),
+		Prerequisites: append([]string(nil), spec.Prerequisites...),
+		KnownErrors:   append([]KnownError(nil), spec.KnownErrors...),
 	}
 	if spec.RequestBody != nil {
 		cmd.Body = &CatalogBody{Required: spec.RequestBody.Required, MediaType: spec.RequestBody.MediaType, Schema: spec.RequestBody.Schema}

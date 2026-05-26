@@ -66,6 +66,18 @@ func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Over
 		if o.Example != "" {
 			cs.Example = o.Example
 		}
+		if len(o.Notes) > 0 {
+			cs.Notes = append([]string(nil), o.Notes...)
+		}
+		if len(o.Prerequisites) > 0 {
+			cs.Prerequisites = append([]string(nil), o.Prerequisites...)
+		}
+		if len(o.KnownErrors) > 0 {
+			cs.KnownErrors = make([]runtime.KnownError, 0, len(o.KnownErrors))
+			for _, ke := range o.KnownErrors {
+				cs.KnownErrors = append(cs.KnownErrors, runtime.KnownError{Status: ke.Status, Cause: ke.Cause})
+			}
+		}
 		if len(o.Aliases) > 0 {
 			cs.Aliases = append(cs.Aliases, o.Aliases...)
 		}
@@ -231,6 +243,23 @@ var Specs = []runtime.CommandSpec{
 		{{- end}}
 		{{- if $op.Example}}
 		Example:     {{printf "%q" $op.Example}},
+		{{- end}}
+		{{- if $op.Notes}}
+		Notes: []string{
+			{{- range $op.Notes}}{{printf "%q" .}},{{end}}
+		},
+		{{- end}}
+		{{- if $op.Prerequisites}}
+		Prerequisites: []string{
+			{{- range $op.Prerequisites}}{{printf "%q" .}},{{end}}
+		},
+		{{- end}}
+		{{- if $op.KnownErrors}}
+		KnownErrors: []runtime.KnownError{
+			{{- range $op.KnownErrors}}
+			{Status: {{.Status}}, Cause: {{printf "%q" .Cause}}},
+			{{- end}}
+		},
 		{{- end}}
 		{{- if $op.OperationID}}
 		OperationID: {{printf "%q" $op.OperationID}},

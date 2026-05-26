@@ -193,6 +193,7 @@ Overlays apply at codegen-time. The runtime has no overlay types. This matrix sh
 | `Long` | `description` / comment block | override | overlay > spec |
 | `Aliases` | — | append | overlay-only |
 | `Example` | — | set | overlay-only |
+| `Notes`, `Prerequisites`, `KnownErrors` | — | set | overlay-only |
 | `Method`, `PathTpl`, `HasBody` | spec | locked | spec-only |
 | `OperationID` | `operationId` | — | spec-only |
 | `Hidden` | `x-cli-hidden` | bool | overlay > spec |
