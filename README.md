@@ -284,6 +284,9 @@ commands:
         --set email=alice@example.com \
         --set role=viewer
     params:
+      type:
+        help: "Required by the backend even when the upstream spec omits it"
+        required: true
       role:
         help: "User role (viewer, editor, admin)"
         default: viewer
@@ -295,7 +298,8 @@ keeps it generated but hidden from normal help and catalog output unless
 `deprecated: true`; prefer `deprecated: true` for parameter overlays.
 Bulk pagination defaults fill matching command params that have no spec default.
 Explicit `commands.<use>.params.<name>.default` still wins when a command needs a
-different value.
+different value. Parameter `required: true` marks an existing generated flag as
+required when an upstream spec is incomplete; it does not create new flags.
 
 Run codegen with an overlay directory:
 

@@ -181,6 +181,40 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	}
 }
 
+func TestMergeOverlay_ParamRequiredOverride(t *testing.T) {
+	specs := []runtime.CommandSpec{
+		{
+			Group: "Users", Use: "get-user", Short: "get", Method: "GET", PathTpl: "/users",
+			Params: []runtime.ParamSpec{
+				{Name: "type", Flag: "type", In: "query", GoType: "string", Help: "original help"},
+			},
+		},
+	}
+
+	merged := MergeOverlay(specs, map[string]overlay.Override{
+		"get-user": {
+			Params: map[string]overlay.ParamOverride{
+				"type":    {Required: true, Help: "override help"},
+				"missing": {Required: true},
+			},
+		},
+	})
+
+	if len(merged) != 1 {
+		t.Fatalf("merged specs = %d, want 1", len(merged))
+	}
+	if len(merged[0].Params) != 1 {
+		t.Fatalf("params = %d, want 1", len(merged[0].Params))
+	}
+	param := merged[0].Params[0]
+	if !param.Required {
+		t.Fatalf("required = false, want true")
+	}
+	if param.Help != "override help" {
+		t.Fatalf("help = %q, want override help", param.Help)
+	}
+}
+
 func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
 	specs := []runtime.CommandSpec{
 		{

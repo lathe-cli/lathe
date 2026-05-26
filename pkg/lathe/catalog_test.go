@@ -41,6 +41,7 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 		PathTpl:     "/users/{id}",
 		Params: []runtime.ParamSpec{
 			{Name: "id", Flag: "id", In: runtime.InPath, GoType: "string", Required: true, Help: "User id"},
+			{Name: "type", Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "User type"},
 		},
 		Notes:         []string{"Use the canonical user ID."},
 		Prerequisites: []string{"List users before fetching details."},
@@ -66,6 +67,9 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 	}
 	if len(entry.KnownErrors) != 1 || entry.KnownErrors[0].Status != 400 || entry.KnownErrors[0].Cause != "missing id" {
 		t.Fatalf("known errors = %#v", entry.KnownErrors)
+	}
+	if len(entry.Flags) != 2 || !entry.Flags[1].Required || entry.Flags[1].Name != "type" {
+		t.Fatalf("required query flag = %#v", entry.Flags)
 	}
 
 	out, err = execute(root, "search", "getUser", "--json")

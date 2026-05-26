@@ -187,6 +187,47 @@ func TestBuild_SetStrSendsStringBodyFields(t *testing.T) {
 	}
 }
 
+func TestBuild_RequiredQueryParamBlocksBeforeRequest(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Receivers",
+		Use:     "get-receiver",
+		Method:  "GET",
+		PathTpl: "/receivers",
+		Params: []ParamSpec{
+			{Name: "type", Flag: "type", In: InQuery, GoType: "string", Required: true, Help: "Receiver type"},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	Build(root, "demo", specs)
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "receivers", "get-receiver"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected required flag error")
+	}
+	if !strings.Contains(err.Error(), "required flag") || !strings.Contains(err.Error(), "type") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("server hits = %d, want 0", hits)
+	}
+}
+
 func TestBuild_PaginationFlagsAttached(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:   "Items",
