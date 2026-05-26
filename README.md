@@ -269,6 +269,12 @@ generated Go code.
 `internal/overlay/iam.yaml`:
 
 ```yaml
+defaults:
+  pagination:
+    match_commands: ["list-*", "query-*"]
+    params:
+      page: "1"
+      pageSize: "20"
 commands:
   create-user:
     short: "Create a user in the IAM service"
@@ -287,6 +293,9 @@ Command `ignore: true` removes a generated command. Command `hidden: true`
 keeps it generated but hidden from normal help and catalog output unless
 `--include-hidden` is used. Parameter `hidden: true` is a legacy alias for
 `deprecated: true`; prefer `deprecated: true` for parameter overlays.
+Bulk pagination defaults fill matching command params that have no spec default.
+Explicit `commands.<use>.params.<name>.default` still wins when a command needs a
+different value.
 
 Run codegen with an overlay directory:
 

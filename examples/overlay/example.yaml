@@ -19,6 +19,12 @@
 
 commands: {}
 # Example:
+# defaults:
+#   pagination:
+#     match_commands: ["list-*", "query-*"]
+#     params:
+#       page: "1"
+#       pageSize: "20"
 # commands:
 #   create-user:
 #     aliases: [adduser]

@@ -3,6 +3,7 @@ package render
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -180,6 +181,101 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	}
 }
 
+func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
+	specs := []runtime.CommandSpec{
+		{
+			Group: "Users", Use: "list-users", Short: "list users", Method: "GET", PathTpl: "/users",
+			Params: []runtime.ParamSpec{
+				{Name: "page", Flag: "page", In: "query", GoType: "string"},
+				{Name: "pageSize", Flag: "page-size", In: "query", GoType: "string"},
+			},
+		},
+		{
+			Group: "Users", Use: "query-users", Short: "query users", Method: "GET", PathTpl: "/users/query",
+			Params: []runtime.ParamSpec{
+				{Name: "page", Flag: "page", In: "query", GoType: "string"},
+				{Name: "pageSize", Flag: "page-size", In: "query", GoType: "string"},
+			},
+		},
+		{
+			Group: "Users", Use: "get-user", Short: "get user", Method: "GET", PathTpl: "/users/{id}",
+			Params: []runtime.ParamSpec{
+				{Name: "id", Flag: "id", In: "path", GoType: "string"},
+			},
+		},
+	}
+
+	bulk := MergeOverlayModule(specs, overlay.Module{
+		Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
+			MatchCommands: []string{"list-*", "query-*"},
+			Params:        map[string]string{"page": "1", "pageSize": "20"},
+		}},
+		Commands: map[string]overlay.Override{
+			"query-users": {Params: map[string]overlay.ParamOverride{"page": {Default: "7"}}},
+		},
+	})
+	explicit := MergeOverlay(specs, map[string]overlay.Override{
+		"list-users": {
+			Params: map[string]overlay.ParamOverride{
+				"page":     {Default: "1"},
+				"pageSize": {Default: "20"},
+			},
+		},
+		"query-users": {
+			Params: map[string]overlay.ParamOverride{
+				"page":     {Default: "7"},
+				"pageSize": {Default: "20"},
+			},
+		},
+	})
+
+	if !reflect.DeepEqual(bulk, explicit) {
+		t.Fatalf("bulk defaults differ from explicit overrides:\nbulk: %#v\nexplicit: %#v", bulk, explicit)
+	}
+	if got := paramDefault(t, bulk, "get-user", "id"); got != "" {
+		t.Fatalf("non-matching command default = %q, want empty", got)
+	}
+}
+
+func TestMergeOverlayModule_BulkDefaultsDoNotReplaceSpecDefaults(t *testing.T) {
+	specs := []runtime.CommandSpec{
+		{
+			Group: "Users", Use: "list-users", Short: "list users", Method: "GET", PathTpl: "/users",
+			Params: []runtime.ParamSpec{
+				{Name: "page", Flag: "page", In: "query", GoType: "string", Default: "5"},
+				{Name: "pageSize", Flag: "page-size", In: "query", GoType: "string"},
+			},
+		},
+	}
+
+	merged := MergeOverlayModule(specs, overlay.Module{
+		Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
+			MatchCommands: []string{"list-*"},
+			Params:        map[string]string{"page": "1", "pageSize": "20"},
+		}},
+		Commands: map[string]overlay.Override{
+			"list-users": {Params: map[string]overlay.ParamOverride{"page": {Default: "9"}}},
+		},
+	})
+
+	if got := paramDefault(t, merged, "list-users", "page"); got != "9" {
+		t.Fatalf("per-command default = %q, want 9", got)
+	}
+	if got := paramDefault(t, merged, "list-users", "pageSize"); got != "20" {
+		t.Fatalf("bulk pageSize default = %q, want 20", got)
+	}
+
+	withoutCommandOverride := MergeOverlayModule(specs, overlay.Module{
+		Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
+			MatchCommands: []string{"list-*"},
+			Params:        map[string]string{"page": "1"},
+		}},
+	})
+	if got := paramDefault(t, withoutCommandOverride, "list-users", "page"); got != "5" {
+		t.Fatalf("spec default = %q, want 5", got)
+	}
+}
+
 func TestRenderModule_NilOverrides(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
@@ -199,6 +295,23 @@ func TestRenderModule_NilOverrides(t *testing.T) {
 	if !strings.Contains(string(out), `"raw short"`) {
 		t.Errorf("expected raw short preserved when overrides is nil")
 	}
+}
+
+func paramDefault(t *testing.T, specs []runtime.CommandSpec, use string, name string) string {
+	t.Helper()
+	for _, spec := range specs {
+		if spec.Use != use {
+			continue
+		}
+		for _, param := range spec.Params {
+			if param.Name == name {
+				return param.Default
+			}
+		}
+		t.Fatalf("param %s not found on command %s", name, use)
+	}
+	t.Fatalf("command %s not found", use)
+	return ""
 }
 
 func TestRenderModulesGen_PropagatesMountErrors(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/format"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -41,75 +42,124 @@ func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides m
 	if cliName == "" {
 		cliName = name
 	}
-	merged := MergeOverlay(specs, overrides)
+	merged := MergeOverlayModule(specs, overlay.Module{Commands: overrides})
 	return renderModuleSpecs(name, cliName, merged)
 }
 
 func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
+	return MergeOverlayModule(specs, overlay.Module{Commands: overrides})
+}
+
+func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
 	var merged []runtime.CommandSpec
 	for _, s := range specs {
-		o, ok := overrides[s.Use]
+		o, ok := mod.Commands[s.Use]
 		if ok && o.Ignore {
 			continue
 		}
-		cs := s
+		cs := cloneCommandSpec(s)
+		applyBulkDefaults(&cs, mod.Defaults)
 		if !ok {
 			merged = append(merged, cs)
 			continue
 		}
-		if o.Short != "" {
-			cs.Short = o.Short
-		}
-		if o.Long != "" {
-			cs.Long = o.Long
-		}
-		if o.Example != "" {
-			cs.Example = o.Example
-		}
-		if len(o.Notes) > 0 {
-			cs.Notes = append([]string(nil), o.Notes...)
-		}
-		if len(o.Prerequisites) > 0 {
-			cs.Prerequisites = append([]string(nil), o.Prerequisites...)
-		}
-		if len(o.KnownErrors) > 0 {
-			cs.KnownErrors = make([]runtime.KnownError, 0, len(o.KnownErrors))
-			for _, ke := range o.KnownErrors {
-				cs.KnownErrors = append(cs.KnownErrors, runtime.KnownError{Status: ke.Status, Cause: ke.Cause})
-			}
-		}
-		if len(o.Aliases) > 0 {
-			cs.Aliases = append(cs.Aliases, o.Aliases...)
-		}
-		if o.Group != "" {
-			cs.Group = o.Group
-		}
-		if o.Hidden != nil {
-			cs.Hidden = *o.Hidden
-		}
-		if len(o.Params) > 0 {
-			for j := range cs.Params {
-				po, pok := o.Params[cs.Params[j].Name]
-				if !pok {
-					continue
-				}
-				if po.Flag != "" {
-					cs.Params[j].Flag = po.Flag
-				}
-				if po.Help != "" {
-					cs.Params[j].Help = po.Help
-				}
-				if po.Default != "" {
-					cs.Params[j].Default = po.Default
-				}
-				if po.Deprecated || po.DeprecatedAlias {
-					cs.Params[j].Deprecated = true
-				}
-			}
-		}
+		applyCommandOverride(&cs, o)
 		merged = append(merged, cs)
 	}
 	return merged
+}
+
+func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
+	cloned := spec
+	cloned.Aliases = append([]string(nil), spec.Aliases...)
+	cloned.Notes = append([]string(nil), spec.Notes...)
+	cloned.Prerequisites = append([]string(nil), spec.Prerequisites...)
+	cloned.KnownErrors = append([]runtime.KnownError(nil), spec.KnownErrors...)
+	cloned.Params = append([]runtime.ParamSpec(nil), spec.Params...)
+	for i := range cloned.Params {
+		cloned.Params[i].Enum = append([]string(nil), spec.Params[i].Enum...)
+	}
+	return cloned
+}
+
+func applyBulkDefaults(spec *runtime.CommandSpec, defaults overlay.Defaults) {
+	if defaults.Pagination == nil || !matchesAny(defaults.Pagination.MatchCommands, spec.Use) {
+		return
+	}
+	for i := range spec.Params {
+		if spec.Params[i].Default != "" {
+			continue
+		}
+		if value, ok := defaults.Pagination.Params[spec.Params[i].Name]; ok {
+			spec.Params[i].Default = value
+		}
+	}
+}
+
+func matchesAny(patterns []string, value string) bool {
+	for _, pattern := range patterns {
+		if pattern == "" {
+			continue
+		}
+		matched, err := path.Match(pattern, value)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) {
+	if override.Short != "" {
+		spec.Short = override.Short
+	}
+	if override.Long != "" {
+		spec.Long = override.Long
+	}
+	if override.Example != "" {
+		spec.Example = override.Example
+	}
+	if len(override.Notes) > 0 {
+		spec.Notes = append([]string(nil), override.Notes...)
+	}
+	if len(override.Prerequisites) > 0 {
+		spec.Prerequisites = append([]string(nil), override.Prerequisites...)
+	}
+	if len(override.KnownErrors) > 0 {
+		spec.KnownErrors = make([]runtime.KnownError, 0, len(override.KnownErrors))
+		for _, ke := range override.KnownErrors {
+			spec.KnownErrors = append(spec.KnownErrors, runtime.KnownError{Status: ke.Status, Cause: ke.Cause})
+		}
+	}
+	if len(override.Aliases) > 0 {
+		spec.Aliases = append(spec.Aliases, override.Aliases...)
+	}
+	if override.Group != "" {
+		spec.Group = override.Group
+	}
+	if override.Hidden != nil {
+		spec.Hidden = *override.Hidden
+	}
+	if len(override.Params) > 0 {
+		for j := range spec.Params {
+			po, pok := override.Params[spec.Params[j].Name]
+			if !pok {
+				continue
+			}
+			if po.Flag != "" {
+				spec.Params[j].Flag = po.Flag
+			}
+			if po.Help != "" {
+				spec.Params[j].Help = po.Help
+			}
+			if po.Default != "" {
+				spec.Params[j].Default = po.Default
+			}
+			if po.Deprecated || po.DeprecatedAlias {
+				spec.Params[j].Deprecated = true
+			}
+		}
+	}
 }
 
 func renderModuleSpecs(name, cliName string, specs []runtime.CommandSpec) error {
