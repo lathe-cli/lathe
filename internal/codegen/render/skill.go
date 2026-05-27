@@ -23,6 +23,7 @@ type SkillModule struct {
 type moduleRef struct {
 	Module SkillModule
 	File   string
+	Flat   bool
 }
 
 const skillOwnerFile = ".lathe-skill"
@@ -35,7 +36,10 @@ func RenderSkillDirectory(root string, manifest *config.Manifest, modules []Skil
 	if err := verifySkillDirectoryOwned(clean); err != nil {
 		return err
 	}
-	refs := moduleReferences(modules)
+	refs, err := moduleReferences(manifest.CLI.CommandPath, modules)
+	if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(clean); err != nil {
 		return err
 	}
@@ -52,7 +56,7 @@ func RenderSkillDirectory(root string, manifest *config.Manifest, modules []Skil
 		filepath.Join(clean, "references", "catalog.md"): renderCatalogReference(manifest),
 	}
 	for _, ref := range refs {
-		files[filepath.Join(clean, "references", "modules", ref.File)] = renderModuleReference(manifest, ref.Module)
+		files[filepath.Join(clean, "references", "modules", ref.File)] = renderModuleReference(manifest, ref.Module, ref.Flat)
 	}
 	for path, body := range files {
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -105,7 +109,7 @@ func SkillDirName(name string) string {
 	return out
 }
 
-func moduleReferences(modules []SkillModule) []moduleRef {
+func moduleReferences(policy string, modules []SkillModule) ([]moduleRef, error) {
 	mods := append([]SkillModule(nil), modules...)
 	sort.SliceStable(mods, func(i, j int) bool {
 		return moduleName(mods[i]) < moduleName(mods[j])
@@ -113,15 +117,19 @@ func moduleReferences(modules []SkillModule) []moduleRef {
 	used := map[string]int{}
 	refs := make([]moduleRef, 0, len(mods))
 	for _, mod := range mods {
+		flat, err := ResolveFlatCommandPath(policy, len(mods), mod.Specs)
+		if err != nil {
+			return nil, err
+		}
 		base := SkillDirName(moduleName(mod))
 		used[base]++
 		fileBase := base
 		if used[base] > 1 {
 			fileBase = fmt.Sprintf("%s-%d", base, used[base])
 		}
-		refs = append(refs, moduleRef{Module: mod, File: fileBase + ".md"})
+		refs = append(refs, moduleRef{Module: mod, File: fileBase + ".md", Flat: flat})
 	}
-	return refs
+	return refs, nil
 }
 
 func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
@@ -198,7 +206,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	return b.String()
 }
 
-func renderModuleReference(manifest *config.Manifest, mod SkillModule) string {
+func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool) string {
 	cli := manifest.CLI.Name
 	specs := visibleSpecs(mod.Specs)
 	var b strings.Builder
@@ -221,10 +229,11 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule) string {
 		return b.String()
 	}
 	groups := groupSpecs(specs)
+	module := moduleName(mod)
 	for _, group := range sortedKeys(groups) {
 		fmt.Fprintf(&b, "## %s\n\n", group)
 		for _, spec := range groups[group] {
-			path := commandPath(cli, moduleName(mod), spec)
+			path := commandPath(cli, module, spec, flat)
 			fmt.Fprintf(&b, "### `%s`\n\n", strings.Join(path, " "))
 			if spec.Short != "" {
 				fmt.Fprintf(&b, "- Summary: %s\n", oneLine(spec.Short))
@@ -266,12 +275,31 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule) string {
 			}
 			writeOperationContext(&b, spec)
 			if spec.Example != "" {
-				writeExample(&b, spec.Example)
+				writeExample(&b, commandExample(spec.Example, cli, module, spec, flat))
 			}
 			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+func commandExample(example, cli, module string, spec runtime.CommandSpec, flat bool) string {
+	newPath := strings.Join(commandPath(cli, module, spec, true), " ")
+	oldPaths := []string{strings.Join(legacyCommandPath(cli, module, spec, flat), " ")}
+	if !flat {
+		newPath = strings.Join(commandPath(cli, module, spec, false), " ")
+	} else {
+		oldPaths = append([]string{
+			strings.Join(commandPath(cli, module, spec, false), " "),
+			strings.Join(legacyCommandPath(cli, module, spec, false), " "),
+		}, oldPaths...)
+	}
+	for _, oldPath := range oldPaths {
+		if oldPath != newPath {
+			example = strings.ReplaceAll(example, oldPath, newPath)
+		}
+	}
+	return example
 }
 
 func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
@@ -393,8 +421,22 @@ func sourceInputs(src *sourceconfig.Source) []string {
 	}
 }
 
-func commandPath(cli, module string, spec runtime.CommandSpec) []string {
-	path := []string{cli, module}
+func commandPath(cli, module string, spec runtime.CommandSpec, flat bool) []string {
+	path := []string{cli}
+	if !flat {
+		path = append(path, module)
+	}
+	if group := rootCommandName(spec.Group); group != "" {
+		path = append(path, group)
+	}
+	return append(path, spec.Use)
+}
+
+func legacyCommandPath(cli, module string, spec runtime.CommandSpec, flat bool) []string {
+	path := []string{cli}
+	if !flat {
+		path = append(path, module)
+	}
 	if spec.Group != "" {
 		path = append(path, strings.ToLower(spec.Group))
 	}

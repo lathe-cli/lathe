@@ -357,7 +357,7 @@ func TestRenderModulesGen_PropagatesMountErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RenderModulesGen([]string{"alpha", "beta"}); err != nil {
+	if err := RenderModulesGen([]ModuleMount{{Name: "alpha"}, {Name: "beta"}}); err != nil {
 		t.Fatalf("RenderModulesGen: %v", err)
 	}
 	out, err := os.ReadFile("internal/generated/modules_gen.go")
@@ -375,5 +375,127 @@ func TestRenderModulesGen_PropagatesMountErrors(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q", want)
 		}
+	}
+}
+
+func TestRenderModulesGen_UsesFlatMount(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("internal/generated", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RenderModulesGen([]ModuleMount{{Name: "alpha", Flat: true}}); err != nil {
+		t.Fatalf("RenderModulesGen: %v", err)
+	}
+	out, err := os.ReadFile("internal/generated/modules_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(out); !strings.Contains(got, `if err := alpha.MountFlat(root); err != nil`) {
+		t.Fatalf("output did not use MountFlat:\n%s", got)
+	}
+}
+
+func TestResolveFlatCommandPath(t *testing.T) {
+	specs := []runtime.CommandSpec{{Group: "Users", Use: "list-users"}}
+	flat, err := ResolveFlatCommandPath("auto", 1, specs)
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if !flat {
+		t.Fatal("auto should flat mount a single non-conflicting module")
+	}
+
+	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{
+		{Group: "Pets", Use: "list-pets"},
+		{Group: "Pets", Use: "get-pet"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if !flat {
+		t.Fatal("auto should flat mount multiple operations in the same group")
+	}
+
+	flat, err = ResolveFlatCommandPath("auto", 2, specs)
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if flat {
+		t.Fatal("auto should keep multiple modules namespaced")
+	}
+
+	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{{Group: "Search", Use: "query"}})
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if flat {
+		t.Fatal("auto should keep conflicting single modules namespaced")
+	}
+
+	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}})
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if flat {
+		t.Fatal("auto should keep Cobra-normalized root command conflicts namespaced")
+	}
+
+	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{
+		{Group: "Users", Use: "list-users"},
+		{Group: "Users API", Use: "get-user"},
+	})
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if flat {
+		t.Fatal("auto should keep duplicate Cobra-normalized groups namespaced")
+	}
+
+	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{{Group: "Search", Use: "query"}})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected flat conflict error, got %v", err)
+	}
+
+	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected Cobra-normalized flat conflict error, got %v", err)
+	}
+
+	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{
+		{Group: "Pets", Use: "list-pets"},
+		{Group: "Pets", Use: "get-pet"},
+	})
+	if err != nil {
+		t.Fatalf("same group operations should not conflict: %v", err)
+	}
+
+	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{
+		{Group: "Users", Use: "list-users"},
+		{Group: "Users API", Use: "get-user"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected duplicate group flat conflict error, got %v", err)
+	}
+}
+
+func TestRewriteCommandExamples_NormalizesMultiWordGroupPaths(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group:   "Payment API",
+		Use:     "list-payments",
+		Example: "acmectl billing payment api list-payments -o json",
+	}}
+
+	got := RewriteCommandExamples("acmectl", "billing", specs, true)
+	if got[0].Example != "acmectl payment list-payments -o json" {
+		t.Fatalf("flat example = %q", got[0].Example)
+	}
+
+	got = RewriteCommandExamples("acmectl", "billing", specs, false)
+	if got[0].Example != "acmectl billing payment list-payments -o json" {
+		t.Fatalf("namespaced example = %q", got[0].Example)
 	}
 }

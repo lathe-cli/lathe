@@ -128,9 +128,38 @@ func TestRun_CodegenSubcommandGeneratesSkillDirectoryByDefault(t *testing.T) {
 	if !strings.Contains(skill, "acmectl search \"<intent>\" --json") {
 		t.Fatalf("skill missing search workflow:\n%s", skill)
 	}
+	modulesGen := readCodegenFile(t, "internal/generated/modules_gen.go")
+	if !strings.Contains(modulesGen, "acme.MountFlat(root)") {
+		t.Fatalf("single-module default should flat mount:\n%s", modulesGen)
+	}
 	module := readCodegenFile(t, "skills/acmectl/references/modules/acme.md")
 	if !strings.Contains(module, "Resolved SHA: `0000000000000000000000000000000000000000`") {
 		t.Fatalf("module reference missing resolved SHA:\n%s", module)
+	}
+	if !strings.Contains(module, "`acmectl users list`") {
+		t.Fatalf("module reference should use flat command path:\n%s", module)
+	}
+}
+
+func TestRunCodegen_CommandPathFlatRewritesGeneratedExamples(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "overlays/acme.yaml", `commands:
+  list:
+    example: "acmectl acme users list -o json"
+`)
+
+	if err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache", "-overlay", "overlays"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	generated := readCodegenFile(t, "internal/generated/acme/acme_gen.go")
+	if strings.Contains(generated, `"acmectl acme users list -o json"`) {
+		t.Fatalf("generated catalog example kept namespaced path:\n%s", generated)
+	}
+	if !strings.Contains(generated, `Example:     "acmectl users list -o json"`) {
+		t.Fatalf("generated catalog example should use flat path:\n%s", generated)
 	}
 }
 
@@ -202,6 +231,77 @@ func TestRunCodegen_SkillRootEmptyDisablesSkillGeneration(t *testing.T) {
 	}
 	if _, err := os.Stat("skills"); !os.IsNotExist(err) {
 		t.Fatalf("skills directory should not exist, stat err = %v", err)
+	}
+}
+
+func TestRunCodegen_CommandPathNamespacedKeepsModuleSegment(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", "cli:\n  name: acmectl\n  short: Acme CLI\n  command_path: namespaced\n")
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /payments:
+    get:
+      operationId: PaymentAPI_List
+      tags: ["Payment API"]
+      summary: List payments
+      responses:
+        "200":
+          description: OK
+`)
+	writeCodegenFile(t, "overlays/acme.yaml", `commands:
+  list:
+    example: "acmectl acme payment api list -o json"
+`)
+
+	if err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache", "-overlay", "overlays"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	modulesGen := readCodegenFile(t, "internal/generated/modules_gen.go")
+	if strings.Contains(modulesGen, "MountFlat") {
+		t.Fatalf("namespaced command_path should not flat mount:\n%s", modulesGen)
+	}
+	generated := readCodegenFile(t, "internal/generated/acme/acme_gen.go")
+	if strings.Contains(generated, `"acmectl acme payment api list -o json"`) {
+		t.Fatalf("generated catalog example kept unnormalized path:\n%s", generated)
+	}
+	if !strings.Contains(generated, `Example:     "acmectl acme payment list -o json"`) {
+		t.Fatalf("generated catalog example should use namespaced Cobra path:\n%s", generated)
+	}
+	module := readCodegenFile(t, "skills/acmectl/references/modules/acme.md")
+	if !strings.Contains(module, "`acmectl acme payment list`") {
+		t.Fatalf("module reference should keep module path:\n%s", module)
+	}
+	if strings.Contains(module, "payment api list") {
+		t.Fatalf("module reference kept unnormalized path:\n%s", module)
+	}
+}
+
+func TestRunCodegen_CommandPathFlatRejectsRootConflict(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", "cli:\n  name: acmectl\n  short: Acme CLI\n  command_path: flat\n")
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /query:
+    get:
+      operationId: Search_Query
+      tags: [Search]
+      summary: Query search
+      responses:
+        "200":
+          description: OK
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected flat conflict error, got %v", err)
+	}
+	if _, err := os.Stat("internal/generated/acme/acme_gen.go"); !os.IsNotExist(err) {
+		t.Fatalf("conflicting flat config should fail before writing module output, stat err = %v", err)
 	}
 }
 

@@ -103,6 +103,61 @@ func TestBuild_EmptySpecsMountsEmptyService(t *testing.T) {
 	}
 }
 
+func TestBuildFlat_PopulatesRootGroupTree(t *testing.T) {
+	specs := []CommandSpec{{
+		Group:   "Users",
+		Use:     "get-user",
+		Method:  "GET",
+		PathTpl: "/users/{id}",
+	}}
+
+	root := newRootWithModuleGroup()
+	if err := BuildFlat(root, "demo", specs); err != nil {
+		t.Fatalf("BuildFlat: %v", err)
+	}
+
+	users := mustFindChild(t, root, "users")
+	getUser := mustFindChild(t, users, "get-user")
+	entry, ok := catalogCommandFromAnnotation(getUser, []string{"users", "get-user"})
+	if !ok {
+		t.Fatal("missing catalog annotation")
+	}
+	if !reflect.DeepEqual(entry.Path, []string{"users", "get-user"}) {
+		t.Fatalf("path = %#v", entry.Path)
+	}
+	if entry.Service != "demo" {
+		t.Fatalf("service = %q, want demo", entry.Service)
+	}
+}
+
+func TestBuildFlat_RejectsRootCommandConflict(t *testing.T) {
+	root := newRootWithModuleGroup()
+	root.AddCommand(&cobra.Command{Use: "search"})
+
+	err := BuildFlat(root, "demo", []CommandSpec{{Group: "Search", Use: "query"}})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
+	if len(mustFindChild(t, root, "search").Commands()) != 0 {
+		t.Fatal("conflicting generated group should not be attached")
+	}
+}
+
+func TestBuildFlat_RejectsGeneratedGroupNameConflict(t *testing.T) {
+	root := newRootWithModuleGroup()
+
+	err := BuildFlat(root, "demo", []CommandSpec{
+		{Group: "Users", Use: "list", Method: "GET", PathTpl: "/users"},
+		{Group: "Users API", Use: "get", Method: "GET", PathTpl: "/users/{id}"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected generated group conflict error, got %v", err)
+	}
+	if len(root.Commands()) != 0 {
+		t.Fatalf("conflicting generated groups should not be attached, got %v", cmdNames(root.Commands()))
+	}
+}
+
 func TestBuild_BodyFlagsAttachedWhenHasBody(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:       "Users",

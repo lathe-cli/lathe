@@ -102,6 +102,9 @@ func TestLoad_DerivesIdentityDefaults(t *testing.T) {
 	if got, want := m.CLI.HostEnv, "FOOBAR_HOST"; got != want {
 		t.Errorf("HostEnv: got %q, want %q", got, want)
 	}
+	if got, want := m.CLI.CommandPath, CommandPathAuto; got != want {
+		t.Errorf("CommandPath: got %q, want %q", got, want)
+	}
 }
 
 func TestLoad_PreservesExplicitIdentity(t *testing.T) {
@@ -117,6 +120,29 @@ cli:
 	}
 	if m.CLI.ConfigDir != "legacy" || m.CLI.ConfigDirEnv != "LEGACY_CONFIG" || m.CLI.HostEnv != "LEGACY_HOST" {
 		t.Errorf("explicit identity overridden: %+v", m.CLI)
+	}
+}
+
+func TestLoad_CommandPath(t *testing.T) {
+	m, err := Load([]byte(`
+cli:
+  name: foo
+  command_path: Namespaced
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := m.CLI.CommandPath, CommandPathNamespaced; got != want {
+		t.Fatalf("CommandPath: got %q, want %q", got, want)
+	}
+
+	_, err = Load([]byte(`
+cli:
+  name: foo
+  command_path: short
+`))
+	if err == nil {
+		t.Fatal("expected invalid command_path error")
 	}
 }
 

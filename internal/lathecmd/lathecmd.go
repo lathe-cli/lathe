@@ -148,26 +148,26 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	}
 	syncRoot := filepath.Join(absRoot, specsync.SyncSubdir)
 
-	var manifest *config.Manifest
+	manifest, err := loadCodegenManifest(manifestPath)
+	if err != nil {
+		if skillRoot != "" || !os.IsNotExist(err) {
+			return err
+		}
+		manifest = &config.Manifest{CLI: config.CLIInfo{CommandPath: config.CommandPathAuto}}
+	}
+
 	var skillDir string
 	if skillRoot != "" {
-		data, err := os.ReadFile(manifestPath)
-		if err != nil {
-			return err
-		}
-		manifest, err = config.Load(data)
-		if err != nil {
-			return err
-		}
 		skillDir, err = skillOutputDir(skillRoot, manifest.CLI.Name)
 		if err != nil {
 			return err
 		}
 	}
 
-	var names []string
+	ordered := cfg.Ordered()
+	var mounts []render.ModuleMount
 	var skillModules []render.SkillModule
-	for _, src := range cfg.Ordered() {
+	for _, src := range ordered {
 		syncDir := filepath.Join(syncRoot, src.Name)
 		if err := specsync.VerifyState(syncDir, src.Name, src.Backend, src.PinnedTag); err != nil {
 			return err
@@ -188,23 +188,36 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		if src.DisplayName != "" {
 			cliName = src.DisplayName
 		}
+		flat, err := render.ResolveFlatCommandPath(manifest.CLI.CommandPath, len(ordered), specs)
+		if err != nil {
+			return err
+		}
+		specs = render.RewriteCommandExamples(manifest.CLI.Name, cliName, specs, flat)
 		if err := render.RenderModule(src.Name, cliName, specs, nil); err != nil {
 			return err
 		}
-		names = append(names, src.Name)
-		if manifest != nil {
+		mounts = append(mounts, render.ModuleMount{Name: src.Name, Flat: flat})
+		if skillRoot != "" {
 			skillModules = append(skillModules, render.SkillModule{Source: src, State: state, Specs: specs})
 		}
 	}
-	if err := render.RenderModulesGen(names); err != nil {
+	if err := render.RenderModulesGen(mounts); err != nil {
 		return err
 	}
-	if manifest != nil {
+	if skillRoot != "" {
 		if err := render.RenderSkillDirectory(skillDir, manifest, skillModules); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func loadCodegenManifest(path string) (*config.Manifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return config.Load(data)
 }
 
 func resolveCacheRoot(root string) (string, error) {

@@ -105,7 +105,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Repository: https://example.com/acme.git",
 		"Resolved SHA: `abc123`",
 		"## Accounts",
-		"`acmectl users accounts create-user`",
+		"`acmectl accounts create-user`",
 		"Summary: Create a user",
 		"Auth: required; scopes: `users:write`",
 		"Body: required; media type `application/json`",
@@ -118,11 +118,14 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Find the cluster UUID first.",
 		"Known errors:",
 		"HTTP 400: missing start/end",
-		"Example: `acmectl users accounts create-user --set name=alice`",
+		"Example: `acmectl accounts create-user --set name=alice`",
 	} {
 		if !strings.Contains(module, want) {
 			t.Errorf("users.md missing %q", want)
 		}
+	}
+	if strings.Contains(module, "Example: `acmectl users accounts create-user") {
+		t.Fatalf("module reference kept stale namespaced example:\n%s", module)
 	}
 	if strings.Contains(module, "delete-user") || strings.Contains(module, "Raw summary") {
 		t.Fatalf("module reference leaked hidden command or raw overlay content:\n%s", module)
@@ -156,7 +159,7 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 		},
 	}
 
-	got := renderModuleReference(manifest, module)
+	got := renderModuleReference(manifest, module, false)
 	for _, want := range []string{
 		"- Example: `acmectl users users get-user --id 123`",
 		"- Example:\n\n```\nEND=$(date +%s); START=$((END - 3600))\nacmectl users users query-logs \\\n  --start $START --end $END -o json\njq '.items[]'\n```",
@@ -164,6 +167,55 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("module reference missing %q\nfull output:\n%s", want, got)
 		}
+	}
+
+	flat := renderModuleReference(manifest, module, true)
+	for _, want := range []string{
+		"- Example: `acmectl users get-user --id 123`",
+		"acmectl users query-logs \\\n  --start $START --end $END -o json",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("flat module reference missing %q\nfull output:\n%s", want, flat)
+		}
+	}
+	if strings.Contains(flat, "acmectl users users") {
+		t.Fatalf("flat module reference kept stale namespaced command:\n%s", flat)
+	}
+}
+
+func TestRenderModuleReference_NormalizesMultiWordGroupPaths(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
+	module := SkillModule{
+		Source: &sourceconfig.Source{Name: "billing"},
+		Specs: []runtime.CommandSpec{{
+			Group:   "Payment API",
+			Use:     "list-payments",
+			Short:   "List payments",
+			Method:  "GET",
+			PathTpl: "/payments",
+			Example: "acmectl billing payment api list-payments -o json",
+		}},
+	}
+
+	namespaced := renderModuleReference(manifest, module, false)
+	if !strings.Contains(namespaced, "### `acmectl billing payment list-payments`") {
+		t.Fatalf("namespaced module reference should use Cobra command name:\n%s", namespaced)
+	}
+	if strings.Contains(namespaced, "payment api list-payments") {
+		t.Fatalf("namespaced module reference kept unnormalized group path:\n%s", namespaced)
+	}
+
+	flat := renderModuleReference(manifest, module, true)
+	for _, want := range []string{
+		"### `acmectl payment list-payments`",
+		"- Example: `acmectl payment list-payments -o json`",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("flat module reference missing %q\nfull output:\n%s", want, flat)
+		}
+	}
+	if strings.Contains(flat, "payment api list-payments") {
+		t.Fatalf("flat module reference kept unnormalized group path:\n%s", flat)
 	}
 }
 
