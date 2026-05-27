@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/lathe-cli/lathe/internal/overlay"
+	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
@@ -25,6 +26,11 @@ type moduleCtx struct {
 	RuntimePkg    string
 	SchemaVersion int
 	Ops           []runtime.CommandSpec
+}
+
+type ModuleMount struct {
+	Name string
+	Flat bool
 }
 
 // RuntimePkg is the import path downstream-generated modules use to reach
@@ -44,6 +50,82 @@ func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides m
 	}
 	merged := MergeOverlayModule(specs, overlay.Module{Commands: overrides})
 	return renderModuleSpecs(name, cliName, merged)
+}
+
+func ResolveFlatCommandPath(policy string, moduleCount int, specs []runtime.CommandSpec) (bool, error) {
+	if policy == "" {
+		policy = config.CommandPathAuto
+	}
+	if moduleCount != 1 {
+		if policy == config.CommandPathFlat {
+			return false, fmt.Errorf("cli.command_path=flat requires exactly one source module")
+		}
+		return false, nil
+	}
+	switch policy {
+	case config.CommandPathNamespaced:
+		return false, nil
+	case config.CommandPathFlat:
+		if conflict, ok := flatPathConflict(specs); ok {
+			return false, fmt.Errorf("cli.command_path=flat conflicts with command %q", conflict)
+		}
+		return true, nil
+	case config.CommandPathAuto:
+		_, conflict := flatPathConflict(specs)
+		return !conflict, nil
+	default:
+		return false, fmt.Errorf("unknown cli.command_path %q", policy)
+	}
+}
+
+func RewriteCommandExamples(cli, module string, specs []runtime.CommandSpec, flat bool) []runtime.CommandSpec {
+	if cli == "" {
+		return specs
+	}
+	rewritten := make([]runtime.CommandSpec, 0, len(specs))
+	for _, spec := range specs {
+		next := cloneCommandSpec(spec)
+		if next.Example != "" {
+			next.Example = commandExample(next.Example, cli, module, next, flat)
+		}
+		rewritten = append(rewritten, next)
+	}
+	return rewritten
+}
+
+func flatPathConflict(specs []runtime.CommandSpec) (string, bool) {
+	seen := map[string]string{}
+	for _, spec := range specs {
+		name := rootCommandName(spec.Group)
+		if name == "" {
+			continue
+		}
+		if reservedRootCommands[name] {
+			return name, true
+		}
+		if group, ok := seen[name]; ok && group != spec.Group {
+			return name, true
+		}
+		seen[name] = spec.Group
+	}
+	return "", false
+}
+
+func rootCommandName(use string) string {
+	fields := strings.Fields(strings.ToLower(use))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+var reservedRootCommands = map[string]bool{
+	"auth":       true,
+	"commands":   true,
+	"completion": true,
+	"help":       true,
+	"search":     true,
+	"version":    true,
 }
 
 func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
@@ -193,7 +275,7 @@ func renderModuleSpecs(name, cliName string, specs []runtime.CommandSpec) error 
 	return nil
 }
 
-func RenderModulesGen(names []string) error {
+func RenderModulesGen(modules []ModuleMount) error {
 	mp, err := modulePath()
 	if err != nil {
 		return err
@@ -201,8 +283,8 @@ func RenderModulesGen(names []string) error {
 	var buf strings.Builder
 	if err := modulesTmpl.Execute(&buf, struct {
 		Prefix  string
-		Modules []string
-	}{Prefix: mp + "/internal/generated/", Modules: names}); err != nil {
+		Modules []ModuleMount
+	}{Prefix: mp + "/internal/generated/", Modules: modules}); err != nil {
 		return err
 	}
 	formatted, err := format.Source([]byte(buf.String()))
@@ -213,7 +295,7 @@ func RenderModulesGen(names []string) error {
 	if err := os.WriteFile(ModulesGenFile, formatted, 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", ModulesGenFile, len(names))
+	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", ModulesGenFile, len(modules))
 	return nil
 }
 
@@ -280,6 +362,13 @@ func Mount(root *cobra.Command) error {
 	}
 	runtime.Build(root, {{printf "%q" .CLIName}}, Specs)
 	return nil
+}
+
+func MountFlat(root *cobra.Command) error {
+	if err := runtime.AssertSchema(generatedSchemaVersion); err != nil {
+		return err
+	}
+	return runtime.BuildFlat(root, {{printf "%q" .CLIName}}, Specs)
 }
 
 var Specs = []runtime.CommandSpec{
@@ -382,7 +471,7 @@ import (
 	"github.com/spf13/cobra"
 
 {{- range .Modules}}
-	{{.}} "{{$.Prefix}}{{.}}"
+	{{.Name}} "{{$.Prefix}}{{.Name}}"
 {{- end}}
 )
 
@@ -392,7 +481,7 @@ import (
 // app.NewApp() so the framework package never imports downstream code.
 func MountModules(root *cobra.Command) error {
 {{- range .Modules}}
-	if err := {{.}}.Mount(root); err != nil {
+	if err := {{.Name}}.{{if .Flat}}MountFlat{{else}}Mount{{end}}(root); err != nil {
 		return err
 	}
 {{- end}}

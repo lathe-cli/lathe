@@ -19,6 +19,7 @@ type CLIInfo struct {
 	ConfigDir    string `yaml:"config_dir"`
 	ConfigDirEnv string `yaml:"config_dir_env"`
 	HostEnv      string `yaml:"host_env"`
+	CommandPath  string `yaml:"command_path"`
 }
 
 type AuthInfo struct {
@@ -36,6 +37,12 @@ type AuthValidateDisplay struct {
 	FallbackField string `yaml:"fallback_field"`
 }
 
+const (
+	CommandPathAuto       = "auto"
+	CommandPathFlat       = "flat"
+	CommandPathNamespaced = "namespaced"
+)
+
 // Load parses raw cli.yaml bytes into a Manifest. The caller (typically main.go)
 // supplies the bytes — usually via //go:embed at the module root — so that
 // pkg/config stays free of a reverse import on the downstream repo root.
@@ -51,6 +58,15 @@ func Load(bytes []byte) (*Manifest, error) {
 	}
 	if m.CLI.Name == "" {
 		return nil, fmt.Errorf("cli.name is required")
+	}
+	m.CLI.CommandPath = strings.ToLower(strings.TrimSpace(m.CLI.CommandPath))
+	if m.CLI.CommandPath == "" {
+		m.CLI.CommandPath = CommandPathAuto
+	}
+	switch m.CLI.CommandPath {
+	case CommandPathAuto, CommandPathFlat, CommandPathNamespaced:
+	default:
+		return nil, fmt.Errorf("cli.command_path must be one of %q, %q, or %q", CommandPathAuto, CommandPathFlat, CommandPathNamespaced)
 	}
 	upper := strings.ToUpper(m.CLI.Name)
 	if m.CLI.ConfigDir == "" {

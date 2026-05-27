@@ -69,6 +69,11 @@ auth:
 ```
 
 The `cli.name` value becomes the generated binary name and root command name.
+`cli.command_path` defaults to `auto`: a single source module uses
+`<cli> <group> <operation>` when its groups do not conflict with root commands,
+and multiple modules use `<cli> <module> <group> <operation>`. Set it to
+`namespaced` to always keep the module segment, or `flat` to require the single
+module flat path and fail codegen on root command conflicts.
 
 ## Pin API Specs
 
@@ -220,7 +225,7 @@ lathe codegen -cache fixtures
 go mod tidy
 go build -o bin/petstore ./cmd/petstore
 bin/petstore search "list pets" --json
-bin/petstore commands show pets pets list --json
+bin/petstore commands show pets list --json
 bin/petstore commands schema --json
 ```
 
@@ -239,5 +244,5 @@ lathe codegen -cache fixtures
 go mod tidy
 go build -o bin/richapi ./cmd/richapi
 bin/richapi commands --json
-bin/richapi commands show acme users list --json
+bin/richapi commands show users list --json
 ```

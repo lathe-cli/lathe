@@ -22,7 +22,7 @@ Authentication:
   auth        Authenticate petstore with a host
 
 Modules:
-  pets        pets API
+  pets        Pets operations
 
 Additional Commands:
   completion  Generate the autocompletion script for the specified shell

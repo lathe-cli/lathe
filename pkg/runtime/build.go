@@ -30,20 +30,46 @@ func AssertSchema(generated int) error {
 // data, the execution path is a single function.
 func Build(root *cobra.Command, service string, specs []CommandSpec) {
 	svc := &cobra.Command{Use: service, Short: service + " API", GroupID: ModuleGroupID}
+	for _, group := range buildGroups(service, specs) {
+		svc.AddCommand(group)
+	}
+	root.AddCommand(svc)
+}
+
+func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
+	groups := buildGroups(service, specs)
+	seen := map[string]bool{}
+	for _, group := range groups {
+		group.GroupID = ModuleGroupID
+		name := group.Name()
+		if seen[name] {
+			return fmt.Errorf("flat mount command %q conflicts with another generated command", name)
+		}
+		seen[name] = true
+		if findChildCommand(root, name) != nil {
+			return fmt.Errorf("flat mount command %q conflicts with existing root command", name)
+		}
+	}
+	root.AddCommand(groups...)
+	return nil
+}
+
+func buildGroups(service string, specs []CommandSpec) []*cobra.Command {
 	groups := map[string]*cobra.Command{}
+	ordered := make([]*cobra.Command, 0)
 	for i := range specs {
 		s := specs[i]
 		g, ok := groups[s.Group]
 		if !ok {
 			g = &cobra.Command{Use: strings.ToLower(s.Group), Short: s.Group + " operations"}
 			groups[s.Group] = g
-			svc.AddCommand(g)
+			ordered = append(ordered, g)
 		}
 		c := buildCmd(s)
 		AttachCatalogCommand(c, service, s)
 		g.AddCommand(c)
 	}
-	root.AddCommand(svc)
+	return ordered
 }
 
 func buildCmd(s CommandSpec) *cobra.Command {

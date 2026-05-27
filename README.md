@@ -124,6 +124,11 @@ auth:
       fallback_field: data.email
 ```
 
+`cli.command_path` defaults to `auto`: one source module uses
+`<cli> <group> <operation>` when safe, while multiple modules keep
+`<cli> <module> <group> <operation>`. Use `namespaced` to always keep the
+module segment.
+
 ### 2. Pin API Sources
 
 `specs/sources.yaml`:
