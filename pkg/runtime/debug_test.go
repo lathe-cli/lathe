@@ -64,6 +64,72 @@ func TestDebugTransport_LogsJSONBody(t *testing.T) {
 	}
 }
 
+func TestDebugTransport_RedactsSensitiveHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "session=response-secret")
+		w.Header().Set("X-Api-Key", "response-key")
+		w.Write([]byte(`ok`))
+	}))
+	defer srv.Close()
+
+	r := captureStderr(t)
+
+	dt := &debugTransport{inner: http.DefaultTransport}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
+	req.Header.Set("Authorization", "Bearer request-token")
+	req.Header.Set("Cookie", "session=request-secret")
+	req.Header.Set("X-API-Key", "request-key")
+	req.Header.Set("X-Trace-Token", "trace-secret")
+	resp, err := dt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	resp.Body.Close()
+
+	out := readStderr(t, r)
+	for _, leaked := range []string{"request-token", "request-secret", "request-key", "trace-secret", "response-secret", "response-key"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("debug output leaked %q:\n%s", leaked, out)
+		}
+	}
+	if strings.Count(out, "***") < 6 {
+		t.Fatalf("debug output did not redact expected headers:\n%s", out)
+	}
+}
+
+func TestDebugTransport_RedactsSensitiveJSONBodies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"result":"ok","token":"response-token","nested":{"apiKey":"response-key"}}`))
+	}))
+	defer srv.Close()
+
+	r := captureStderr(t)
+
+	dt := &debugTransport{inner: http.DefaultTransport}
+	body := strings.NewReader(`{"name":"test","secret":"request-secret","nested":{"password":"request-password"}}`)
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/api", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := dt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	resp.Body.Close()
+
+	out := readStderr(t, r)
+	for _, leaked := range []string{"request-secret", "request-password", "response-token", "response-key"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("debug body leaked %q:\n%s", leaked, out)
+		}
+	}
+	if !strings.Contains(out, `"name":"test"`) || !strings.Contains(out, `"result":"ok"`) {
+		t.Fatalf("debug output lost non-sensitive fields:\n%s", out)
+	}
+	if strings.Count(out, "***") < 4 {
+		t.Fatalf("debug output did not redact expected body fields:\n%s", out)
+	}
+}
+
 func TestDebugTransport_TruncatesLargeBody(t *testing.T) {
 	large := strings.Repeat("x", 5000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

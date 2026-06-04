@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -23,16 +24,12 @@ type debugTransport struct {
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, req.URL)
 	for k, vs := range req.Header {
-		v := strings.Join(vs, ", ")
-		if strings.EqualFold(k, "authorization") {
-			v = "***"
-		}
-		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, v)
+		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", ")))
 	}
 	if req.Body != nil && isTextContent(req.Header.Get("Content-Type")) {
 		body, restored := peekBody(req.Body, maxDebugReqBody)
 		req.Body = restored
-		dumpBody(os.Stderr, ">", body, maxDebugReqBody)
+		dumpBody(os.Stderr, ">", redactDebugBody(req.Header.Get("Content-Type"), body), maxDebugReqBody)
 	}
 	fmt.Fprintln(os.Stderr)
 
@@ -47,12 +44,12 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	fmt.Fprintf(os.Stderr, "< %s (%s)\n", resp.Status, elapsed)
 	for k, vs := range resp.Header {
-		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, strings.Join(vs, ", "))
+		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", ")))
 	}
 	if isTextContent(resp.Header.Get("Content-Type")) {
 		body, restored := peekBody(resp.Body, maxDebugRespBody)
 		resp.Body = restored
-		dumpBody(os.Stderr, "<", body, maxDebugRespBody)
+		dumpBody(os.Stderr, "<", redactDebugBody(resp.Header.Get("Content-Type"), body), maxDebugRespBody)
 	}
 	fmt.Fprintln(os.Stderr)
 
@@ -76,6 +73,88 @@ func isTextContent(ct string) bool {
 		return true
 	}
 	return false
+}
+
+func redactDebugHeader(name, value string) string {
+	if isSensitiveDebugName(name) {
+		return "***"
+	}
+	return value
+}
+
+func isSensitiveDebugName(name string) bool {
+	n := strings.ToLower(name)
+	switch n {
+	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key":
+		return true
+	}
+	for _, marker := range []string{"token", "key", "secret", "password", "credential"} {
+		if strings.Contains(n, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactDebugBody(contentType string, body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	mt, _, _ := mime.ParseMediaType(contentType)
+	if mt == "application/json" {
+		var v any
+		if err := json.Unmarshal(body, &v); err == nil {
+			if redactDebugJSON(v) {
+				redacted, err := json.Marshal(v)
+				if err == nil {
+					return redacted
+				}
+			}
+		}
+	}
+	return []byte(redactDebugText(string(body)))
+}
+
+func redactDebugJSON(v any) bool {
+	switch tv := v.(type) {
+	case map[string]any:
+		changed := false
+		for k, child := range tv {
+			if isSensitiveDebugName(k) {
+				tv[k] = "***"
+				changed = true
+				continue
+			}
+			if redactDebugJSON(child) {
+				changed = true
+			}
+		}
+		return changed
+	case []any:
+		changed := false
+		for _, child := range tv {
+			if redactDebugJSON(child) {
+				changed = true
+			}
+		}
+		return changed
+	default:
+		return false
+	}
+}
+
+func redactDebugText(s string) string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == '&' || r == ';' || r == '\n' || r == '\r'
+	})
+	for _, field := range fields {
+		name, value, ok := strings.Cut(field, "=")
+		if !ok || !isSensitiveDebugName(strings.TrimSpace(name)) || value == "" {
+			continue
+		}
+		s = strings.ReplaceAll(s, field, name+"=***")
+	}
+	return s
 }
 
 func peekBody(body io.ReadCloser, max int) ([]byte, io.ReadCloser) {
