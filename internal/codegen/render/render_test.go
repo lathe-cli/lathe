@@ -11,11 +11,42 @@ import (
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
-func TestRenderModule_AppliesOverlay(t *testing.T) {
+func chdirWithGoMod(t *testing.T) {
+	t.Helper()
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func chdirWithGeneratedRoot(t *testing.T) {
+	t.Helper()
+	chdirWithGoMod(t)
+	if err := os.MkdirAll("internal/generated", 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func generatedModule(t *testing.T, name string) string {
+	t.Helper()
+	out, err := os.ReadFile(filepath.Join("internal/generated", name, name+"_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func generatedModules(t *testing.T) string {
+	t.Helper()
+	out, err := os.ReadFile("internal/generated/modules_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func TestRenderModule_AppliesOverlay(t *testing.T) {
+	chdirWithGoMod(t)
 
 	specs := []runtime.CommandSpec{
 		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/api/v1/addon", RequestBody: &runtime.RequestBody{Required: true, Schema: &runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"name": {Type: "string"}}}}},
@@ -36,11 +67,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
-	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
-	if err != nil {
-		t.Fatalf("read output: %v", err)
-	}
-	got := string(out)
+	got := generatedModule(t, "demo")
 
 	for _, want := range []string{
 		`"OVERLAY SHORT"`,
@@ -76,10 +103,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 }
 
 func TestRenderModule_IgnoreDropsCommand(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	chdirWithGoMod(t)
 	specs := []runtime.CommandSpec{
 		{Group: "Addon", Use: "install-addon", Short: "install", Method: "POST", PathTpl: "/addon"},
 		{Group: "Addon", Use: "delete-addon", Short: "delete", Method: "DELETE", PathTpl: "/addon/{id}"},
@@ -90,11 +114,7 @@ func TestRenderModule_IgnoreDropsCommand(t *testing.T) {
 	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
-	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(out)
+	got := generatedModule(t, "demo")
 	if !strings.Contains(got, `"install-addon"`) {
 		t.Error("install-addon should be present")
 	}
@@ -104,10 +124,7 @@ func TestRenderModule_IgnoreDropsCommand(t *testing.T) {
 }
 
 func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	chdirWithGoMod(t)
 	hidden := true
 	specs := []runtime.CommandSpec{
 		{Group: "Default", Use: "get-item", Short: "get", Method: "GET", PathTpl: "/item"},
@@ -118,11 +135,7 @@ func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
 	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
-	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(out)
+	got := generatedModule(t, "demo")
 	if strings.Contains(got, `"Default"`) {
 		t.Error("group should be overridden; Default should not appear")
 	}
@@ -135,10 +148,7 @@ func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
 }
 
 func TestRenderModule_ParamOverride(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	chdirWithGoMod(t)
 	specs := []runtime.CommandSpec{
 		{
 			Group: "Users", Use: "list-users", Short: "list", Method: "GET", PathTpl: "/users",
@@ -159,11 +169,7 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
 	}
-	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(out)
+	got := generatedModule(t, "demo")
 	if !strings.Contains(got, `"user-status"`) {
 		t.Error("flag should be renamed to user-status")
 	}
@@ -311,10 +317,7 @@ func TestMergeOverlayModule_BulkDefaultsDoNotReplaceSpecDefaults(t *testing.T) {
 }
 
 func TestRenderModule_NilOverrides(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	chdirWithGoMod(t)
 
 	specs := []runtime.CommandSpec{
 		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/x"},
@@ -322,11 +325,7 @@ func TestRenderModule_NilOverrides(t *testing.T) {
 	if err := RenderModule("demo", "", specs, nil); err != nil {
 		t.Fatalf("RenderModule nil overrides: %v", err)
 	}
-	out, err := os.ReadFile(filepath.Join("internal/generated/demo/demo_gen.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), `"raw short"`) {
+	if !strings.Contains(generatedModule(t, "demo"), `"raw short"`) {
 		t.Errorf("expected raw short preserved when overrides is nil")
 	}
 }
@@ -349,22 +348,12 @@ func paramDefault(t *testing.T, specs []runtime.CommandSpec, use string, name st
 }
 
 func TestRenderModulesGen_PropagatesMountErrors(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll("internal/generated", 0o755); err != nil {
-		t.Fatal(err)
-	}
+	chdirWithGeneratedRoot(t)
 
 	if err := RenderModulesGen([]ModuleMount{{Name: "alpha"}, {Name: "beta"}}); err != nil {
 		t.Fatalf("RenderModulesGen: %v", err)
 	}
-	out, err := os.ReadFile("internal/generated/modules_gen.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(out)
+	got := generatedModules(t)
 	for _, want := range []string{
 		`func MountModules(root *cobra.Command) error`,
 		`if err := alpha.Mount(root); err != nil`,
@@ -379,22 +368,12 @@ func TestRenderModulesGen_PropagatesMountErrors(t *testing.T) {
 }
 
 func TestRenderModulesGen_UsesFlatMount(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if err := os.WriteFile("go.mod", []byte("module example.com/fake\n\ngo 1.25\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll("internal/generated", 0o755); err != nil {
-		t.Fatal(err)
-	}
+	chdirWithGeneratedRoot(t)
 
 	if err := RenderModulesGen([]ModuleMount{{Name: "alpha", Flat: true}}); err != nil {
 		t.Fatalf("RenderModulesGen: %v", err)
 	}
-	out, err := os.ReadFile("internal/generated/modules_gen.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(out); !strings.Contains(got, `if err := alpha.MountFlat(root); err != nil`) {
+	if got := generatedModules(t); !strings.Contains(got, `if err := alpha.MountFlat(root); err != nil`) {
 		t.Fatalf("output did not use MountFlat:\n%s", got)
 	}
 }

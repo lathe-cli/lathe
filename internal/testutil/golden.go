@@ -2,10 +2,14 @@ package testutil
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 )
 
 var update = flag.Bool("update", false, "update golden files instead of asserting against them")
@@ -45,6 +49,33 @@ func AssertGolden(tb TB, goldenPath string, actual []byte) {
 	}
 
 	tb.Errorf("golden mismatch: %s\n%s", goldenPath, lineDiff(want, actual))
+}
+
+func AssertJSONGolden(tb TB, goldenPath string, actual any) {
+	tb.Helper()
+	data, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		tb.Fatalf("marshal golden json: %v", err)
+		return
+	}
+	data = append(data, '\n')
+	AssertGolden(tb, goldenPath, data)
+}
+
+func AssertNamedJSONGolden(tb TB, name string, actual any) {
+	tb.Helper()
+	AssertJSONGolden(tb, filepath.Join("testdata", name+".golden.json"), actual)
+}
+
+func AssertRawModuleGolden(tb TB, name string, mod *rawir.RawModule) {
+	tb.Helper()
+	sort.Slice(mod.Operations, func(i, j int) bool {
+		if mod.Operations[i].Path != mod.Operations[j].Path {
+			return mod.Operations[i].Path < mod.Operations[j].Path
+		}
+		return mod.Operations[i].Method < mod.Operations[j].Method
+	})
+	AssertNamedJSONGolden(tb, name, mod)
 }
 
 func writeGolden(tb TB, path string, data []byte) {
