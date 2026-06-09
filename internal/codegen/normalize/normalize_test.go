@@ -1,8 +1,6 @@
 package normalize
 
 import (
-	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
@@ -36,12 +34,7 @@ func TestNormalize_Golden(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			specs := Normalize(tc.input())
-			data, err := json.MarshalIndent(specs, "", "  ")
-			if err != nil {
-				t.Fatalf("marshal specs: %v", err)
-			}
-			data = append(data, '\n')
-			testutil.AssertGolden(t, filepath.Join("testdata", tc.name+".golden.json"), data)
+			testutil.AssertNamedJSONGolden(t, tc.name, specs)
 		})
 	}
 }

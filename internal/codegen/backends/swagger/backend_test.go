@@ -1,10 +1,8 @@
 package swagger
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
@@ -42,19 +40,7 @@ func TestParse_Golden(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
-			sort.Slice(mod.Operations, func(i, j int) bool {
-				if mod.Operations[i].Path != mod.Operations[j].Path {
-					return mod.Operations[i].Path < mod.Operations[j].Path
-				}
-				return mod.Operations[i].Method < mod.Operations[j].Method
-			})
-
-			data, err := json.MarshalIndent(mod, "", "  ")
-			if err != nil {
-				t.Fatalf("marshal rawir: %v", err)
-			}
-			data = append(data, '\n')
-			testutil.AssertGolden(t, filepath.Join("testdata", tc.name+".golden.json"), data)
+			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
 	}
 }

@@ -1,10 +1,8 @@
 package proto
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
@@ -46,19 +44,7 @@ func TestParse_Golden(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
-			sort.Slice(mod.Operations, func(i, j int) bool {
-				if mod.Operations[i].Path != mod.Operations[j].Path {
-					return mod.Operations[i].Path < mod.Operations[j].Path
-				}
-				return mod.Operations[i].Method < mod.Operations[j].Method
-			})
-
-			out, err := json.MarshalIndent(mod, "", "  ")
-			if err != nil {
-				t.Fatalf("marshal rawir: %v", err)
-			}
-			out = append(out, '\n')
-			testutil.AssertGolden(t, filepath.Join("testdata", tc.name+".golden.json"), out)
+			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
 	}
 }
