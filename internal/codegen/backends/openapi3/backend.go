@@ -68,12 +68,77 @@ type response struct {
 
 type schemaNode struct {
 	Ref        string                 `json:"$ref,omitempty" yaml:"$ref,omitempty"`
-	Type       string                 `json:"type,omitempty" yaml:"type,omitempty"`
+	Type       schemaType             `json:"type,omitempty" yaml:"type,omitempty"`
 	Format     string                 `json:"format,omitempty" yaml:"format,omitempty"`
 	Default    any                    `json:"default,omitempty" yaml:"default,omitempty"`
 	Enum       []any                  `json:"enum,omitempty" yaml:"enum,omitempty"`
 	Properties map[string]*schemaNode `json:"properties,omitempty" yaml:"properties,omitempty"`
 	Items      *schemaNode            `json:"items,omitempty" yaml:"items,omitempty"`
+}
+
+type schemaType string
+
+func (t *schemaType) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*t = schemaType(single)
+		return nil
+	}
+
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return fmt.Errorf("schema type must be string or string array: %w", err)
+	}
+	primary, err := primarySchemaType(many)
+	if err != nil {
+		return err
+	}
+	*t = schemaType(primary)
+	return nil
+}
+
+func (t *schemaType) UnmarshalYAML(value *yaml.Node) error {
+	if value == nil || value.Tag == "!!null" {
+		*t = ""
+		return nil
+	}
+
+	var single string
+	if err := value.Decode(&single); err == nil {
+		*t = schemaType(single)
+		return nil
+	}
+
+	var many []string
+	if err := value.Decode(&many); err != nil {
+		return fmt.Errorf("schema type must be string or string array: %w", err)
+	}
+	primary, err := primarySchemaType(many)
+	if err != nil {
+		return err
+	}
+	*t = schemaType(primary)
+	return nil
+}
+
+func primarySchemaType(types []string) (string, error) {
+	if len(types) == 0 {
+		return "", fmt.Errorf("schema type array must not be empty")
+	}
+	primary := ""
+	for _, typ := range types {
+		if typ == "null" {
+			continue
+		}
+		if primary != "" {
+			return "", fmt.Errorf("unsupported schema type union %q", types)
+		}
+		primary = typ
+	}
+	if primary == "" {
+		return "null", nil
+	}
+	return primary, nil
 }
 
 const oas3RefPrefix = "#/components/schemas/"
@@ -278,7 +343,7 @@ func convertParam(p parameter) rawir.RawParameter {
 	var enum []string
 	if p.Schema != nil {
 		if p.Schema.Type != "" {
-			typ = p.Schema.Type
+			typ = string(p.Schema.Type)
 		}
 		format = p.Schema.Format
 		def = anyToString(p.Schema.Default)
@@ -320,7 +385,7 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		return nil
 	}
 	out := &rawir.RawSchema{
-		Type: s.Type,
+		Type: string(s.Type),
 	}
 	if s.Ref != "" {
 		if strings.HasPrefix(s.Ref, oas3RefPrefix) {

@@ -3,6 +3,7 @@ package openapi3
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
@@ -45,6 +46,53 @@ func TestParse_Golden(t *testing.T) {
 			}
 			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
+	}
+}
+
+func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
+	syncDir := t.TempDir()
+	inputPath := filepath.Join(syncDir, "openapi.json")
+	if err := os.WriteFile(inputPath, []byte(openapi31NullableTypeArrayJSON), 0o644); err != nil {
+		t.Fatalf("seed input: %v", err)
+	}
+
+	src := &sourceconfig.Source{
+		Name: "demo",
+		OpenAPI3: &sourceconfig.OpenAPI3Config{
+			Files: []string{"openapi.json"},
+		},
+	}
+	mod, err := Parse(src, syncDir)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := mod.Operations[0].Parameters[0].Type; got != "boolean" {
+		t.Fatalf("parameter type = %q, want boolean", got)
+	}
+	if got := mod.Operations[0].Responses["200"].Schema.Properties["name"].Type; got != "string" {
+		t.Fatalf("property type = %q, want string", got)
+	}
+}
+
+func TestParse_RejectsOpenAPI31MultiTypeUnion(t *testing.T) {
+	syncDir := t.TempDir()
+	inputPath := filepath.Join(syncDir, "openapi.json")
+	if err := os.WriteFile(inputPath, []byte(openapi31MultiTypeUnionJSON), 0o644); err != nil {
+		t.Fatalf("seed input: %v", err)
+	}
+
+	src := &sourceconfig.Source{
+		Name: "demo",
+		OpenAPI3: &sourceconfig.OpenAPI3Config{
+			Files: []string{"openapi.json"},
+		},
+	}
+	_, err := Parse(src, syncDir)
+	if err == nil {
+		t.Fatal("Parse succeeded, want unsupported union error")
+	}
+	if !strings.Contains(err.Error(), "unsupported schema type union") {
+		t.Fatalf("error = %v, want unsupported schema type union", err)
 	}
 }
 
@@ -254,6 +302,51 @@ const pathLevelParamsJSON = `{
           {"name": "org_id", "in": "path", "required": true, "schema": {"type": "string"}, "description": "Override"}
         ],
         "requestBody": {"required": true},
+        "responses": {}
+      }
+    }
+  }
+}`
+
+const openapi31NullableTypeArrayJSON = `{
+  "openapi": "3.1.0",
+  "paths": {
+    "/threads": {
+      "get": {
+        "operationId": "Thread_List",
+        "tags": ["Threads"],
+        "parameters": [
+          {"name": "archived", "in": "query", "schema": {"type": ["boolean", "null"]}}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"type": ["string", "null"]}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+const openapi31MultiTypeUnionJSON = `{
+  "openapi": "3.1.0",
+  "paths": {
+    "/threads": {
+      "get": {
+        "operationId": "Thread_List",
+        "tags": ["Threads"],
+        "parameters": [
+          {"name": "filter", "in": "query", "schema": {"type": ["string", "integer"]}}
+        ],
         "responses": {}
       }
     }
