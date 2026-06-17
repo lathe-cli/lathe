@@ -134,7 +134,17 @@ lathe specsync -source users
 lathe specsync -cache .cache
 lathe codegen -overlay internal/overlay
 lathe codegen -skill-root ""
+lathe codegen -skill-include internal/skill-include
 ```
+
+`-skill-include <dir>` points at a directory of hand-authored markdown that is
+appended onto the generated skill files after they are rendered. Each file is
+mapped by its relative path onto `skills/<cli-name>/<rel>`: when the target
+already exists the include is appended (after a blank line); otherwise it is
+created. Use it to add product-specific skill guidance without editing the
+generated files (which are overwritten on every run). Keep the include directory
+outside `skills/` (e.g. `internal/skill-include/`) so it is not wiped during
+regeneration. Omitting the flag leaves skill output unchanged.
 
 Generated outputs:
 

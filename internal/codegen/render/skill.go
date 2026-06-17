@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,6 +66,63 @@ func RenderSkillDirectory(root string, manifest *config.Manifest, modules []Skil
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", clean, len(refs))
 	return nil
+}
+
+// ApplySkillIncludes appends hand-authored markdown from includeRoot onto the
+// generated skill files under skillDir. Each file in includeRoot is mapped by
+// its relative path onto skillDir/<rel>: if the target already exists the
+// include is appended after a blank-line separator; otherwise the target is
+// created. An empty or non-existent includeRoot is a no-op. This must run after
+// RenderSkillDirectory (which wipes and rewrites skillDir), so includeRoot must
+// live outside skillDir.
+func ApplySkillIncludes(skillDir, includeRoot string) error {
+	if includeRoot == "" {
+		return nil
+	}
+	info, err := os.Stat(includeRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("skill include root %q is not a directory", includeRoot)
+	}
+	return filepath.WalkDir(includeRoot, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(includeRoot, path)
+		if err != nil {
+			return err
+		}
+		add, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(skillDir, rel)
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		existing, err := os.ReadFile(target)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		var merged []byte
+		if len(existing) > 0 {
+			merged = append(merged, existing...)
+			if !strings.HasSuffix(string(existing), "\n") {
+				merged = append(merged, '\n')
+			}
+			merged = append(merged, '\n')
+		}
+		merged = append(merged, add...)
+		return os.WriteFile(target, merged, 0o644)
+	})
 }
 
 func verifySkillDirectoryOwned(root string) error {

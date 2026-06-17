@@ -85,10 +85,11 @@ func RunCodegen(args []string, output io.Writer) error {
 	cacheRoot := fs.String("cache", "", "cache root (default $LATHE_SPECS_CACHE or .cache)")
 	overlayDir := fs.String("overlay", "", "directory containing <module>.yaml overlay files (optional)")
 	skillRoot := fs.String("skill-root", "skills", "skill output root, or empty to disable skill generation")
+	skillInclude := fs.String("skill-include", "", "directory of markdown appended onto generated skill files (optional)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return runCodegen(*sourcesPath, *manifestPath, *cacheRoot, *overlayDir, *skillRoot)
+	return runCodegen(*sourcesPath, *manifestPath, *cacheRoot, *overlayDir, *skillRoot, *skillInclude)
 }
 
 func RunBootstrap(args []string, output io.Writer) error {
@@ -99,6 +100,7 @@ func RunBootstrap(args []string, output io.Writer) error {
 	cacheRoot := fs.String("cache", "", "cache root (default $LATHE_SPECS_CACHE or .cache)")
 	overlayDir := fs.String("overlay", "", "directory containing <module>.yaml overlay files (optional)")
 	skillRoot := fs.String("skill-root", "skills", "skill output root, or empty to disable skill generation")
+	skillInclude := fs.String("skill-include", "", "directory of markdown appended onto generated skill files (optional)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -114,7 +116,7 @@ func RunBootstrap(args []string, output io.Writer) error {
 	if err := specsync.Sync(cfg, specsync.Options{CacheRoot: absRoot}); err != nil {
 		return err
 	}
-	return runCodegen(*sourcesPath, *manifestPath, absRoot, *overlayDir, *skillRoot)
+	return runCodegen(*sourcesPath, *manifestPath, absRoot, *overlayDir, *skillRoot, *skillInclude)
 }
 
 func printRootUsage(output io.Writer) {
@@ -131,7 +133,7 @@ Run "lathe <command> -h" for command-specific flags.
 `)
 }
 
-func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillRoot string) error {
+func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillRoot string, skillInclude string) error {
 	cfg, err := sourceconfig.Load(sourcesPath)
 	if err != nil {
 		return err
@@ -206,6 +208,9 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	}
 	if skillRoot != "" {
 		if err := render.RenderSkillDirectory(skillDir, manifest, skillModules); err != nil {
+			return err
+		}
+		if err := render.ApplySkillIncludes(skillDir, skillInclude); err != nil {
 			return err
 		}
 	}

@@ -294,6 +294,60 @@ func TestRenderSkillDirectory_RegeneratesOwnedDirectory(t *testing.T) {
 	}
 }
 
+func TestApplySkillIncludes_AppendsAndCreates(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "acmectl")
+	if err := RenderSkillDirectory(skillDir, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil); err != nil {
+		t.Fatalf("RenderSkillDirectory: %v", err)
+	}
+	before := readFile(t, dir, "skills/acmectl/SKILL.md")
+
+	include := filepath.Join(dir, "include")
+	if err := os.MkdirAll(filepath.Join(include, "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(include, "SKILL.md"), []byte("## Module availability\n\nExtra guidance.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(include, "references", "extra.md"), []byte("# Extra\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ApplySkillIncludes(skillDir, include); err != nil {
+		t.Fatalf("ApplySkillIncludes: %v", err)
+	}
+
+	got := readFile(t, dir, "skills/acmectl/SKILL.md")
+	if !strings.HasPrefix(got, before) {
+		t.Errorf("existing SKILL.md content should be preserved as a prefix")
+	}
+	if !strings.Contains(got, "## Module availability") || !strings.Contains(got, "Extra guidance.") {
+		t.Errorf("SKILL.md missing appended include content:\n%s", got)
+	}
+	if created := readFile(t, dir, "skills/acmectl/references/extra.md"); !strings.Contains(created, "# Extra") {
+		t.Errorf("new reference file not created from include: %q", created)
+	}
+}
+
+func TestApplySkillIncludes_EmptyOrMissingIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "acmectl")
+	if err := RenderSkillDirectory(skillDir, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil); err != nil {
+		t.Fatalf("RenderSkillDirectory: %v", err)
+	}
+	before := readFile(t, dir, "skills/acmectl/SKILL.md")
+
+	if err := ApplySkillIncludes(skillDir, ""); err != nil {
+		t.Fatalf("ApplySkillIncludes empty: %v", err)
+	}
+	if err := ApplySkillIncludes(skillDir, filepath.Join(dir, "does-not-exist")); err != nil {
+		t.Fatalf("ApplySkillIncludes missing: %v", err)
+	}
+	if after := readFile(t, dir, "skills/acmectl/SKILL.md"); after != before {
+		t.Errorf("SKILL.md changed by no-op include:\nbefore=%q\nafter=%q", before, after)
+	}
+}
+
 func readFile(t *testing.T, root string, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, path))

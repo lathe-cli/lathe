@@ -56,7 +56,7 @@ func TestRunWithOutput_CodegenHelpPrintsUsage(t *testing.T) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Usage of lathe codegen:", "-manifest", "-skill-root"} {
+	for _, want := range []string{"Usage of lathe codegen:", "-manifest", "-skill-root", "-skill-include"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help output missing %q:\n%s", want, got)
 		}
@@ -84,7 +84,7 @@ func TestRunWithOutput_BootstrapHelpPrintsUsage(t *testing.T) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Usage of lathe bootstrap:", "-manifest", "-skill-root"} {
+	for _, want := range []string{"Usage of lathe bootstrap:", "-manifest", "-skill-root", "-skill-include"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help output missing %q:\n%s", want, got)
 		}
