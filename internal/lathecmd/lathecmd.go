@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/backends/openapi3"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/proto"
@@ -19,7 +18,15 @@ import (
 	"github.com/lathe-cli/lathe/internal/specsync"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/lathe"
+	"gopkg.in/yaml.v3"
 )
+
+type skillFlagOptions struct {
+	Root       string
+	RootSet    bool
+	Include    string
+	IncludeSet bool
+}
 
 func Run(args []string) error {
 	return runWithOutputs(args, os.Stdout, os.Stderr)
@@ -85,10 +92,11 @@ func RunCodegen(args []string, output io.Writer) error {
 	cacheRoot := fs.String("cache", "", "cache root (default $LATHE_SPECS_CACHE or .cache)")
 	overlayDir := fs.String("overlay", "", "directory containing <module>.yaml overlay files (optional)")
 	skillRoot := fs.String("skill-root", "skills", "skill output root, or empty to disable skill generation")
+	skillInclude := fs.String("skill-include", "", "directory of Skill resources merged into generated skill files (optional)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return runCodegen(*sourcesPath, *manifestPath, *cacheRoot, *overlayDir, *skillRoot)
+	return runCodegen(*sourcesPath, *manifestPath, *cacheRoot, *overlayDir, skillFlagsFrom(fs, skillRoot, skillInclude))
 }
 
 func RunBootstrap(args []string, output io.Writer) error {
@@ -99,6 +107,7 @@ func RunBootstrap(args []string, output io.Writer) error {
 	cacheRoot := fs.String("cache", "", "cache root (default $LATHE_SPECS_CACHE or .cache)")
 	overlayDir := fs.String("overlay", "", "directory containing <module>.yaml overlay files (optional)")
 	skillRoot := fs.String("skill-root", "skills", "skill output root, or empty to disable skill generation")
+	skillInclude := fs.String("skill-include", "", "directory of Skill resources merged into generated skill files (optional)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -114,7 +123,7 @@ func RunBootstrap(args []string, output io.Writer) error {
 	if err := specsync.Sync(cfg, specsync.Options{CacheRoot: absRoot}); err != nil {
 		return err
 	}
-	return runCodegen(*sourcesPath, *manifestPath, absRoot, *overlayDir, *skillRoot)
+	return runCodegen(*sourcesPath, *manifestPath, absRoot, *overlayDir, skillFlagsFrom(fs, skillRoot, skillInclude))
 }
 
 func printRootUsage(output io.Writer) {
@@ -131,7 +140,7 @@ Run "lathe <command> -h" for command-specific flags.
 `)
 }
 
-func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillRoot string) error {
+func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillFlags skillFlagOptions) error {
 	cfg, err := sourceconfig.Load(sourcesPath)
 	if err != nil {
 		return err
@@ -148,20 +157,9 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	}
 	syncRoot := filepath.Join(absRoot, specsync.SyncSubdir)
 
-	manifest, err := loadCodegenManifest(manifestPath)
+	manifest, skillDir, skillInclude, err := resolveSkillOutput(manifestPath, skillFlags)
 	if err != nil {
-		if skillRoot != "" || !os.IsNotExist(err) {
-			return err
-		}
-		manifest = &config.Manifest{CLI: config.CLIInfo{CommandPath: config.CommandPathAuto}}
-	}
-
-	var skillDir string
-	if skillRoot != "" {
-		skillDir, err = skillOutputDir(skillRoot, manifest.CLI.Name)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 
 	ordered := cfg.Ordered()
@@ -197,27 +195,106 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 			return err
 		}
 		mounts = append(mounts, render.ModuleMount{Name: src.Name, Flat: flat})
-		if skillRoot != "" {
+		if skillDir != "" {
 			skillModules = append(skillModules, render.SkillModule{Source: src, State: state, Specs: specs})
 		}
 	}
 	if err := render.RenderModulesGen(mounts); err != nil {
 		return err
 	}
-	if skillRoot != "" {
+	if skillDir != "" {
 		if err := render.RenderSkillDirectory(skillDir, manifest, skillModules); err != nil {
+			return err
+		}
+		if err := render.ApplySkillIncludes(skillDir, skillInclude); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func loadCodegenManifest(path string) (*config.Manifest, error) {
+func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Manifest, string, string, error) {
+	manifest, rootConfig, include, err := loadCodegenManifest(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) && flags.RootSet && flags.Root == "" && (!flags.IncludeSet || flags.Include == "") {
+			return &config.Manifest{CLI: config.CLIInfo{CommandPath: config.CommandPathAuto}}, "", "", nil
+		}
+		return nil, "", "", err
+	}
+
+	if flags.RootSet && flags.Root == "" {
+		if flags.IncludeSet && flags.Include != "" {
+			return nil, "", "", fmt.Errorf("skill include requires skill generation")
+		}
+		return manifest, "", "", nil
+	}
+
+	root := "skills"
+	if rootConfig != nil {
+		root = *rootConfig
+	}
+	if flags.RootSet {
+		root = flags.Root
+	}
+
+	if flags.IncludeSet {
+		include = flags.Include
+	}
+
+	if root == "" {
+		if include != "" {
+			return nil, "", "", fmt.Errorf("skill include requires skill generation")
+		}
+		return manifest, "", "", nil
+	}
+
+	skillDir, err := skillOutputDir(root, manifest.CLI.Name)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if err := render.ValidateSkillIncludeRoot(root, include); err != nil {
+		return nil, "", "", err
+	}
+	return manifest, skillDir, include, nil
+}
+
+func skillFlagsFrom(fs *flag.FlagSet, root, include *string) skillFlagOptions {
+	var rootSet, includeSet bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "skill-root":
+			rootSet = true
+		case "skill-include":
+			includeSet = true
+		}
+	})
+	return skillFlagOptions{
+		Root:       *root,
+		RootSet:    rootSet,
+		Include:    *include,
+		IncludeSet: includeSet,
+	}
+}
+
+func loadCodegenManifest(path string) (*config.Manifest, *string, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
-	return config.Load(data)
+	manifest, err := config.Load(data)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	var codegen struct {
+		Skill struct {
+			Root    *string `yaml:"root"`
+			Include string  `yaml:"include"`
+		} `yaml:"skill"`
+	}
+	if err := yaml.Unmarshal(data, &codegen); err != nil {
+		return nil, nil, "", fmt.Errorf("parse cli.yaml: %w", err)
+	}
+	return manifest, codegen.Skill.Root, codegen.Skill.Include, nil
 }
 
 func resolveCacheRoot(root string) (string, error) {
@@ -245,32 +322,8 @@ func parseSource(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, er
 
 func skillOutputDir(root string, cliName string) (string, error) {
 	clean := filepath.Clean(root)
-	if root == "" || clean == "." || clean == ".." || clean == string(filepath.Separator) || hasParentTraversal(clean) {
+	if clean == "." || !filepath.IsLocal(clean) {
 		return "", fmt.Errorf("invalid skill root %q", root)
 	}
-	absRoot, err := filepath.Abs(clean)
-	if err != nil {
-		return "", err
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	absCWD, err := filepath.Abs(cwd)
-	if err != nil {
-		return "", err
-	}
-	if absRoot == absCWD {
-		return "", fmt.Errorf("invalid skill root %q: must not be the current project root", root)
-	}
 	return filepath.Join(clean, render.SkillDirName(cliName)), nil
-}
-
-func hasParentTraversal(path string) bool {
-	for _, part := range strings.Split(path, string(filepath.Separator)) {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
 }

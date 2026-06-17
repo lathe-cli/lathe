@@ -75,6 +75,19 @@ and multiple modules use `<cli> <module> <group> <operation>`. Set it to
 `namespaced` to always keep the module segment, or `flat` to require the single
 module flat path and fail codegen on root command conflicts.
 
+To customize generated Skill output, add an optional top-level `skill` block:
+
+```yaml
+skill:
+  root: skills
+  include: internal/skill-include
+```
+
+The optional `skill.root` value controls where generated Skill files are written;
+set it to `""` to disable Skill generation. The optional `skill.include` value
+points at repo-local Skill resources merged into generated Skill files. Keep the
+include directory outside `skill.root`.
+
 ## Pin API Specs
 
 Create `specs/sources.yaml`:
@@ -134,19 +147,32 @@ lathe specsync -source users
 lathe specsync -cache .cache
 lathe codegen -overlay internal/overlay
 lathe codegen -skill-root ""
+lathe codegen -skill-include internal/skill-include
 ```
+
+`-skill-root` and `-skill-include` override the `skill.root` and `skill.include`
+values from `cli.yaml` for one run. Prefer `cli.yaml` for reproducible generated
+Skill output. When `skill.include` or `-skill-include` is set, the directory must
+already exist and must be outside `skill.root`. Files under the include directory
+are mapped by relative path onto `<skill.root>/<cli-name>/<rel>`. Include files
+may target `SKILL.md`, `references/`, `scripts/`, `assets/`, and `agents/`.
+`SKILL.md` and existing `references/**/*.md` targets are appended after a blank
+line. New files under the allowed Skill resource directories are created. Existing
+generated non-markdown files, such as `agents/openai.yaml`, are not overwritten
+or appended.
 
 Generated outputs:
 
 ```text
 internal/generated/
-skills/<cli-name>/
+<skill.root>/<cli-name>/
 ```
 
-`internal/generated/` contains generated Go command specs. `skills/<cli-name>/`
-contains the generated agent Skill guide and module references. These outputs
-are reproducible from `cli.yaml`, `specs/sources.yaml`, pinned specs, and
-overlays.
+`internal/generated/` contains generated Go command specs. `<skill.root>/<cli-name>/`
+contains the generated agent Skill guide and module references when Skill
+generation is enabled. These outputs are reproducible from `cli.yaml`,
+`specs/sources.yaml`, pinned specs, and overlays. Skill output also includes any
+resources declared by `skill.include`.
 
 ## Wire the Generated CLI
 

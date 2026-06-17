@@ -56,7 +56,7 @@ func TestRunWithOutput_CodegenHelpPrintsUsage(t *testing.T) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Usage of lathe codegen:", "-manifest", "-skill-root"} {
+	for _, want := range []string{"Usage of lathe codegen:", "-manifest", "-skill-root", "-skill-include"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help output missing %q:\n%s", want, got)
 		}
@@ -84,7 +84,7 @@ func TestRunWithOutput_BootstrapHelpPrintsUsage(t *testing.T) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"Usage of lathe bootstrap:", "-manifest", "-skill-root"} {
+	for _, want := range []string{"Usage of lathe bootstrap:", "-manifest", "-skill-root", "-skill-include"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("help output missing %q:\n%s", want, got)
 		}
@@ -160,6 +160,109 @@ func TestRunCodegen_CommandPathFlatRewritesGeneratedExamples(t *testing.T) {
 	}
 	if !strings.Contains(generated, `Example:     "acmectl users list -o json"`) {
 		t.Fatalf("generated catalog example should use flat path:\n%s", generated)
+	}
+}
+
+func TestRunCodegen_UsesSkillConfigFromManifest(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+skill:
+  root: agent-skills
+  include: internal/skill-include
+`)
+	writeCodegenFile(t, "internal/skill-include/SKILL.md", "## Local guidance\n\nUse the team runbook.\n")
+
+	if err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	skill := readCodegenFile(t, "agent-skills/acmectl/SKILL.md")
+	if !strings.Contains(skill, "Use the team runbook.") {
+		t.Fatalf("skill missing include guidance:\n%s", skill)
+	}
+	if _, err := os.Stat("skills"); !os.IsNotExist(err) {
+		t.Fatalf("default skills directory should not be used, stat err = %v", err)
+	}
+}
+
+func TestRunCodegen_SkillFlagsOverrideManifestConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+skill:
+  root: yaml-skills
+  include: internal/missing-yaml-include
+`)
+	writeCodegenFile(t, "internal/flag-include/SKILL.md", "## Flag guidance\n\nUse the flag include.\n")
+
+	err := RunCodegen([]string{
+		"-sources", "specs/sources.yaml",
+		"-cache", ".cache",
+		"-skill-root", "flag-skills",
+		"-skill-include", "internal/flag-include",
+	}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	skill := readCodegenFile(t, "flag-skills/acmectl/SKILL.md")
+	if !strings.Contains(skill, "Use the flag include.") {
+		t.Fatalf("skill missing flag include guidance:\n%s", skill)
+	}
+	if _, err := os.Stat("yaml-skills"); !os.IsNotExist(err) {
+		t.Fatalf("yaml skill root should not be used, stat err = %v", err)
+	}
+}
+
+func TestRunCodegen_MissingSkillIncludeFailsBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+skill:
+  include: internal/does-not-exist
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected missing skill include error")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat("internal/generated"); !os.IsNotExist(err) {
+		t.Fatalf("codegen should fail before writing generated code, stat err = %v", err)
+	}
+}
+
+func TestRunCodegen_RejectsSkillIncludeInsideSkillRootBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "skills/include/SKILL.md", "blocked\n")
+
+	err := RunCodegen([]string{
+		"-sources", "specs/sources.yaml",
+		"-cache", ".cache",
+		"-skill-include", "skills/include",
+	}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected skill include overlap error")
+	}
+	if !strings.Contains(err.Error(), "must be outside skill root") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat("internal/generated"); !os.IsNotExist(err) {
+		t.Fatalf("codegen should fail before writing generated code, stat err = %v", err)
 	}
 }
 
