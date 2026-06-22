@@ -414,6 +414,9 @@ var Specs = []runtime.CommandSpec{
 		{{- end}}
 		Method:      {{printf "%q" $op.Method}},
 		PathTpl:     {{printf "%q" $op.PathTpl}},
+		{{- if $op.DefaultHostname}}
+		DefaultHostname: {{printf "%q" $op.DefaultHostname}},
+		{{- end}}
 		{{- if $op.Params}}
 		Params: []runtime.ParamSpec{
 			{{- range $op.Params}}

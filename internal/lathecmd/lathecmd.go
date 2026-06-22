@@ -183,6 +183,11 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 
 		specs := normalize.Normalize(mod)
 		specs = render.MergeOverlayModule(specs, overlays[src.Name])
+		if src.DefaultHostname != nil {
+			for i := range specs {
+				specs[i].DefaultHostname = *src.DefaultHostname
+			}
+		}
 		cliName := src.Name
 		if src.DisplayName != "" {
 			cliName = src.DisplayName

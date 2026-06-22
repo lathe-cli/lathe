@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	latheconfig "github.com/lathe-cli/lathe/pkg/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,15 +23,16 @@ type Config struct {
 }
 
 type Source struct {
-	Name        string          `yaml:"-"`
-	DisplayName string          `yaml:"display_name,omitempty"`
-	RepoURL     string          `yaml:"repo_url"`
-	PinnedTag   string          `yaml:"pinned_tag"`
-	Backend     string          `yaml:"backend"`
-	Swagger     *SwaggerConfig  `yaml:"swagger,omitempty"`
-	Proto       *ProtoConfig    `yaml:"proto,omitempty"`
-	OpenAPI3    *OpenAPI3Config `yaml:"openapi3,omitempty"`
-	GraphQL     *GraphQLConfig  `yaml:"graphql,omitempty"`
+	Name            string          `yaml:"-"`
+	DisplayName     string          `yaml:"display_name,omitempty"`
+	DefaultHostname *string         `yaml:"default_hostname,omitempty"`
+	RepoURL         string          `yaml:"repo_url"`
+	PinnedTag       string          `yaml:"pinned_tag"`
+	Backend         string          `yaml:"backend"`
+	Swagger         *SwaggerConfig  `yaml:"swagger,omitempty"`
+	Proto           *ProtoConfig    `yaml:"proto,omitempty"`
+	OpenAPI3        *OpenAPI3Config `yaml:"openapi3,omitempty"`
+	GraphQL         *GraphQLConfig  `yaml:"graphql,omitempty"`
 }
 
 type SwaggerConfig struct {
@@ -116,6 +118,13 @@ func (c *Config) Ordered() []*Source {
 }
 
 func validate(s *Source) error {
+	if s.DefaultHostname != nil {
+		hostname := latheconfig.NormalizeHostname(*s.DefaultHostname)
+		if hostname == "" {
+			return fmt.Errorf("default_hostname must not be empty")
+		}
+		*s.DefaultHostname = hostname
+	}
 	if s.RepoURL == "" {
 		return fmt.Errorf("missing repo_url")
 	}

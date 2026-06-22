@@ -92,9 +92,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			var clientOpts ClientOptions
 			var err error
 			if s.Security != nil && s.Security.Public {
-				hostname, clientOpts, err = TryLoadHostOptions(cmd)
+				hostname, clientOpts, err = tryLoadHostOptions(cmd, s.DefaultHostname)
 			} else {
-				hostname, clientOpts, err = LoadHostOptions(cmd)
+				hostname, clientOpts, err = loadHostOptions(cmd, s.DefaultHostname)
 			}
 			if err != nil {
 				return err

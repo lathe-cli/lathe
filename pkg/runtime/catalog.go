@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 4
+const CatalogSchemaVersion = 5
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -65,8 +65,9 @@ type CatalogCommand struct {
 }
 
 type CatalogHTTP struct {
-	Method       string `json:"method"`
-	PathTemplate string `json:"path_template"`
+	Method          string `json:"method"`
+	PathTemplate    string `json:"path_template"`
+	DefaultHostname string `json:"default_hostname,omitempty"`
 }
 
 type CatalogAuth struct {
@@ -262,7 +263,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		Description: spec.Long,
 		Example:     spec.Example,
 		OperationID: spec.OperationID,
-		HTTP:        CatalogHTTP{Method: spec.Method, PathTemplate: spec.PathTpl},
+		HTTP:        CatalogHTTP{Method: spec.Method, PathTemplate: spec.PathTpl, DefaultHostname: spec.DefaultHostname},
 		Auth:        catalogAuth(spec.Security),
 		Flags:       flags,
 		Output: CatalogOutput{
