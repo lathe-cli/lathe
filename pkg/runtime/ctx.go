@@ -24,6 +24,10 @@ func NewNotAuthenticatedError() error {
 }
 
 func ResolveHost(cmd *cobra.Command) (string, error) {
+	return resolveHost(cmd, "")
+}
+
+func resolveHost(cmd *cobra.Command, defaultHostname string) (string, error) {
 	cli := config.Active().CLI
 	h, _ := cmd.Root().PersistentFlags().GetString("hostname")
 	if h == "" {
@@ -31,6 +35,9 @@ func ResolveHost(cmd *cobra.Command) (string, error) {
 	}
 	if h != "" {
 		return config.NormalizeHostname(h), nil
+	}
+	if defaultHostname = config.NormalizeHostname(defaultHostname); defaultHostname != "" {
+		return defaultHostname, nil
 	}
 	hosts, err := config.LoadHosts()
 	if err != nil {
@@ -52,7 +59,11 @@ func ResolveHost(cmd *cobra.Command) (string, error) {
 // insecure when set; otherwise the host record's persisted Insecure value
 // applies.
 func LoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
-	hostname, err := ResolveHost(cmd)
+	return loadHostOptions(cmd, "")
+}
+
+func loadHostOptions(cmd *cobra.Command, defaultHostname string) (string, ClientOptions, error) {
+	hostname, err := resolveHost(cmd, defaultHostname)
 	if err != nil {
 		return "", ClientOptions{}, err
 	}
@@ -62,8 +73,7 @@ func LoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
 	}
 	e, ok := hosts.Get(hostname)
 	if !ok {
-		name := config.Active().CLI.Name
-		return "", ClientOptions{}, fmt.Errorf("not authenticated to %s (run: %s auth login --hostname %s)", hostname, name, hostname)
+		return "", ClientOptions{}, notAuthenticatedToHost(hostname)
 	}
 	auth, err := NewAuthFromHost(e)
 	if err != nil {
@@ -80,7 +90,11 @@ func LoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
 }
 
 func TryLoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
-	hostname, err := ResolveHost(cmd)
+	return tryLoadHostOptions(cmd, "")
+}
+
+func tryLoadHostOptions(cmd *cobra.Command, defaultHostname string) (string, ClientOptions, error) {
+	hostname, err := resolveHost(cmd, defaultHostname)
 	if err != nil {
 		return "", ClientOptions{}, err
 	}
@@ -108,4 +122,9 @@ func TryLoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
 		opts.Insecure = true
 	}
 	return hostname, opts, nil
+}
+
+func notAuthenticatedToHost(hostname string) error {
+	name := config.Active().CLI.Name
+	return fmt.Errorf("not authenticated to %s (run: %s auth login --hostname %s)", hostname, name, hostname)
 }

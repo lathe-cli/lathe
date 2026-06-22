@@ -253,7 +253,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	b.WriteString("## Workflow\n\n")
 	fmt.Fprintf(&b, "1. Search for candidates with `%s search \"<intent>\" --json`; use `--limit` when needed. Search is only candidate discovery.\n", cli)
 	fmt.Fprintf(&b, "2. Inspect the exact command with `%s commands show <path...> --json` before executing an unfamiliar command.\n", cli)
-	fmt.Fprintf(&b, "3. If the command detail has `auth.required=true`, run `%s auth status --hostname <host>` before execution. If it is not logged in, stop and ask the user to authenticate.\n", cli)
+	fmt.Fprintf(&b, "3. If the command detail has `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`.\n", cli, manifest.CLI.HostEnv)
 	fmt.Fprintf(&b, "4. Execute only after flags, body, auth, HTTP path, and output hints are clear from `commands show`.\n\n")
 	b.WriteString("## General Commands\n\n")
 	fmt.Fprintf(&b, "- `%s commands --json`: full generated command catalog.\n", cli)
@@ -296,6 +296,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("Key fields:\n\n")
 	b.WriteString("- `path`: command path to pass to `commands show` or execute after the CLI name.\n")
 	b.WriteString("- `http`: HTTP method and path template.\n")
+	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host selected after explicit `--hostname` and `$%s`; when present it is used before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, and help.\n")
 	b.WriteString("- `body`: request body requirement and media type.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
@@ -313,7 +314,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("## Output\n\n")
 	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`.\n\n")
 	b.WriteString("## Auth\n\n")
-	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. If no matching host is logged in, stop and ask the user to authenticate.\n", cli)
+	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
 	return b.String()
 }
 
@@ -325,6 +326,9 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 	b.WriteString("## Source\n\n")
 	if mod.Source != nil {
 		fmt.Fprintf(&b, "- Backend: `%s`\n", mod.Source.Backend)
+		if mod.Source.DefaultHostname != nil {
+			fmt.Fprintf(&b, "- Default hostname: `%s`\n", *mod.Source.DefaultHostname)
+		}
 		fmt.Fprintf(&b, "- Repository: %s\n", valueOrUnknown(mod.Source.RepoURL))
 		fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(mod.Source.PinnedTag))
 		for _, line := range sourceInputs(mod.Source) {

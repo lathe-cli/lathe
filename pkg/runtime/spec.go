@@ -3,24 +3,25 @@ package runtime
 const SchemaVersion = 6
 
 type CommandSpec struct {
-	Group         string
-	Use           string
-	Aliases       []string
-	Short         string
-	Long          string
-	Example       string
-	OperationID   string
-	Hidden        bool
-	Deprecated    bool
-	Method        string
-	PathTpl       string
-	Params        []ParamSpec
-	RequestBody   *RequestBody
-	Output        OutputHints
-	Security      *SecurityHint
-	Notes         []string     `json:",omitempty"`
-	Prerequisites []string     `json:",omitempty"`
-	KnownErrors   []KnownError `json:",omitempty"`
+	Group           string
+	Use             string
+	Aliases         []string
+	Short           string
+	Long            string
+	Example         string
+	OperationID     string
+	Hidden          bool
+	Deprecated      bool
+	Method          string
+	PathTpl         string
+	DefaultHostname string `json:",omitempty"`
+	Params          []ParamSpec
+	RequestBody     *RequestBody
+	Output          OutputHints
+	Security        *SecurityHint
+	Notes           []string     `json:",omitempty"`
+	Prerequisites   []string     `json:",omitempty"`
+	KnownErrors     []KnownError `json:",omitempty"`
 }
 
 type ParamSpec struct {
