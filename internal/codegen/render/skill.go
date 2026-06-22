@@ -527,6 +527,38 @@ func sourceInputs(src *sourceconfig.Source) []string {
 			lines = append(lines, fmt.Sprintf("Staging entries: `%d`", len(src.Proto.Staging)))
 		}
 		return lines
+	case sourceconfig.BackendGraphQL:
+		if src.GraphQL == nil {
+			return nil
+		}
+		lines := []string{"Schema: `" + src.GraphQL.Schema + "`"}
+		if src.GraphQL.Expose != nil {
+			if len(src.GraphQL.Expose.Queries) > 0 {
+				lines = append(lines, "Expose queries: `"+strings.Join(src.GraphQL.Expose.Queries, "`, `")+"`")
+			}
+			if len(src.GraphQL.Expose.Mutations) > 0 {
+				lines = append(lines, "Expose mutations: `"+strings.Join(src.GraphQL.Expose.Mutations, "`, `")+"`")
+			}
+		}
+		if len(src.GraphQL.Groups) > 0 {
+			lines = append(lines, fmt.Sprintf("Group policies: `%d`", len(src.GraphQL.Groups)))
+		}
+		if len(src.GraphQL.Output) > 0 {
+			lines = append(lines, fmt.Sprintf("Output policies: `%d`", len(src.GraphQL.Output)))
+		}
+		if src.GraphQL.Selection != nil {
+			parts := make([]string, 0, 2)
+			if src.GraphQL.Selection.MaxDepth != nil {
+				parts = append(parts, fmt.Sprintf("max depth `%d`", *src.GraphQL.Selection.MaxDepth))
+			}
+			if len(src.GraphQL.Selection.Prune) > 0 {
+				parts = append(parts, fmt.Sprintf("prune rules `%d`", len(src.GraphQL.Selection.Prune)))
+			}
+			if len(parts) > 0 {
+				lines = append(lines, "Selection policy: "+strings.Join(parts, "; "))
+			}
+		}
+		return lines
 	default:
 		return nil
 	}

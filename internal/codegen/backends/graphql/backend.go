@@ -15,11 +15,14 @@ import (
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
-const maxSelectionDepth = 3
+const defaultMaxSelectionDepth = 3
 
 func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 	if src.GraphQL == nil {
 		return nil, fmt.Errorf("graphql backend requires a graphql config block")
+	}
+	if src.GraphQL.Expose == nil {
+		return nil, fmt.Errorf("graphql backend requires an expose policy")
 	}
 	rel := src.GraphQL.Schema
 	data, err := os.ReadFile(filepath.Join(syncDir, rel))
@@ -31,7 +34,7 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		return nil, fmt.Errorf("parse schema %s: %w", rel, err)
 	}
 
-	g := &generator{schema: schema, module: src.Name}
+	g := &generator{schema: schema, module: src.Name, config: src.GraphQL}
 	var ops []rawir.RawOperation
 	seen := map[string]bool{}
 	roots := []struct {
@@ -77,6 +80,7 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 type generator struct {
 	schema *ast.Schema
 	module string
+	config *sourceconfig.GraphQLConfig
 }
 
 func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.RawOperation, error) {
@@ -105,6 +109,14 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	if err != nil {
 		return rawir.RawOperation{}, fmt.Errorf("%s %q: %w", opType, field.Name, err)
 	}
+	group, err := g.groupFor(field.Name)
+	if err != nil {
+		return rawir.RawOperation{}, err
+	}
+	output, err := g.outputFor(field.Name)
+	if err != nil {
+		return rawir.RawOperation{}, err
+	}
 
 	var doc strings.Builder
 	doc.WriteString(opType)
@@ -128,7 +140,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 		return rawir.RawOperation{}, err
 	}
 	return rawir.RawOperation{
-		Group:       g.module,
+		Group:       group,
 		OperationID: g.module + "_" + field.Name,
 		Summary:     field.Description,
 		Method:      "POST",
@@ -140,6 +152,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 			Template:  string(template),
 			MergePath: "variables",
 		},
+		Output: output,
 	}, nil
 }
 
@@ -156,7 +169,11 @@ func (g *generator) selectionSet(typeName string, depth int, onPath map[string]b
 	}
 	var fields []string
 	for _, f := range def.Fields {
-		if strings.HasPrefix(f.Name, "__") || hasRequiredArgs(f) {
+		pruned, err := g.pruned(def.Name, f.Name)
+		if err != nil {
+			return "", err
+		}
+		if strings.HasPrefix(f.Name, "__") || hasRequiredArgs(f) || pruned {
 			continue
 		}
 		childName := f.Type.Name()
@@ -168,7 +185,7 @@ func (g *generator) selectionSet(typeName string, depth int, onPath map[string]b
 			fields = append(fields, f.Name)
 			continue
 		}
-		if depth >= maxSelectionDepth || onPath[childName] {
+		if depth >= g.selectionMaxDepth() || onPath[childName] {
 			continue
 		}
 		next := clonePath(onPath)
@@ -180,9 +197,73 @@ func (g *generator) selectionSet(typeName string, depth int, onPath map[string]b
 		fields = append(fields, f.Name+" "+sub)
 	}
 	if len(fields) == 0 {
-		return "", fmt.Errorf("type %q has no selectable fields within depth %d", typeName, maxSelectionDepth)
+		return "", fmt.Errorf("type %q has no selectable fields within depth %d", typeName, g.selectionMaxDepth())
 	}
 	return "{ " + strings.Join(fields, " ") + " }", nil
+}
+
+func (g *generator) groupFor(fieldName string) (string, error) {
+	var group string
+	for _, rule := range g.config.Groups {
+		matched, err := matchAny(rule.Match, fieldName)
+		if err != nil {
+			return "", err
+		}
+		if matched {
+			if group != "" {
+				return "", fmt.Errorf("operation %q matches multiple graphql.groups rules", fieldName)
+			}
+			group = rule.Group
+		}
+	}
+	if group != "" {
+		return group, nil
+	}
+	return g.module, nil
+}
+
+func (g *generator) outputFor(fieldName string) (*rawir.RawOutputHints, error) {
+	var output *rawir.RawOutputHints
+	for _, rule := range g.config.Output {
+		matched, err := matchAny(rule.Match, fieldName)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			if output != nil {
+				return nil, fmt.Errorf("operation %q matches multiple graphql.output rules", fieldName)
+			}
+			output = &rawir.RawOutputHints{
+				ListPath:       rule.ListPath,
+				DefaultColumns: append([]string(nil), rule.DefaultColumns...),
+			}
+		}
+	}
+	return output, nil
+}
+
+func (g *generator) selectionMaxDepth() int {
+	if g.config.Selection != nil && g.config.Selection.MaxDepth != nil {
+		return *g.config.Selection.MaxDepth
+	}
+	return defaultMaxSelectionDepth
+}
+
+func (g *generator) pruned(typeName string, fieldName string) (bool, error) {
+	if g.config.Selection == nil {
+		return false, nil
+	}
+	target := typeName + "." + fieldName
+	for _, pattern := range g.config.Selection.Prune {
+		matched, err := path.Match(pattern, target)
+		if err != nil {
+			return false, fmt.Errorf("invalid graphql.selection.prune pattern %q: %w", pattern, err)
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func hasRequiredArgs(f *ast.FieldDefinition) bool {

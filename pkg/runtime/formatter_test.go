@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,24 @@ func TestFormatOutput_UnknownFormat(t *testing.T) {
 	err := FormatOutput([]byte("x"), "csv", io.Discard, OutputHints{})
 	if err == nil {
 		t.Fatal("expected error for unknown format")
+	}
+}
+
+func TestFormatOutput_TableUsesNestedListPath(t *testing.T) {
+	var buf bytes.Buffer
+	data := []byte(`{"data":{"sessionList":{"nodes":[{"id":"s1","name":"alpha"},{"id":"s2","name":"beta"}]}}}`)
+	err := FormatOutput(data, "table", &buf, OutputHints{
+		ListPath:       "data.sessionList.nodes",
+		DefaultColumns: []string{"id", "name"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	for _, want := range []string{"ID", "NAME", "s1", "alpha", "s2", "beta"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("table output missing %q:\n%s", want, got)
+		}
 	}
 }
 
