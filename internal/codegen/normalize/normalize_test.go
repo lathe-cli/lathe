@@ -21,6 +21,8 @@ func TestNormalize_Golden(t *testing.T) {
 		{"list-response", listResponse},
 		{"no-op-id", noOpID},
 		{"multiple-methods-same-path", multipleMethodsSamePath},
+		{"shared-endpoint-envelope", sharedEndpointEnvelope},
+		{"request-body-envelope", requestBodyEnvelope},
 		{"param-in-header", paramInHeader},
 		{"param-in-form-data", paramInFormData},
 		{"pagination-cursor", paginationCursor},
@@ -175,6 +177,62 @@ func multipleMethodsSamePath() *rawir.RawModule {
 				Path:        "/resources",
 				RequestBody: &rawir.RawRequestBody{Required: true},
 				Responses:   map[string]*rawir.RawResponse{},
+			},
+		},
+	}
+}
+
+func requestBodyEnvelope() *rawir.RawModule {
+	return &rawir.RawModule{
+		Name: "demo",
+		Operations: []rawir.RawOperation{{
+			Group:       "Apps",
+			OperationID: "Apps_CreateApp",
+			Summary:     "Create an app.",
+			Method:      "POST",
+			Path:        "/graphql",
+			RequestBody: &rawir.RawRequestBody{
+				Required:  true,
+				MediaType: "application/json",
+				Template:  `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`,
+				MergePath: "variables",
+			},
+			Responses: map[string]*rawir.RawResponse{},
+		}},
+	}
+}
+
+func sharedEndpointEnvelope() *rawir.RawModule {
+	return &rawir.RawModule{
+		Name: "demo",
+		Operations: []rawir.RawOperation{
+			{
+				Group:       "Apps",
+				OperationID: "Apps_CreateApp",
+				Summary:     "Create an app.",
+				Method:      "POST",
+				Path:        "/graphql",
+				RequestBody: &rawir.RawRequestBody{
+					Required:  true,
+					MediaType: "application/json",
+					Template:  `{"query":"mutation CreateApp{createApp{id}}","variables":{}}`,
+					MergePath: "variables",
+				},
+				Responses: map[string]*rawir.RawResponse{},
+			},
+			{
+				Group:       "Apps",
+				OperationID: "Apps_ListApps",
+				Summary:     "List apps.",
+				Method:      "POST",
+				Path:        "/graphql",
+				RequestBody: &rawir.RawRequestBody{
+					Required:  true,
+					MediaType: "application/json",
+					Template:  `{"query":"query ListApps{apps{id}}","variables":{}}`,
+					MergePath: "variables",
+				},
+				Responses: map[string]*rawir.RawResponse{},
 			},
 		},
 	}

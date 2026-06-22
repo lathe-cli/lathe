@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -108,6 +109,47 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
 		t.Fatalf("round-trip known errors = %#v", roundTrip.Commands[0].KnownErrors)
+	}
+}
+
+func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
+	root := newRootWithModuleGroup()
+	const tmpl = `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`
+	Build(root, "demo", []CommandSpec{{
+		Group:       "Apps",
+		Use:         "create-app",
+		Short:       "Create an app",
+		OperationID: "Apps_CreateApp",
+		Method:      "POST",
+		PathTpl:     "/graphql",
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json", Template: tmpl, MergePath: "variables"},
+	}})
+
+	catalog := BuildCatalog(root, CatalogOptions{CLIName: "myctl"})
+	if len(catalog.Commands) != 1 {
+		t.Fatalf("commands = %d, want 1", len(catalog.Commands))
+	}
+	body := catalog.Commands[0].Body
+	if body == nil || body.Template != tmpl || body.MergePath != "variables" {
+		t.Fatalf("catalog body envelope = %+v", body)
+	}
+
+	raw, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"template":`, `"merge_path":"variables"`, `createApp(name:$name)`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("catalog JSON missing %q:\n%s", want, raw)
+		}
+	}
+	var roundTrip Catalog
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	rt := roundTrip.Commands[0].Body
+	if rt == nil || rt.Template != tmpl || rt.MergePath != "variables" {
+		t.Fatalf("round-trip body envelope = %+v", rt)
 	}
 }
 

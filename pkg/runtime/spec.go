@@ -1,6 +1,6 @@
 package runtime
 
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 type CommandSpec struct {
 	Group         string
@@ -47,6 +47,9 @@ type RequestBody struct {
 	Required  bool
 	MediaType string      `json:",omitempty"`
 	Schema    *SchemaSpec `json:",omitempty"`
+
+	Template  string `json:",omitempty"`
+	MergePath string `json:",omitempty"`
 }
 
 type SchemaSpec struct {
