@@ -102,6 +102,35 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	}
 }
 
+func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
+	chdirWithGoMod(t)
+
+	specs := []runtime.CommandSpec{{
+		Group: "Apps", Use: "create-app", Short: "Create an app.", Method: "POST", PathTpl: "/graphql",
+		RequestBody: &runtime.RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Template:  `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`,
+			MergePath: "variables",
+		},
+	}}
+
+	if err := RenderModule("demo", "", specs, nil); err != nil {
+		t.Fatalf("RenderModule: %v", err)
+	}
+	got := generatedModule(t, "demo")
+
+	for _, want := range []string{
+		`Template:`,
+		`createApp(name:$name)`,
+		`MergePath: "variables"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+}
+
 func TestRenderModule_IgnoreDropsCommand(t *testing.T) {
 	chdirWithGoMod(t)
 	specs := []runtime.CommandSpec{

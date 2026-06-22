@@ -48,6 +48,68 @@ func TestBuildBodyFromSet(t *testing.T) {
 	}
 }
 
+func TestBuildEnvelopeBody(t *testing.T) {
+	const tmpl = `{"query":"mutation($name:String!){createApp(name:$name){id}}","variables":{}}`
+
+	t.Run("merges --set under merge path, keeps baked query", func(t *testing.T) {
+		raw, err := buildEnvelopeBody(tmpl, "variables", []string{"name=demo", "replicas=3"}, nil, nil, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		want := map[string]any{
+			"query":     "mutation($name:String!){createApp(name:$name){id}}",
+			"variables": map[string]any{"name": "demo", "replicas": float64(3)},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("no user input sends template unchanged", func(t *testing.T) {
+		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		if !reflect.DeepEqual(got["variables"], map[string]any{}) {
+			t.Errorf("variables = %#v, want empty object", got["variables"])
+		}
+	})
+
+	t.Run("--file replaces merge target", func(t *testing.T) {
+		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, []byte(`{"name":"from-file"}`), true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		if !reflect.DeepEqual(got["variables"], map[string]any{"name": "from-file"}) {
+			t.Errorf("variables = %#v", got["variables"])
+		}
+	})
+
+	t.Run("--file with empty merge path is rejected", func(t *testing.T) {
+		if _, err := buildEnvelopeBody(tmpl, "", nil, nil, []byte(`{}`), true); err == nil {
+			t.Fatal("expected error for --file with empty merge path")
+		}
+	})
+
+	t.Run("invalid template is reported", func(t *testing.T) {
+		if _, err := buildEnvelopeBody(`{not json`, "variables", nil, nil, nil, false); err == nil {
+			t.Fatal("expected error for invalid template")
+		}
+	})
+}
+
 func TestBuildBodyFromSet_SetStrKeepsStrings(t *testing.T) {
 	raw, err := buildBodyFromSet(
 		[]string{"spec.replicas=3", "spec.enabled=true"},

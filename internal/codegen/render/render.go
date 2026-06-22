@@ -430,6 +430,12 @@ var Specs = []runtime.CommandSpec{
 				{{- if $op.RequestBody.Schema}}
 				Schema: {{schemaLiteral $op.RequestBody.Schema}},
 				{{- end}}
+				{{- if $op.RequestBody.Template}}
+				Template: {{printf "%q" $op.RequestBody.Template}},
+				{{- end}}
+				{{- if $op.RequestBody.MergePath}}
+				MergePath: {{printf "%q" $op.RequestBody.MergePath}},
+				{{- end}}
 			},
 			{{- end}}
 		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}

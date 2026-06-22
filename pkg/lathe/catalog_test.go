@@ -85,6 +85,40 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 	}
 }
 
+func TestCommandsShow_EnvelopeBody(t *testing.T) {
+	root := NewApp(testManifest())
+	const tmpl = `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`
+	runtime.Build(root, "demo", []runtime.CommandSpec{{
+		Group:       "Apps",
+		Use:         "create-app",
+		Short:       "Create an app",
+		OperationID: "Apps_CreateApp",
+		Method:      "POST",
+		PathTpl:     "/graphql",
+		RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json", Template: tmpl, MergePath: "variables"},
+	}})
+
+	out, err := execute(root, "commands", "show", "demo", "apps", "create-app", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry runtime.CatalogCommand
+	if err := json.Unmarshal([]byte(out), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Body == nil || entry.Body.Template != tmpl || entry.Body.MergePath != "variables" {
+		t.Fatalf("envelope body = %+v", entry.Body)
+	}
+	if entry.HTTP.Method != "POST" || entry.HTTP.PathTemplate != "/graphql" {
+		t.Fatalf("http = %+v", entry.HTTP)
+	}
+	for _, want := range []string{`"template"`, `"merge_path"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("show output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestCommandsShow_NotFound(t *testing.T) {
 	root := NewApp(testManifest())
 	_, err := execute(root, "commands", "show", "demo", "users", "missing")

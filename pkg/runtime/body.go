@@ -49,6 +49,53 @@ func buildBodyFromSet(sets []string, stringSets []string) ([]byte, error) {
 	return json.Marshal(out)
 }
 
+func buildEnvelopeBody(template, mergePath string, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(template), &envelope); err != nil {
+		return nil, fmt.Errorf("invalid request body template: %w", err)
+	}
+	if hasFile {
+		if mergePath == "" {
+			return nil, fmt.Errorf("--file is not supported for this command's body template")
+		}
+		var v any
+		if len(strings.TrimSpace(string(fileData))) > 0 {
+			if err := json.Unmarshal(fileData, &v); err != nil {
+				return nil, fmt.Errorf("invalid --file JSON: %w", err)
+			}
+		}
+		if err := setNestedPath(envelope, mergePath, v); err != nil {
+			return nil, err
+		}
+	}
+	for _, kv := range sets {
+		path, value, err := parseSet(kv, "--set")
+		if err != nil {
+			return nil, err
+		}
+		if err := setNestedPath(envelope, joinBodyPath(mergePath, path), inferValue(value)); err != nil {
+			return nil, err
+		}
+	}
+	for _, kv := range stringSets {
+		path, value, err := parseSet(kv, "--set-str")
+		if err != nil {
+			return nil, err
+		}
+		if err := setNestedPath(envelope, joinBodyPath(mergePath, path), value); err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(envelope)
+}
+
+func joinBodyPath(prefix, path string) string {
+	if prefix == "" {
+		return path
+	}
+	return prefix + "." + path
+}
+
 func parseSet(kv string, flag string) (string, string, error) {
 	eq := strings.Index(kv, "=")
 	if eq < 0 {

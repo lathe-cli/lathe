@@ -171,6 +171,21 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			var body any
 			if len(form) > 0 {
 				body = form
+			} else if s.RequestBody != nil && s.RequestBody.Template != "" {
+				hasFile := cmd.Flags().Changed("file")
+				var fileData []byte
+				if hasFile {
+					fd, rerr := ReadBody(bodyFile)
+					if rerr != nil {
+						return rerr
+					}
+					fileData = fd
+				}
+				raw, berr := buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, bodySets, bodyStringSets, fileData, hasFile)
+				if berr != nil {
+					return berr
+				}
+				body = raw
 			} else if s.RequestBody != nil {
 				switch {
 				case cmd.Flags().Changed("set") || cmd.Flags().Changed("set-str"):

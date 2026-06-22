@@ -11,89 +11,65 @@ import (
 )
 
 func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
-	paths := collectPaths(mod)
-	sort.Strings(paths)
-	byPath := groupByPath(mod)
-
 	var specs []runtime.CommandSpec
-	for _, p := range paths {
-		ops := byPath[p]
-		for _, m := range []string{"GET", "POST", "PUT", "DELETE", "PATCH"} {
-			op, ok := ops[m]
-			if !ok || op.OperationID == "" {
-				continue
-			}
-			useName := camelToKebab(opNameFromID(op.OperationID))
-			if useName == "" {
-				continue
-			}
-			spec := runtime.CommandSpec{
-				Group:       group(op),
-				Use:         useName,
-				Short:       pickShort(op),
-				OperationID: op.OperationID,
-				Method:      op.Method,
-				PathTpl:     op.Path,
-			}
-			for _, pp := range op.Parameters {
-				switch pp.In {
-				case "path":
-					spec.Params = append(spec.Params, pathParam(pp))
-				case "query":
-					spec.Params = append(spec.Params, queryParam(pp))
-				case "header":
-					spec.Params = append(spec.Params, headerParam(pp))
-				case "formData":
-					spec.Params = append(spec.Params, formDataParam(pp))
-				}
-			}
-			if op.RequestBody != nil {
-				spec.RequestBody = &runtime.RequestBody{Required: op.RequestBody.Required, MediaType: op.RequestBody.MediaType, Schema: runtimeSchema(op.RequestBody.Schema, mod.Schemas, map[string]bool{})}
-			}
-			lp, itemRef := deriveList(op, mod.Schemas)
-			spec.Output.ListPath = lp
-			if itemRef != "" {
-				spec.Output.DefaultColumns = defaultColumns(itemRef, mod.Schemas)
-			}
-			spec.Output.ResponseMediaType = deriveResponseMediaType(op)
-			spec.Output.Pagination = derivePagination(op)
-			spec.Output.Streaming = deriveStreaming(op)
-			spec.Security = deriveSecurity(op)
-			specs = append(specs, spec)
+	for _, op := range mod.Operations {
+		if op.OperationID == "" {
+			continue
 		}
+		useName := camelToKebab(opNameFromID(op.OperationID))
+		if useName == "" {
+			continue
+		}
+		spec := runtime.CommandSpec{
+			Group:       group(op),
+			Use:         useName,
+			Short:       pickShort(op),
+			OperationID: op.OperationID,
+			Method:      op.Method,
+			PathTpl:     op.Path,
+		}
+		for _, pp := range op.Parameters {
+			switch pp.In {
+			case "path":
+				spec.Params = append(spec.Params, pathParam(pp))
+			case "query":
+				spec.Params = append(spec.Params, queryParam(pp))
+			case "header":
+				spec.Params = append(spec.Params, headerParam(pp))
+			case "formData":
+				spec.Params = append(spec.Params, formDataParam(pp))
+			}
+		}
+		if op.RequestBody != nil {
+			spec.RequestBody = &runtime.RequestBody{
+				Required:  op.RequestBody.Required,
+				MediaType: op.RequestBody.MediaType,
+				Schema:    runtimeSchema(op.RequestBody.Schema, mod.Schemas, map[string]bool{}),
+				Template:  op.RequestBody.Template,
+				MergePath: op.RequestBody.MergePath,
+			}
+		}
+		lp, itemRef := deriveList(op, mod.Schemas)
+		spec.Output.ListPath = lp
+		if itemRef != "" {
+			spec.Output.DefaultColumns = defaultColumns(itemRef, mod.Schemas)
+		}
+		spec.Output.ResponseMediaType = deriveResponseMediaType(op)
+		spec.Output.Pagination = derivePagination(op)
+		spec.Output.Streaming = deriveStreaming(op)
+		spec.Security = deriveSecurity(op)
+		specs = append(specs, spec)
 	}
 	sort.Slice(specs, func(i, j int) bool {
 		if specs[i].Group != specs[j].Group {
 			return specs[i].Group < specs[j].Group
 		}
-		return specs[i].Use < specs[j].Use
+		if specs[i].Use != specs[j].Use {
+			return specs[i].Use < specs[j].Use
+		}
+		return specs[i].OperationID < specs[j].OperationID
 	})
 	return specs
-}
-
-func collectPaths(mod *rawir.RawModule) []string {
-	seen := map[string]bool{}
-	for _, op := range mod.Operations {
-		seen[op.Path] = true
-	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	return out
-}
-
-func groupByPath(mod *rawir.RawModule) map[string]map[string]rawir.RawOperation {
-	out := map[string]map[string]rawir.RawOperation{}
-	for _, op := range mod.Operations {
-		bucket, ok := out[op.Path]
-		if !ok {
-			bucket = map[string]rawir.RawOperation{}
-			out[op.Path] = bucket
-		}
-		bucket[op.Method] = op
-	}
-	return out
 }
 
 func group(op rawir.RawOperation) string {

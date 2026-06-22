@@ -1,0 +1,58 @@
+[
+  {
+    "Group": "Apps",
+    "Use": "create-app",
+    "Aliases": null,
+    "Short": "Create an app.",
+    "Long": "",
+    "Example": "",
+    "OperationID": "Apps_CreateApp",
+    "Hidden": false,
+    "Deprecated": false,
+    "Method": "POST",
+    "PathTpl": "/graphql",
+    "Params": null,
+    "RequestBody": {
+      "Required": true,
+      "MediaType": "application/json",
+      "Template": "{\"query\":\"mutation CreateApp{createApp{id}}\",\"variables\":{}}",
+      "MergePath": "variables"
+    },
+    "Output": {
+      "ListPath": "",
+      "DefaultColumns": null,
+      "ResponseMediaType": "",
+      "Pagination": null,
+      "Streaming": null
+    },
+    "Security": null
+  },
+  {
+    "Group": "Apps",
+    "Use": "list-apps",
+    "Aliases": null,
+    "Short": "List apps.",
+    "Long": "",
+    "Example": "",
+    "OperationID": "Apps_ListApps",
+    "Hidden": false,
+    "Deprecated": false,
+    "Method": "POST",
+    "PathTpl": "/graphql",
+    "Params": null,
+    "RequestBody": {
+      "Required": true,
+      "MediaType": "application/json",
+      "Template": "{\"query\":\"query ListApps{apps{id}}\",\"variables\":{}}",
+      "MergePath": "variables"
+    },
+    "Output": {
+      "ListPath": "",
+      "DefaultColumns": null,
+      "ResponseMediaType": "",
+      "Pagination": null,
+      "Streaming": null
+    },
+    "Security": null
+  }
+]
