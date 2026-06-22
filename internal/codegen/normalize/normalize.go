@@ -59,6 +59,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		spec.Output.ResponseMediaType = deriveResponseMediaType(op)
 		spec.Output.Pagination = derivePagination(op)
 		spec.Output.Streaming = deriveStreaming(op)
+		applyRawOutputHints(&spec, op.Output)
 		spec.Security = deriveSecurity(op)
 		specs = append(specs, spec)
 	}
@@ -72,6 +73,21 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		return specs[i].OperationID < specs[j].OperationID
 	})
 	return specs
+}
+
+func applyRawOutputHints(spec *runtime.CommandSpec, hints *rawir.RawOutputHints) {
+	if hints == nil {
+		return
+	}
+	if hints.ListPath != "" {
+		spec.Output.ListPath = hints.ListPath
+	}
+	if len(hints.DefaultColumns) > 0 {
+		spec.Output.DefaultColumns = append([]string(nil), hints.DefaultColumns...)
+	}
+	if hints.ResponseMediaType != "" {
+		spec.Output.ResponseMediaType = hints.ResponseMediaType
+	}
 }
 
 func group(op rawir.RawOperation) string {

@@ -43,6 +43,14 @@ type User {
 
 func parseSDL(t *testing.T, sdl string, queries, mutations []string) (*rawir.RawModule, error) {
 	t.Helper()
+	return parseSDLWithConfig(t, sdl, &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{Queries: queries, Mutations: mutations},
+	})
+}
+
+func parseSDLWithConfig(t *testing.T, sdl string, cfg *sourceconfig.GraphQLConfig) (*rawir.RawModule, error) {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "schema.graphql"), []byte(sdl), 0o644); err != nil {
 		t.Fatal(err)
@@ -50,10 +58,7 @@ func parseSDL(t *testing.T, sdl string, queries, mutations []string) (*rawir.Raw
 	src := &sourceconfig.Source{
 		Name:    "console",
 		Backend: sourceconfig.BackendGraphQL,
-		GraphQL: &sourceconfig.GraphQLConfig{
-			Schema: "schema.graphql",
-			Expose: &sourceconfig.GraphQLExpose{Queries: queries, Mutations: mutations},
-		},
+		GraphQL: cfg,
 	}
 	return Parse(src, dir)
 }
@@ -64,6 +69,16 @@ func byID(ops []rawir.RawOperation) map[string]rawir.RawOperation {
 		m[op.OperationID] = op
 	}
 	return m
+}
+
+func queryDocument(t *testing.T, op rawir.RawOperation) string {
+	t.Helper()
+	var env map[string]any
+	if err := json.Unmarshal([]byte(op.RequestBody.Template), &env); err != nil {
+		t.Fatalf("template is not valid JSON: %v", err)
+	}
+	q, _ := env["query"].(string)
+	return q
 }
 
 func TestParse_ExposesOnlyPolicyMatchedOps(t *testing.T) {
@@ -192,6 +207,109 @@ func TestParse_NormalizesToDistinctCommands(t *testing.T) {
 	}
 }
 
+func TestParse_AppliesGraphQLGroupAndOutputPolicy(t *testing.T) {
+	cfg := &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{
+			Queries: []string{"apps"},
+		},
+		Groups: []sourceconfig.GraphQLGroupPolicy{
+			{Match: []string{"app*"}, Group: "Applications"},
+		},
+		Output: []sourceconfig.GraphQLOutputPolicy{
+			{Match: []string{"apps"}, ListPath: "data.apps.nodes", DefaultColumns: []string{"id", "name"}},
+		},
+	}
+	mod, err := parseSDLWithConfig(t, consoleSDL, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apps := byID(mod.Operations)["console_apps"]
+	if apps.Group != "Applications" {
+		t.Fatalf("raw group = %q, want Applications", apps.Group)
+	}
+	if apps.Output == nil || apps.Output.ListPath != "data.apps.nodes" || strings.Join(apps.Output.DefaultColumns, ",") != "id,name" {
+		t.Fatalf("raw output = %+v", apps.Output)
+	}
+	specs := normalize.Normalize(mod)
+	if len(specs) != 1 {
+		t.Fatalf("specs = %d, want 1", len(specs))
+	}
+	if specs[0].Group != "Applications" {
+		t.Fatalf("normalized group = %q, want Applications", specs[0].Group)
+	}
+	if specs[0].Output.ListPath != "data.apps.nodes" || strings.Join(specs[0].Output.DefaultColumns, ",") != "id,name" {
+		t.Fatalf("normalized output = %+v", specs[0].Output)
+	}
+}
+
+func TestParse_AppliesGraphQLSelectionPolicy(t *testing.T) {
+	maxDepth := 1
+	cfg := &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{
+			Queries: []string{"apps"},
+		},
+		Selection: &sourceconfig.GraphQLSelectionPolicy{
+			MaxDepth: &maxDepth,
+			Prune:    []string{"App.name"},
+		},
+	}
+	mod, err := parseSDLWithConfig(t, consoleSDL, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := queryDocument(t, byID(mod.Operations)["console_apps"])
+	if !strings.Contains(q, "id") {
+		t.Fatalf("query should keep unpruned scalar field:\n%s", q)
+	}
+	for _, no := range []string{"name", "owner", "email"} {
+		if strings.Contains(q, no) {
+			t.Fatalf("query should not include %q under selection policy:\n%s", no, q)
+		}
+	}
+}
+
+func TestParse_FailsClosedOnAmbiguousGraphQLGroupPolicy(t *testing.T) {
+	cfg := &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{
+			Queries: []string{"apps"},
+		},
+		Groups: []sourceconfig.GraphQLGroupPolicy{
+			{Match: []string{"app*"}, Group: "Applications"},
+			{Match: []string{"apps"}, Group: "Apps"},
+		},
+	}
+	_, err := parseSDLWithConfig(t, consoleSDL, cfg)
+	if err == nil {
+		t.Fatal("expected fail-closed error for ambiguous group policy")
+	}
+	if !strings.Contains(err.Error(), "multiple graphql.groups") {
+		t.Errorf("error = %v, want to mention multiple graphql.groups rules", err)
+	}
+}
+
+func TestParse_FailsClosedOnAmbiguousGraphQLOutputPolicy(t *testing.T) {
+	cfg := &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{
+			Queries: []string{"apps"},
+		},
+		Output: []sourceconfig.GraphQLOutputPolicy{
+			{Match: []string{"app*"}, ListPath: "data.apps.nodes"},
+			{Match: []string{"apps"}, DefaultColumns: []string{"id"}},
+		},
+	}
+	_, err := parseSDLWithConfig(t, consoleSDL, cfg)
+	if err == nil {
+		t.Fatal("expected fail-closed error for ambiguous output policy")
+	}
+	if !strings.Contains(err.Error(), "multiple graphql.output") {
+		t.Errorf("error = %v, want to mention multiple graphql.output rules", err)
+	}
+}
+
 func TestParse_FailsClosedWhenNoSelectableFields(t *testing.T) {
 	const sdl = `
 type Query { thing: Thing }
@@ -200,6 +318,27 @@ type Thing { needsArg(x: ID!): String }
 	_, err := parseSDL(t, sdl, []string{"thing"}, nil)
 	if err == nil {
 		t.Fatal("expected fail-closed error: Thing has no auto-selectable fields")
+	}
+	if !strings.Contains(err.Error(), "no selectable fields") {
+		t.Errorf("error = %v, want to mention no selectable fields", err)
+	}
+}
+
+func TestParse_FailsClosedWhenSelectionPolicyPrunesAllFields(t *testing.T) {
+	const sdl = `
+type Query { app: App }
+type App { id: ID! }
+`
+	cfg := &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{
+			Queries: []string{"app"},
+		},
+		Selection: &sourceconfig.GraphQLSelectionPolicy{Prune: []string{"App.id"}},
+	}
+	_, err := parseSDLWithConfig(t, sdl, cfg)
+	if err == nil {
+		t.Fatal("expected fail-closed error after selection policy prunes every field")
 	}
 	if !strings.Contains(err.Error(), "no selectable fields") {
 		t.Errorf("error = %v, want to mention no selectable fields", err)

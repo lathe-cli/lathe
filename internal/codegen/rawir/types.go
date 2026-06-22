@@ -18,6 +18,7 @@ type RawOperation struct {
 	Responses   map[string]*RawResponse
 	Produces    []string
 	Security    []RawSecurityReq
+	Output      *RawOutputHints `json:",omitempty"`
 }
 
 type RawSecurityReq struct {
@@ -48,6 +49,12 @@ type RawRequestBody struct {
 type RawResponse struct {
 	Schema    *RawSchema
 	MediaType string
+}
+
+type RawOutputHints struct {
+	ListPath          string   `json:",omitempty"`
+	DefaultColumns    []string `json:",omitempty"`
+	ResponseMediaType string   `json:",omitempty"`
 }
 
 type RawSchema struct {

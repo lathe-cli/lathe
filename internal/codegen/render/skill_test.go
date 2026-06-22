@@ -238,6 +238,70 @@ func TestRenderModuleReference_NormalizesMultiWordGroupPaths(t *testing.T) {
 	}
 }
 
+func TestRenderModuleReference_GraphQLSourceSummary(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "consolectl"}}
+	maxDepth := 2
+	module := SkillModule{
+		Source: &sourceconfig.Source{
+			Name:      "console",
+			RepoURL:   "https://example.com/console.git",
+			PinnedTag: "v3.0.0",
+			Backend:   sourceconfig.BackendGraphQL,
+			GraphQL: &sourceconfig.GraphQLConfig{
+				Schema: "schema.graphql",
+				Expose: &sourceconfig.GraphQLExpose{
+					Queries:   []string{"app*"},
+					Mutations: []string{"createApp"},
+				},
+				Groups: []sourceconfig.GraphQLGroupPolicy{
+					{Match: []string{"app*"}, Group: "Applications"},
+				},
+				Output: []sourceconfig.GraphQLOutputPolicy{
+					{Match: []string{"apps"}, ListPath: "data.apps.nodes", DefaultColumns: []string{"id", "name"}},
+				},
+				Selection: &sourceconfig.GraphQLSelectionPolicy{
+					MaxDepth: &maxDepth,
+					Prune:    []string{"App.secret"},
+				},
+			},
+		},
+		Specs: []runtime.CommandSpec{{
+			Group:   "Applications",
+			Use:     "apps",
+			Short:   "List apps",
+			Method:  "POST",
+			PathTpl: "/graphql",
+			RequestBody: &runtime.RequestBody{
+				Required:  true,
+				MediaType: "application/json",
+				Template:  `{"query":"query apps { apps { id } }","variables":{}}`,
+				MergePath: "variables",
+			},
+			Output: runtime.OutputHints{
+				ListPath:       "data.apps.nodes",
+				DefaultColumns: []string{"id", "name"},
+			},
+		}},
+	}
+
+	got := renderModuleReference(manifest, module, true)
+	for _, want := range []string{
+		"Backend: `graphql`",
+		"Schema: `schema.graphql`",
+		"Expose queries: `app*`",
+		"Expose mutations: `createApp`",
+		"Group policies: `1`",
+		"Output policies: `1`",
+		"Selection policy: max depth `2`; prune rules `1`",
+		"Body: required; templated body, set inputs under `variables`",
+		"Output: list path `data.apps.nodes`; columns `id`, `name`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("graphql module reference missing %q\nfull output:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderSkillDirectory_RejectsUnsafeRoot(t *testing.T) {
 	err := RenderSkillDirectory("", &config.Manifest{CLI: config.CLIInfo{Name: "x"}}, nil)
 	if err == nil {

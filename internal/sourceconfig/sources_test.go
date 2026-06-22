@@ -187,6 +187,16 @@ func TestLoad_AcceptsGraphQL(t *testing.T) {
       expose:
         queries: ["apps", "app"]
         mutations: ["createApp"]
+      groups:
+        - match: ["app*"]
+          group: Applications
+      output:
+        - match: ["apps"]
+          list_path: data.apps.nodes
+          default_columns: ["id", "name"]
+      selection:
+        max_depth: 2
+        prune: ["App.secret"]
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("seed yaml: %v", err)
@@ -204,6 +214,15 @@ func TestLoad_AcceptsGraphQL(t *testing.T) {
 	}
 	if src.GraphQL.Expose == nil || len(src.GraphQL.Expose.Queries) != 2 || len(src.GraphQL.Expose.Mutations) != 1 {
 		t.Fatalf("expose = %+v", src.GraphQL.Expose)
+	}
+	if len(src.GraphQL.Groups) != 1 || src.GraphQL.Groups[0].Group != "Applications" {
+		t.Fatalf("groups = %+v", src.GraphQL.Groups)
+	}
+	if len(src.GraphQL.Output) != 1 || src.GraphQL.Output[0].ListPath != "data.apps.nodes" || len(src.GraphQL.Output[0].DefaultColumns) != 2 {
+		t.Fatalf("output = %+v", src.GraphQL.Output)
+	}
+	if src.GraphQL.Selection == nil || src.GraphQL.Selection.MaxDepth == nil || *src.GraphQL.Selection.MaxDepth != 2 || len(src.GraphQL.Selection.Prune) != 1 {
+		t.Fatalf("selection = %+v", src.GraphQL.Selection)
 	}
 }
 
@@ -278,6 +297,100 @@ func TestLoad_RejectsGraphQLWithSwaggerBlock(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must not set swagger block") {
 		t.Errorf("error = %v, want to mention swagger block", err)
+	}
+}
+
+func TestLoad_RejectsInvalidGraphQLPolicy(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy string
+		want   string
+	}{
+		{
+			name: "group missing match",
+			policy: `      groups:
+        - group: Applications
+`,
+			want: "requires non-empty match",
+		},
+		{
+			name: "group missing group",
+			policy: `      groups:
+        - match: ["apps"]
+`,
+			want: "requires group",
+		},
+		{
+			name: "output missing shape",
+			policy: `      output:
+        - match: ["apps"]
+`,
+			want: "requires list_path or default_columns",
+		},
+		{
+			name: "output invalid list path",
+			policy: `      output:
+        - match: ["apps"]
+          list_path: data..nodes
+`,
+			want: "empty path segment",
+		},
+		{
+			name: "output invalid default column",
+			policy: `      output:
+        - match: ["apps"]
+          default_columns: [""]
+`,
+			want: "empty path segment",
+		},
+		{
+			name: "selection negative depth",
+			policy: `      selection:
+        max_depth: -1
+`,
+			want: "must be > 0",
+		},
+		{
+			name: "selection zero depth",
+			policy: `      selection:
+        max_depth: 0
+`,
+			want: "must be > 0",
+		},
+		{
+			name: "selection prune missing type",
+			policy: `      selection:
+        prune: ["owner"]
+`,
+			want: "must be Type.field",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sources.yaml")
+			body := `sources:
+  console:
+    repo_url: https://example.com/repo.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema.graphql
+      expose:
+        queries: ["apps"]
+` + tc.policy
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatalf("seed yaml: %v", err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("Load accepted invalid graphql policy %q", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

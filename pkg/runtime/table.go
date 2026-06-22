@@ -73,9 +73,14 @@ func extractRows(v any, listPath string) []map[string]any {
 	switch m := v.(type) {
 	case map[string]any:
 		if listPath != "" {
-			if arr, ok := m[listPath].([]any); ok {
+			if raw, ok := getNestedPath(m, listPath); ok {
+				arr, ok := raw.([]any)
+				if !ok {
+					return nil
+				}
 				return itemsToRows(arr)
 			}
+			return nil
 		}
 		if items, ok := m["items"].([]any); ok {
 			return itemsToRows(items)

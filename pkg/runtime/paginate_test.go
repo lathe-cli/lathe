@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,6 +44,54 @@ func TestPaginateAll_Cursor(t *testing.T) {
 	}
 	if atomic.LoadInt32(&call) != 2 {
 		t.Errorf("made %d requests, want 2", atomic.LoadInt32(&call))
+	}
+}
+
+func TestPaginateAll_CursorNestedPaths(t *testing.T) {
+	pages := []map[string]any{
+		{"data": map[string]any{"sessionList": map[string]any{
+			"nodes":    []any{map[string]any{"id": "1"}, map[string]any{"id": "2"}},
+			"pageInfo": map[string]any{"endCursor": "tok2"},
+		}}},
+		{"data": map[string]any{"sessionList": map[string]any{
+			"nodes":    []any{map[string]any{"id": "3"}},
+			"pageInfo": map[string]any{"endCursor": ""},
+		}}},
+	}
+	var call int32
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.String())
+		idx := int(atomic.LoadInt32(&call))
+		if idx >= len(pages) {
+			idx = len(pages) - 1
+		}
+		atomic.AddInt32(&call, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(pages[idx])
+	}))
+	defer srv.Close()
+
+	hint := PaginationHint{Strategy: "cursor", TokenParam: "after", TokenField: "data.sessionList.pageInfo.endCursor"}
+	data, err := PaginateAll(context.Background(), srv.URL, "GET", "/sessions?first=2", nil, ClientOptions{Timeout: 5 * time.Second}, hint, "data.sessionList.nodes", 10)
+	if err != nil {
+		t.Fatalf("PaginateAll: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	raw, ok := getNestedPath(result, "data.sessionList.nodes")
+	if !ok {
+		t.Fatalf("merged result missing nested list path: %s", string(data))
+	}
+	items, ok := raw.([]any)
+	if !ok || len(items) != 3 {
+		t.Fatalf("nested items = %#v, want 3 items", raw)
+	}
+	if len(paths) != 2 || !strings.Contains(paths[1], "after=tok2") {
+		t.Fatalf("request paths = %v, want second request to carry cursor", paths)
 	}
 }
 
@@ -123,9 +172,12 @@ func TestSetQueryParam(t *testing.T) {
 }
 
 func TestExtractJSONString(t *testing.T) {
-	data := []byte(`{"next_page_token": "abc123", "count": 42}`)
+	data := []byte(`{"next_page_token": "abc123", "count": 42, "data": {"pageInfo": {"endCursor": "nested"}}}`)
 	if got := extractJSONString(data, "next_page_token"); got != "abc123" {
 		t.Errorf("got %q, want abc123", got)
+	}
+	if got := extractJSONString(data, "data.pageInfo.endCursor"); got != "nested" {
+		t.Errorf("got %q, want nested", got)
 	}
 	if got := extractJSONString(data, "missing"); got != "" {
 		t.Errorf("got %q for missing field, want empty", got)

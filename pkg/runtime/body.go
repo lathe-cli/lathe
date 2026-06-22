@@ -138,6 +138,37 @@ func setNestedPath(m map[string]any, path string, v any) error {
 	return setNestedSegs(m, parsePath(path), v)
 }
 
+func getNestedPath(v any, path string) (any, bool) {
+	if path == "" {
+		return v, true
+	}
+	return getNestedSegs(v, parsePath(path))
+}
+
+func getNestedSegs(v any, segs []pathSegment) (any, bool) {
+	if len(segs) == 0 {
+		return v, true
+	}
+	seg := segs[0]
+	rest := segs[1:]
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	next, ok := m[seg.key]
+	if !ok {
+		return nil, false
+	}
+	if seg.idx >= 0 {
+		arr, ok := next.([]any)
+		if !ok || seg.idx >= len(arr) {
+			return nil, false
+		}
+		next = arr[seg.idx]
+	}
+	return getNestedSegs(next, rest)
+}
+
 func setNestedSegs(m map[string]any, segs []pathSegment, v any) error {
 	if len(segs) == 0 {
 		return nil

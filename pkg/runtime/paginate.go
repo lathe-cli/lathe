@@ -66,7 +66,11 @@ func extractItemsRaw(data []byte, listPath string) []json.RawMessage {
 		if !ok {
 			return nil
 		}
-		arr, ok = obj[listPath].([]any)
+		raw, ok := getNestedPath(obj, listPath)
+		if !ok {
+			return nil
+		}
+		arr, ok = raw.([]any)
 		if !ok {
 			return nil
 		}
@@ -86,18 +90,15 @@ func extractJSONString(data []byte, field string) string {
 	if field == "" {
 		return ""
 	}
-	var obj map[string]json.RawMessage
+	var obj map[string]any
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return ""
 	}
-	raw, ok := obj[field]
+	raw, ok := getNestedPath(obj, field)
 	if !ok {
 		return ""
 	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return ""
-	}
+	s, _ := raw.(string)
 	return s
 }
 
@@ -128,8 +129,9 @@ func buildMergedJSON(items []json.RawMessage, listPath string) ([]byte, error) {
 	if listPath == "" {
 		return json.Marshal(items)
 	}
-	envelope := map[string]any{
-		listPath: items,
+	envelope := map[string]any{}
+	if err := setNestedPath(envelope, listPath, items); err != nil {
+		return nil, err
 	}
 	return json.Marshal(envelope)
 }
