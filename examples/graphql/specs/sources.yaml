@@ -1,0 +1,20 @@
+sources:
+  console:
+    repo_url: https://github.com/acme/graphql-console.git
+    pinned_tag: v1.0.0
+    backend: graphql
+    graphql:
+      schema: schema/console.graphql
+      expose:
+        queries: ["listApps", "getApp"]
+        mutations: ["createApp"]
+      groups:
+        - match: ["*App*"]
+          group: Apps
+      output:
+        - match: ["listApps"]
+          list_path: data.listApps.nodes
+          default_columns: ["id", "name", "status"]
+      selection:
+        max_depth: 2
+        prune: ["App.secretToken"]
