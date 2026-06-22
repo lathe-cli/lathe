@@ -120,10 +120,52 @@ sources:
           to: "."
       entries:
         - v1/accounts.proto
+
+  console:
+    repo_url: https://github.com/acme/graphql-console.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema/console.graphql
+      expose:
+        queries: ["listApps", "getApp"]
+        mutations: ["createApp"]
+      groups:
+        - match: ["*App*"]
+          group: Apps
+      output:
+        - match: ["listApps"]
+          list_path: data.listApps.nodes
+          default_columns: ["id", "name", "status"]
+      selection:
+        max_depth: 2
+        prune: ["App.secretToken"]
 ```
 
 Use immutable tags for reproducibility. `lathe specsync` resolves each tag to a
 commit SHA and writes sync state under `.cache/specs-sync/`.
+
+For `backend: graphql`, the pinned `graphql.schema` SDL file supplies API facts:
+root operations, arguments, return types, and selectable fields. The required
+`graphql.expose` policy decides which root fields become commands; there is no
+implicit expose-all mode. Mutations are listed separately so a query wildcard
+cannot expose destructive operations.
+
+Optional GraphQL policy blocks tune the generated CLI contract:
+
+- `graphql.groups`: operation-name globs mapped to CLI groups. If one operation
+  matches more than one group rule, codegen fails closed.
+- `graphql.output`: operation-name globs with configured `list_path` and/or
+  `default_columns`. Dotted paths such as `data.listApps.nodes` are supported.
+- `graphql.selection`: `max_depth` for generated selection sets and `prune`
+  patterns in `Type.field` form. Explicit `max_depth` must be greater than zero.
+
+GraphQL commands execute `POST /graphql` with a baked JSON body template:
+`{"query": "...", "variables": {}}`. Scalar and enum arguments become typed CLI
+flags and merge under `variables`. Required non-scalar arguments fail codegen
+because they cannot be faithfully represented as simple flags yet; optional
+non-scalar arguments remain query-declared and can be supplied with `--set` or
+`--file`.
 
 ## Generate Code
 
@@ -272,3 +314,24 @@ go build -o bin/richapi ./cmd/richapi
 bin/richapi commands --json
 bin/richapi commands show users list --json
 ```
+
+### GraphQL
+
+`examples/graphql` is the minimal GraphQL path for a pinned SDL file plus
+explicit `graphql:` policy:
+
+```text
+cd examples/graphql
+cli.yaml
+specs/sources.yaml
+cmd/graphqlctl/main.go
+lathe codegen -cache fixtures
+go mod tidy
+go build -o bin/graphqlctl ./cmd/graphqlctl
+bin/graphqlctl commands show apps list-apps --json
+bin/graphqlctl commands show apps create-app --json
+```
+
+The command detail exposes `POST /graphql`, the templated `{query, variables}`
+body, `body.merge_path=variables`, typed variable flags, and configured output
+hints.

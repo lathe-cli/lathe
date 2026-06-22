@@ -2,16 +2,16 @@
 
 # lathe
 
-> Generate agent-friendly Cobra CLIs from OpenAPI, Swagger, and protobuf API specs.
+> Generate agent-friendly Cobra CLIs from OpenAPI, Swagger, protobuf, and GraphQL API specs.
 
 [![CI](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Lathe is an API-to-CLI generator for teams that want one binary humans can use
 and AI agents can inspect safely. It turns Swagger 2.0, OpenAPI 3, and
-`google.api.http` protobuf APIs into production-grade Cobra CLIs with structured
-command discovery, auth metadata, request body builders, and machine-readable
-output.
+`google.api.http` protobuf APIs, plus curated GraphQL schemas, into
+production-grade Cobra CLIs with structured command discovery, auth metadata,
+request body builders, and machine-readable output.
 
 Generated CLIs ship with command catalog JSON, intent search, per-command detail
 JSON, auth metadata, body builders, structured output formats, and a repo-local
@@ -40,7 +40,7 @@ and executed through machine-readable contracts.
 
 Use Lathe when you need to:
 
-- Generate a Cobra CLI from OpenAPI 3, Swagger 2.0, or protobuf services.
+- Generate a Cobra CLI from OpenAPI 3, Swagger 2.0, protobuf services, or GraphQL control-plane APIs.
 - Keep an internal or customer-facing CLI synchronized with upstream API specs.
 - Expose API operations to AI agents without making them guess flags, auth, body
   shape, or output format.
@@ -70,7 +70,7 @@ built, and which output format to prefer.
 
 | Capability | What it means |
 |---|---|
-| Multi-backend generation | Swagger 2.0, OpenAPI 3, and protobuf services with `google.api.http` annotations become Cobra command trees. |
+| Multi-backend generation | Swagger 2.0, OpenAPI 3, protobuf services with `google.api.http` annotations, and curated GraphQL schemas become Cobra command trees. |
 | Single runtime shape | Generated modules share one runtime for auth, request building, output formatting, pagination, streaming, and error handling. |
 | Agentic-friendly discovery | `search`, `commands --json`, `commands show`, and `commands schema` expose the CLI as structured data. |
 | Generated Skills | Codegen writes `skills/<cli-name>/` so agents can load the CLI's operating guide and module references. |
@@ -161,6 +161,26 @@ sources:
     openapi3:
       files:
         - api/openapi.yaml
+
+  console:
+    repo_url: https://github.com/acme/graphql-console.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema/console.graphql
+      expose:
+        queries: ["listApps", "getApp"]
+        mutations: ["createApp"]
+      groups:
+        - match: ["*App*"]
+          group: Apps
+      output:
+        - match: ["listApps"]
+          list_path: data.listApps.nodes
+          default_columns: ["id", "name", "status"]
+      selection:
+        max_depth: 2
+        prune: ["App.secretToken"]
 ```
 
 ### 3. Generate and Build
@@ -255,16 +275,28 @@ Declares which upstream specs become modules.
 |---|---|---|
 | `repo_url` | Yes | Any URL `git clone` accepts. |
 | `pinned_tag` | Yes | Floating branches are rejected; reproducibility is mandatory. |
-| `backend` | Yes | One of `swagger`, `openapi3`, or `proto`. |
+| `backend` | Yes | One of `swagger`, `openapi3`, `proto`, or `graphql`. |
 | `swagger.files` | Swagger only | One or more Swagger 2.0 JSON specs. |
 | `openapi3.files` | OpenAPI 3 only | JSON or YAML OpenAPI specs. |
 | `proto.staging` | Proto only | Files staged into the `protoc` include root before parsing. |
 | `proto.entries` | Proto only | Entry proto files; only RPCs with `google.api.http` become commands. |
+| `graphql.schema` | GraphQL only | Pinned SDL file staged from the upstream repository. |
+| `graphql.expose` | GraphQL only | Explicit `queries` and/or `mutations` allow policy; missing policy fails closed. |
+| `graphql.groups` | GraphQL only | Operation-name globs mapped to CLI groups. Ambiguous matches fail closed. |
+| `graphql.output` | GraphQL only | Configured list path and default columns for generated output hints. |
+| `graphql.selection` | GraphQL only | Selection-set max depth and per-type field pruning. Explicit `max_depth` must be greater than zero. |
 
 Grouping rules:
 
 - Swagger and OpenAPI 3 use the operation's first tag.
 - Proto uses the service name.
+- GraphQL uses `graphql.groups` policy and falls back to the source module name when no group policy matches.
+
+GraphQL commands execute `POST /graphql` with a baked `{query, variables}`
+request envelope. Scalar and enum arguments become typed flags that merge under
+`variables`. Required non-scalar arguments fail codegen until they are modeled
+explicitly; optional non-scalar arguments stay query-declared and can be supplied
+with `--set` or `--file`.
 
 ### Overlays
 

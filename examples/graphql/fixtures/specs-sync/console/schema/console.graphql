@@ -1,0 +1,36 @@
+type Query {
+  """List application summaries."""
+  listApps(first: Int, after: String): AppConnection!
+
+  """Get one application by ID."""
+  getApp(id: ID!): App
+}
+
+type Mutation {
+  """Create an application."""
+  createApp(name: String!, region: String): App!
+}
+
+type AppConnection {
+  nodes: [App!]!
+  pageInfo: PageInfo!
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+type App {
+  id: ID!
+  name: String!
+  status: String!
+  region: String
+  owner: User
+  secretToken: String
+}
+
+type User {
+  id: ID!
+  email: String!
+}

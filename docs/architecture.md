@@ -45,14 +45,17 @@ flowchart TD
     C -->|swagger| D1[specsync.syncSwagger]
     C -->|openapi3| D3[specsync.syncOpenAPI3]
     C -->|proto| D2[specsync.syncProto]
+    C -->|graphql| D4[specsync.syncGraphQL]
 
     D1 --> E1[.cache/specs-sync/mod/*.swagger.json]
     D3 --> E3[.cache/specs-sync/mod/*.yaml / *.json]
     D2 --> E2[.cache/specs-sync/mod/*.proto + deps]
+    D4 --> E4[.cache/specs-sync/mod/*.graphql]
 
     E1 -->|swagger.Parse| F[rawir.RawModule]
     E3 -->|openapi3.Parse| F
     E2 -->|proto.Parse| F
+    E4 -->|graphql.Parse| F
 
     F -->|normalize.Normalize| G["[]runtime.CommandSpec"]
     H[internal/overlay/&lt;mod&gt;.yaml] -->|overlay.LoadDir| I[Overrides]
@@ -65,23 +68,25 @@ flowchart TD
     style J fill:#dcfce7,stroke:#16a34a
 ```
 
-Three backends fan in to a single raw IR (`rawir.RawModule`). `normalize` projects it onto `CommandSpec`. `render` is a pure template emit.
+Backends fan in to a single raw IR (`rawir.RawModule`). `normalize` projects it
+onto `CommandSpec`. `render` is a pure template emit.
 
 ### Raw IR vs runtime spec
 
 Two IRs exist on purpose. `rawir` preserves backend-adjacent detail (schemas, refs, per-response shape) needed for normalization decisions (list-path detection, column picking). `runtime.CommandSpec` is the minimal declarative form the runner needs. The boundary is enforced by the package graph: nothing under `pkg/runtime` imports `internal/codegen/**`.
 
-### Why three backends, one IR
+### Why multiple backends, one IR
 
-| Concern | Swagger backend | OpenAPI 3 backend | Proto backend |
-|---|---|---|---|
-| Grouping | operation's first `tag` | operation's first `tag` | `service` name |
-| Operation ID | `operationId` | `operationId` | `rpc` name |
-| Path / method | operation object | operation object | `google.api.http` annotation |
-| Body schema | `requestBody` | `requestBody` (with `$ref` rewrite) | input message |
-| Response schema | first 2xx response | first 2xx response | output message |
+| Concern | Swagger backend | OpenAPI 3 backend | Proto backend | GraphQL backend |
+|---|---|---|---|---|
+| Grouping | operation's first `tag` | operation's first `tag` | `service` name | `graphql.groups` policy, else source name |
+| Operation ID | `operationId` | `operationId` | `rpc` name | source name + root field name |
+| Path / method | operation object | operation object | `google.api.http` annotation | fixed `POST /graphql` |
+| Body schema | `requestBody` | `requestBody` (with `$ref` rewrite) | input message | static `{query, variables}` template |
+| Response schema | first 2xx response | first 2xx response | output message | generated selection set plus `graphql.output` policy |
 
-All normalized into the same `RawOperation` fields. By the time a spec reaches `normalize.Normalize`, the origin is irrelevant.
+All normalized into the same `RawOperation` fields. By the time a spec reaches
+`normalize.Normalize`, the origin is irrelevant.
 
 ## Package layout
 
@@ -98,6 +103,7 @@ graph TD
         I3[codegen/backends/swagger]
         I3b[codegen/backends/openapi3]
         I4[codegen/backends/proto]
+        I4b[codegen/backends/graphql]
         I5[codegen/normalize]
         I6[codegen/rawir]
         I7[codegen/render]
@@ -117,6 +123,7 @@ graph TD
     I0 --> I3
     I0 --> I3b
     I0 --> I4
+    I0 --> I4b
     I0 --> I5
     I0 --> I7
     I0 --> I8
@@ -124,6 +131,7 @@ graph TD
     I3 --> I6
     I3b --> I6
     I4 --> I6
+    I4b --> I6
     I5 --> I6
     I5 --> P2
     I7 --> P2
@@ -150,6 +158,7 @@ graph TD
 | `internal/codegen/backends/swagger` | codegen | Parse `*.swagger.json` → `RawModule`. Merges multiple files; first-seen wins on duplicates. |
 | `internal/codegen/backends/openapi3` | codegen | Parse OpenAPI 3.x YAML/JSON → `RawModule`. Rewrites `$ref`; inherits path-level parameters. |
 | `internal/codegen/backends/proto` | codegen | Parse staged `.proto` tree → `RawModule`. Only RPCs with `google.api.http` become operations. |
+| `internal/codegen/backends/graphql` | codegen | Parse pinned SDL plus `graphql:` policy → `RawModule`. Emits `POST /graphql` operations with baked query templates and variable params. |
 | `internal/codegen/rawir` | codegen | Backend-agnostic raw types (`RawModule`, `RawOperation`, `RawSchema`). Includes `$ref` resolution. |
 | `internal/codegen/normalize` | codegen | Semantic projection: groups, `Short`, list path, default columns, method-ordering for determinism. |
 | `internal/codegen/render` | codegen | `text/template` → gofmt'd Go. Emits per-module `_gen.go` and top-level `modules_gen.go`. |
@@ -221,6 +230,12 @@ Two restricted-override rules: **`Required`** may only tighten (optional → req
 Command `ignore` drops an operation during codegen, so it is absent from the generated CLI and catalog. Command `hidden` keeps the operation generated but hides it from normal help, search, and catalog output; `--include-hidden` can still inspect it. Parameter `hidden` does not hide a flag; it is retained only as a legacy spelling for `deprecated: true`. Prefer `deprecated: true` for parameter overlays.
 
 Module overlays may also define `defaults.pagination` with `match_commands` glob patterns and a param-value map. Bulk defaults only fill existing generated params with an empty default; they do not create params and do not replace defaults supplied by the upstream spec. A command-specific `commands.<use>.params.<name>.default` is applied afterward and wins over both spec and bulk defaults.
+
+GraphQL exposure, grouping, output hints, and selection-set policy live in
+`specs/sources.yaml`, not overlays. Those settings decide which commands exist
+and what query document they send, so they are durable source inputs rather than
+post-generation polish. Overlays can still rename, hide, annotate, or document
+the already-generated GraphQL commands.
 
 ## Runtime request lifecycle
 

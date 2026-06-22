@@ -1,0 +1,3 @@
+cli:
+  name: graphqlctl
+  short: GraphQL console CLI demo
