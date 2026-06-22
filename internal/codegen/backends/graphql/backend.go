@@ -86,23 +86,15 @@ type generator struct {
 func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.RawOperation, error) {
 	var varDefs, argList []string
 	var params []rawir.RawParameter
+	variableDefaults := map[string]any{}
 	for _, arg := range field.Arguments {
 		varDefs = append(varDefs, "$"+arg.Name+": "+arg.Type.String())
 		argList = append(argList, arg.Name+": $"+arg.Name)
-		def := g.schema.Types[arg.Type.Name()]
-		if def != nil && def.IsLeafType() {
-			params = append(params, rawir.RawParameter{
-				Name:        arg.Name,
-				In:          "variable",
-				Required:    arg.Type.NonNull,
-				Type:        rawType(arg.Type),
-				Description: arg.Description,
-			})
-			continue
+		argParams, err := g.variableParamsForArg(opType, field.Name, arg, variableDefaults)
+		if err != nil {
+			return rawir.RawOperation{}, err
 		}
-		if arg.Type.NonNull && arg.DefaultValue == nil {
-			return rawir.RawOperation{}, fmt.Errorf("%s %q: required argument %q of type %q is not a scalar and cannot be expressed as a CLI flag", opType, field.Name, arg.Name, arg.Type.String())
-		}
+		params = append(params, argParams...)
 	}
 
 	sel, err := g.selectionSet(field.Type.Name(), 1, map[string]bool{})
@@ -135,7 +127,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	}
 	doc.WriteString(" }")
 
-	template, err := json.Marshal(map[string]any{"query": doc.String(), "variables": map[string]any{}})
+	template, err := json.Marshal(map[string]any{"query": doc.String(), "variables": variableDefaults})
 	if err != nil {
 		return rawir.RawOperation{}, err
 	}
@@ -154,6 +146,78 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 		},
 		Output: output,
 	}, nil
+}
+
+func (g *generator) variableParamsForArg(opType string, operationName string, arg *ast.ArgumentDefinition, defaults map[string]any) ([]rawir.RawParameter, error) {
+	def := g.schema.Types[arg.Type.Name()]
+	if def != nil && def.IsLeafType() {
+		return []rawir.RawParameter{{
+			Name:        arg.Name,
+			In:          "variable",
+			Required:    arg.Type.NonNull,
+			Type:        rawType(arg.Type),
+			Description: arg.Description,
+			Enum:        enumValues(arg.Type, def),
+		}}, nil
+	}
+	if def != nil && def.Kind == ast.InputObject && arg.Type.Elem == nil {
+		return g.inputObjectParams(opType, operationName, arg.Name, arg.Type, arg.Type.NonNull && arg.DefaultValue == nil, defaults, map[string]bool{})
+	}
+	if arg.Type.NonNull && arg.DefaultValue == nil {
+		return nil, fmt.Errorf("%s %q: required argument %q of type %q is not a scalar and cannot be expressed as a CLI flag", opType, operationName, arg.Name, arg.Type.String())
+	}
+	return nil, nil
+}
+
+func (g *generator) inputObjectParams(opType string, operationName string, prefix string, typ *ast.Type, required bool, defaults map[string]any, onPath map[string]bool) ([]rawir.RawParameter, error) {
+	def := g.schema.Types[typ.Name()]
+	if def == nil || def.Kind != ast.InputObject || typ.Elem != nil {
+		if required {
+			return nil, fmt.Errorf("%s %q: required input field %q of type %q cannot be expressed as CLI flags", opType, operationName, prefix, typ.String())
+		}
+		return nil, nil
+	}
+	if onPath[def.Name] {
+		if required {
+			return nil, fmt.Errorf("%s %q: required input field %q creates an input object cycle through %q", opType, operationName, prefix, def.Name)
+		}
+		return nil, nil
+	}
+	if required {
+		setDefaultObject(defaults, prefix)
+	}
+
+	next := clonePath(onPath)
+	next[def.Name] = true
+	var params []rawir.RawParameter
+	for _, field := range def.Fields {
+		name := prefix + "." + field.Name
+		fieldRequired := required && field.Type.NonNull && field.DefaultValue == nil
+		fieldDef := g.schema.Types[field.Type.Name()]
+		if fieldDef != nil && fieldDef.IsLeafType() {
+			params = append(params, rawir.RawParameter{
+				Name:        name,
+				In:          "variable",
+				Required:    fieldRequired,
+				Type:        rawType(field.Type),
+				Description: field.Description,
+				Enum:        enumValues(field.Type, fieldDef),
+			})
+			continue
+		}
+		if fieldDef != nil && fieldDef.Kind == ast.InputObject && field.Type.Elem == nil {
+			child, err := g.inputObjectParams(opType, operationName, name, field.Type, fieldRequired, defaults, next)
+			if err != nil {
+				return nil, err
+			}
+			params = append(params, child...)
+			continue
+		}
+		if fieldRequired {
+			return nil, fmt.Errorf("%s %q: required input field %q of type %q cannot be expressed as CLI flags", opType, operationName, name, field.Type.String())
+		}
+	}
+	return params, nil
 }
 
 func (g *generator) selectionSet(typeName string, depth int, onPath map[string]bool) (string, error) {
@@ -313,5 +377,29 @@ func scalarType(t *ast.Type) string {
 		return "boolean"
 	default:
 		return "string"
+	}
+}
+
+func enumValues(typ *ast.Type, def *ast.Definition) []string {
+	if typ.Elem != nil || def == nil || def.Kind != ast.Enum {
+		return nil
+	}
+	values := make([]string, 0, len(def.EnumValues))
+	for _, v := range def.EnumValues {
+		values = append(values, v.Name)
+	}
+	return values
+}
+
+func setDefaultObject(root map[string]any, path string) {
+	current := root
+	parts := strings.Split(path, ".")
+	for _, part := range parts {
+		next, ok := current[part].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			current[part] = next
+		}
+		current = next
 	}
 }
