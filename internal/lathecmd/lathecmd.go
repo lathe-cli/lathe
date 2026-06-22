@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lathe-cli/lathe/internal/codegen/backends/graphql"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/openapi3"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/proto"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/swagger"
@@ -315,6 +316,8 @@ func parseSource(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, er
 		return proto.Parse(src, syncDir)
 	case sourceconfig.BackendOpenAPI3:
 		return openapi3.Parse(src, syncDir)
+	case sourceconfig.BackendGraphQL:
+		return graphql.Parse(src, syncDir)
 	default:
 		return nil, fmt.Errorf("source %q: unknown backend %q", src.Name, src.Backend)
 	}

@@ -119,6 +119,38 @@ func TestCommandsShow_EnvelopeBody(t *testing.T) {
 	}
 }
 
+func TestCommandsShow_EnvelopeVariableFlag(t *testing.T) {
+	root := NewApp(testManifest())
+	const tmpl = `{"query":"mutation createApp($name: String!){createApp(name:$name){id}}","variables":{}}`
+	runtime.Build(root, "demo", []runtime.CommandSpec{{
+		Group:       "Apps",
+		Use:         "create-app",
+		Short:       "Create an app",
+		OperationID: "Apps_CreateApp",
+		Method:      "POST",
+		PathTpl:     "/graphql",
+		Params: []runtime.ParamSpec{
+			{Name: "name", Flag: "name", In: runtime.InVariable, GoType: "string", Required: true, Help: "app name"},
+		},
+		RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json", Template: tmpl, MergePath: "variables"},
+	}})
+
+	out, err := execute(root, "commands", "show", "demo", "apps", "create-app", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry runtime.CatalogCommand
+	if err := json.Unmarshal([]byte(out), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if len(entry.Flags) != 1 || entry.Flags[0].Name != "name" || entry.Flags[0].Location != runtime.InVariable || !entry.Flags[0].Required {
+		t.Fatalf("variable flag = %+v", entry.Flags)
+	}
+	if entry.Body == nil || entry.Body.MergePath != "variables" {
+		t.Fatalf("envelope body = %+v", entry.Body)
+	}
+}
+
 func TestCommandsShow_NotFound(t *testing.T) {
 	root := NewApp(testManifest())
 	_, err := execute(root, "commands", "show", "demo", "users", "missing")

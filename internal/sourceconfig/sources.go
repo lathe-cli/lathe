@@ -13,6 +13,7 @@ const (
 	BackendSwagger  = "swagger"
 	BackendProto    = "proto"
 	BackendOpenAPI3 = "openapi3"
+	BackendGraphQL  = "graphql"
 )
 
 type Config struct {
@@ -28,6 +29,7 @@ type Source struct {
 	Swagger     *SwaggerConfig  `yaml:"swagger,omitempty"`
 	Proto       *ProtoConfig    `yaml:"proto,omitempty"`
 	OpenAPI3    *OpenAPI3Config `yaml:"openapi3,omitempty"`
+	GraphQL     *GraphQLConfig  `yaml:"graphql,omitempty"`
 }
 
 type SwaggerConfig struct {
@@ -42,6 +44,16 @@ type ProtoConfig struct {
 
 type OpenAPI3Config struct {
 	Files []string `yaml:"files"`
+}
+
+type GraphQLConfig struct {
+	Schema string         `yaml:"schema"`
+	Expose *GraphQLExpose `yaml:"expose,omitempty"`
+}
+
+type GraphQLExpose struct {
+	Queries   []string `yaml:"queries,omitempty"`
+	Mutations []string `yaml:"mutations,omitempty"`
 }
 
 type StagingEntry struct {
@@ -98,12 +110,6 @@ func validate(s *Source) error {
 		if s.Swagger == nil || len(s.Swagger.Files) == 0 {
 			return fmt.Errorf("backend=swagger requires non-empty swagger.files")
 		}
-		if s.Proto != nil {
-			return fmt.Errorf("backend=swagger must not set proto block")
-		}
-		if s.OpenAPI3 != nil {
-			return fmt.Errorf("backend=swagger must not set openapi3 block")
-		}
 	case BackendProto:
 		if s.Proto == nil || len(s.Proto.Entries) == 0 {
 			return fmt.Errorf("backend=proto requires non-empty proto.entries")
@@ -111,26 +117,39 @@ func validate(s *Source) error {
 		if len(s.Proto.Staging) == 0 {
 			return fmt.Errorf("backend=proto requires non-empty proto.staging")
 		}
-		if s.Swagger != nil {
-			return fmt.Errorf("backend=proto must not set swagger block")
-		}
-		if s.OpenAPI3 != nil {
-			return fmt.Errorf("backend=proto must not set openapi3 block")
-		}
 	case BackendOpenAPI3:
 		if s.OpenAPI3 == nil || len(s.OpenAPI3.Files) == 0 {
 			return fmt.Errorf("backend=openapi3 requires non-empty openapi3.files")
 		}
-		if s.Swagger != nil {
-			return fmt.Errorf("backend=openapi3 must not set swagger block")
+	case BackendGraphQL:
+		if s.GraphQL == nil || s.GraphQL.Schema == "" {
+			return fmt.Errorf("backend=graphql requires graphql.schema")
 		}
-		if s.Proto != nil {
-			return fmt.Errorf("backend=openapi3 must not set proto block")
+		if s.GraphQL.Expose == nil || (len(s.GraphQL.Expose.Queries) == 0 && len(s.GraphQL.Expose.Mutations) == 0) {
+			return fmt.Errorf("backend=graphql requires an explicit graphql.expose policy (queries and/or mutations); refusing to expose the whole schema")
 		}
 	case "":
 		return fmt.Errorf("missing backend")
 	default:
 		return fmt.Errorf("unknown backend %q", s.Backend)
+	}
+	return rejectForeignBlocks(s)
+}
+
+func rejectForeignBlocks(s *Source) error {
+	blocks := []struct {
+		backend string
+		set     bool
+	}{
+		{BackendSwagger, s.Swagger != nil},
+		{BackendProto, s.Proto != nil},
+		{BackendOpenAPI3, s.OpenAPI3 != nil},
+		{BackendGraphQL, s.GraphQL != nil},
+	}
+	for _, b := range blocks {
+		if b.backend != s.Backend && b.set {
+			return fmt.Errorf("backend=%s must not set %s block", s.Backend, b.backend)
+		}
 	}
 	return nil
 }
