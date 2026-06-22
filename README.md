@@ -298,6 +298,9 @@ request envelope. Scalar and enum arguments become typed flags that merge under
 dotted variable flags such as `--input-name`; required fields that cannot be
 represented as flags fail codegen instead of publishing an incomplete command.
 Optional complex fields can still be supplied with `--set` or `--file`.
+Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
+`pageInfo.endCursor`, `pageInfo.hasNextPage`, and an `after` argument get
+`--all`; subsequent pages write the cursor back under `variables.after`.
 
 ### Overlays
 

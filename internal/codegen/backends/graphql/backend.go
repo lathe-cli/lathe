@@ -105,7 +105,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	if err != nil {
 		return rawir.RawOperation{}, err
 	}
-	output, err := g.outputFor(field.Name)
+	output, err := g.outputFor(field)
 	if err != nil {
 		return rawir.RawOperation{}, err
 	}
@@ -286,7 +286,8 @@ func (g *generator) groupFor(fieldName string) (string, error) {
 	return g.module, nil
 }
 
-func (g *generator) outputFor(fieldName string) (*rawir.RawOutputHints, error) {
+func (g *generator) outputFor(field *ast.FieldDefinition) (*rawir.RawOutputHints, error) {
+	fieldName := field.Name
 	var output *rawir.RawOutputHints
 	for _, rule := range g.config.Output {
 		matched, err := matchAny(rule.Match, fieldName)
@@ -303,7 +304,62 @@ func (g *generator) outputFor(fieldName string) (*rawir.RawOutputHints, error) {
 			}
 		}
 	}
+	if output != nil {
+		pagination, err := g.relayPaginationFor(field, output.ListPath)
+		if err != nil {
+			return nil, err
+		}
+		output.Pagination = pagination
+	}
 	return output, nil
+}
+
+func (g *generator) relayPaginationFor(field *ast.FieldDefinition, listPath string) (*rawir.RawPaginationHint, error) {
+	if listPath == "" {
+		return nil, nil
+	}
+	wantPrefix := "data." + field.Name + "."
+	if listPath != wantPrefix+"nodes" && listPath != wantPrefix+"edges" {
+		return nil, nil
+	}
+	if !hasArg(field, "after") {
+		return nil, nil
+	}
+	if g.selectionMaxDepth() <= 1 {
+		return nil, nil
+	}
+	connection := g.schema.Types[field.Type.Name()]
+	if connection == nil {
+		return nil, nil
+	}
+	pruned, err := g.pruned(connection.Name, "pageInfo")
+	if err != nil || pruned {
+		return nil, err
+	}
+	pageInfoField := fieldByName(connection.Fields, "pageInfo")
+	if pageInfoField == nil {
+		return nil, nil
+	}
+	pageInfo := g.schema.Types[pageInfoField.Type.Name()]
+	if pageInfo == nil {
+		return nil, nil
+	}
+	for _, fieldName := range []string{"endCursor", "hasNextPage"} {
+		pruned, err := g.pruned(pageInfo.Name, fieldName)
+		if err != nil || pruned || fieldByName(pageInfo.Fields, fieldName) == nil {
+			return nil, err
+		}
+	}
+	limitParam := ""
+	if hasArg(field, "first") {
+		limitParam = "variables.first"
+	}
+	return &rawir.RawPaginationHint{
+		Strategy:   "body-cursor",
+		TokenParam: "variables.after",
+		TokenField: wantPrefix + "pageInfo.endCursor",
+		LimitParam: limitParam,
+	}, nil
 }
 
 func (g *generator) selectionMaxDepth() int {
@@ -358,6 +414,24 @@ func matchAny(patterns []string, name string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func fieldByName(fields ast.FieldList, name string) *ast.FieldDefinition {
+	for _, f := range fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	return nil
+}
+
+func hasArg(field *ast.FieldDefinition, name string) bool {
+	for _, arg := range field.Arguments {
+		if arg.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func rawType(t *ast.Type) string {

@@ -243,6 +243,42 @@ func TestParse_AppliesGraphQLGroupAndOutputPolicy(t *testing.T) {
 	}
 }
 
+func TestParse_DerivesRelayBodyCursorPagination(t *testing.T) {
+	const sdl = `
+type Query { listApps(first: Int, after: String): AppConnection! }
+type AppConnection { nodes: [App!]!, pageInfo: PageInfo! }
+type PageInfo { endCursor: String, hasNextPage: Boolean! }
+type App { id: ID!, name: String! }
+`
+	cfg := &sourceconfig.GraphQLConfig{
+		Schema: "schema.graphql",
+		Expose: &sourceconfig.GraphQLExpose{
+			Queries: []string{"listApps"},
+		},
+		Output: []sourceconfig.GraphQLOutputPolicy{
+			{Match: []string{"listApps"}, ListPath: "data.listApps.nodes", DefaultColumns: []string{"id", "name"}},
+		},
+	}
+	mod, err := parseSDLWithConfig(t, sdl, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := byID(mod.Operations)["console_listApps"]
+	if op.Output == nil || op.Output.Pagination == nil {
+		t.Fatalf("raw output pagination = %+v", op.Output)
+	}
+	if got := *op.Output.Pagination; got.Strategy != "body-cursor" || got.TokenParam != "variables.after" || got.TokenField != "data.listApps.pageInfo.endCursor" || got.LimitParam != "variables.first" {
+		t.Fatalf("raw pagination = %+v", got)
+	}
+	specs := normalize.Normalize(mod)
+	if len(specs) != 1 || specs[0].Output.Pagination == nil {
+		t.Fatalf("normalized pagination missing: %+v", specs)
+	}
+	if got := *specs[0].Output.Pagination; got.Strategy != "body-cursor" || got.TokenParam != "variables.after" || got.TokenField != "data.listApps.pageInfo.endCursor" || got.LimitParam != "variables.first" {
+		t.Fatalf("normalized pagination = %+v", got)
+	}
+}
+
 func TestParse_AppliesGraphQLSelectionPolicy(t *testing.T) {
 	maxDepth := 1
 	cfg := &sourceconfig.GraphQLConfig{
