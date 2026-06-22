@@ -396,19 +396,46 @@ type App { id: ID! }
 	}
 }
 
-func TestParse_FailsClosedOnRequiredNonLeafArg(t *testing.T) {
+func TestParse_ExpandsRequiredInputObjectLeafArgs(t *testing.T) {
 	const sdl = `
-input CreateAppInput { name: String! }
+input CreateAppInput { name: String!, region: String }
 type Query { ping: String }
 type Mutation { createApp(input: CreateAppInput!): App! }
 type App { id: ID! }
 `
-	_, err := parseSDL(t, sdl, nil, []string{"createApp"})
-	if err == nil {
-		t.Fatal("expected fail-closed error for a required non-scalar argument")
+	mod, err := parseSDL(t, sdl, nil, []string{"createApp"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "createApp") || !strings.Contains(err.Error(), "input") {
-		t.Errorf("error = %v, want to name the operation and argument", err)
+	create := byID(mod.Operations)["console_createApp"]
+	got := map[string]rawir.RawParameter{}
+	for _, p := range create.Parameters {
+		got[p.Name] = p
+	}
+	if p := got["input.name"]; p.In != "variable" || !p.Required || p.Type != "string" {
+		t.Fatalf("input.name variable = %+v", p)
+	}
+	if p := got["input.region"]; p.In != "variable" || p.Required || p.Type != "string" {
+		t.Fatalf("input.region variable = %+v", p)
+	}
+	var env map[string]any
+	if err := json.Unmarshal([]byte(create.RequestBody.Template), &env); err != nil {
+		t.Fatal(err)
+	}
+	vars, _ := env["variables"].(map[string]any)
+	if _, ok := vars["input"].(map[string]any); !ok {
+		t.Fatalf("required input object default missing: %#v", env["variables"])
+	}
+	specs := normalize.Normalize(mod)
+	if len(specs) != 1 {
+		t.Fatalf("specs = %d, want 1", len(specs))
+	}
+	flags := map[string]string{}
+	for _, p := range specs[0].Params {
+		flags[p.Name] = p.Flag
+	}
+	if flags["input.name"] != "input-name" || flags["input.region"] != "input-region" {
+		t.Fatalf("flags = %#v", flags)
 	}
 }
 
@@ -423,8 +450,11 @@ type App { id: ID! }
 		t.Fatalf("optional non-scalar argument should be allowed: %v", err)
 	}
 	apps := byID(mod.Operations)["console_apps"]
-	if len(apps.Parameters) != 0 {
-		t.Errorf("optional non-scalar argument should not be a flag: %+v", apps.Parameters)
+	if len(apps.Parameters) != 1 {
+		t.Fatalf("apps params = %+v, want 1", apps.Parameters)
+	}
+	if p := apps.Parameters[0]; p.Name != "filter.name" || p.Required || p.Type != "string" {
+		t.Fatalf("filter.name variable = %+v", p)
 	}
 	var env map[string]any
 	if err := json.Unmarshal([]byte(apps.RequestBody.Template), &env); err != nil {
@@ -432,6 +462,23 @@ type App { id: ID! }
 	}
 	if q, _ := env["query"].(string); !strings.Contains(q, "$filter: AppFilter") {
 		t.Errorf("optional argument should remain query-declared: %s", q)
+	}
+}
+
+func TestParse_FailsClosedOnRequiredUnsupportedInputField(t *testing.T) {
+	const sdl = `
+input MemberInput { email: String! }
+input CreateAppInput { members: [MemberInput!]! }
+type Query { ping: String }
+type Mutation { createApp(input: CreateAppInput!): App! }
+type App { id: ID! }
+`
+	_, err := parseSDL(t, sdl, nil, []string{"createApp"})
+	if err == nil {
+		t.Fatal("expected fail-closed error for a required unsupported input field")
+	}
+	if !strings.Contains(err.Error(), "createApp") || !strings.Contains(err.Error(), "input.members") {
+		t.Errorf("error = %v, want to name the operation and field", err)
 	}
 }
 

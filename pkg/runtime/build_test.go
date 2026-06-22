@@ -260,12 +260,12 @@ func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
 		Method:  "POST",
 		PathTpl: "/graphql",
 		Params: []ParamSpec{
-			{Name: "name", Flag: "name", In: InVariable, GoType: "string", Required: true, Help: "name"},
+			{Name: "input.name", Flag: "input-name", In: InVariable, GoType: "string", Required: true, Help: "name"},
 		},
 		RequestBody: &RequestBody{
 			Required:  true,
 			MediaType: "application/json",
-			Template:  `{"query":"mutation createApp($name: String!) { createApp(name: $name) { id } }","variables":{}}`,
+			Template:  `{"query":"mutation createApp($input: CreateAppInput!) { createApp(input: $input) { id } }","variables":{"input":{}}}`,
 			MergePath: "variables",
 		},
 		Security: &SecurityHint{Public: true},
@@ -275,7 +275,7 @@ func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
 	Build(root, "demo", specs)
-	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "create-app", "--name", "demo"})
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "create-app", "--input-name", "demo"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -287,8 +287,10 @@ func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
 	if q, _ := got["query"].(string); !strings.Contains(q, "mutation createApp") {
 		t.Errorf("query missing baked document: %#v", got["query"])
 	}
-	if vars, _ := got["variables"].(map[string]any); vars["name"] != "demo" {
-		t.Errorf("variables = %#v, want name=demo", got["variables"])
+	vars, _ := got["variables"].(map[string]any)
+	input, _ := vars["input"].(map[string]any)
+	if input["name"] != "demo" {
+		t.Errorf("variables = %#v, want input.name=demo", got["variables"])
 	}
 }
 

@@ -184,7 +184,7 @@ func queryParam(p rawir.RawParameter) runtime.ParamSpec {
 func variableParam(p rawir.RawParameter) runtime.ParamSpec {
 	ps := runtime.ParamSpec{
 		Name:       p.Name,
-		Flag:       camelToKebab(p.Name),
+		Flag:       variableFlagName(p.Name),
 		In:         runtime.InVariable,
 		Help:       helpText(p),
 		Required:   p.Required,
@@ -212,6 +212,10 @@ func variableParam(p rawir.RawParameter) runtime.ParamSpec {
 		ps.GoType = "string"
 	}
 	return ps
+}
+
+func variableFlagName(name string) string {
+	return strings.ReplaceAll(camelToKebab(name), ".", "-")
 }
 
 func headerParam(p rawir.RawParameter) runtime.ParamSpec {

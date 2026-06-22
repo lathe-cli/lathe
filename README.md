@@ -294,9 +294,10 @@ Grouping rules:
 
 GraphQL commands execute `POST /graphql` with a baked `{query, variables}`
 request envelope. Scalar and enum arguments become typed flags that merge under
-`variables`. Required non-scalar arguments fail codegen until they are modeled
-explicitly; optional non-scalar arguments stay query-declared and can be supplied
-with `--set` or `--file`.
+`variables`. Input-object arguments expand scalar and enum leaf fields into
+dotted variable flags such as `--input-name`; required fields that cannot be
+represented as flags fail codegen instead of publishing an incomplete command.
+Optional complex fields can still be supplied with `--set` or `--file`.
 
 ### Overlays
 

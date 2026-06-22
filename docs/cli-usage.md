@@ -162,10 +162,10 @@ Optional GraphQL policy blocks tune the generated CLI contract:
 
 GraphQL commands execute `POST /graphql` with a baked JSON body template:
 `{"query": "...", "variables": {}}`. Scalar and enum arguments become typed CLI
-flags and merge under `variables`. Required non-scalar arguments fail codegen
-because they cannot be faithfully represented as simple flags yet; optional
-non-scalar arguments remain query-declared and can be supplied with `--set` or
-`--file`.
+flags and merge under `variables`. Input-object arguments expand scalar and enum
+leaf fields into dotted variable flags such as `--input-name`; required fields
+that cannot be faithfully represented as flags fail codegen. Optional complex
+fields remain query-declared and can be supplied with `--set` or `--file`.
 
 ## Generate Code
 
