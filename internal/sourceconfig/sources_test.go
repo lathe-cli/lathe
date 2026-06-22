@@ -174,6 +174,113 @@ func TestLoad_RejectsOpenAPI3WithSwaggerBlock(t *testing.T) {
 	}
 }
 
+func TestLoad_AcceptsGraphQL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  console:
+    repo_url: https://example.com/repo.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema.graphql
+      expose:
+        queries: ["apps", "app"]
+        mutations: ["createApp"]
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	src := cfg.Sources["console"]
+	if src.Backend != BackendGraphQL {
+		t.Errorf("backend = %q, want graphql", src.Backend)
+	}
+	if src.GraphQL == nil || src.GraphQL.Schema != "schema.graphql" {
+		t.Fatalf("graphql config = %+v", src.GraphQL)
+	}
+	if src.GraphQL.Expose == nil || len(src.GraphQL.Expose.Queries) != 2 || len(src.GraphQL.Expose.Mutations) != 1 {
+		t.Fatalf("expose = %+v", src.GraphQL.Expose)
+	}
+}
+
+func TestLoad_RejectsGraphQLWithoutSchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  console:
+    repo_url: https://example.com/repo.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      expose:
+        queries: ["apps"]
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load accepted graphql without schema; want rejection")
+	}
+	if !strings.Contains(err.Error(), "graphql.schema") {
+		t.Errorf("error = %v, want to mention graphql.schema", err)
+	}
+}
+
+func TestLoad_RejectsGraphQLWithoutExposePolicy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  console:
+    repo_url: https://example.com/repo.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema.graphql
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load accepted graphql without expose policy; want fail-closed rejection")
+	}
+	if !strings.Contains(err.Error(), "refusing to expose the whole schema") {
+		t.Errorf("error = %v, want fail-closed exposure rejection", err)
+	}
+}
+
+func TestLoad_RejectsGraphQLWithSwaggerBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  console:
+    repo_url: https://example.com/repo.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema.graphql
+      expose:
+        queries: ["apps"]
+    swagger:
+      files: [api.json]
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load accepted graphql with swagger block; want rejection")
+	}
+	if !strings.Contains(err.Error(), "must not set swagger block") {
+		t.Errorf("error = %v, want to mention swagger block", err)
+	}
+}
+
 func TestLoad_AcceptsFullSHA(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sources.yaml")

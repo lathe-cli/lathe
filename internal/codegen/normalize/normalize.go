@@ -38,6 +38,8 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 				spec.Params = append(spec.Params, headerParam(pp))
 			case "formData":
 				spec.Params = append(spec.Params, formDataParam(pp))
+			case "variable":
+				spec.Params = append(spec.Params, variableParam(pp))
 			}
 		}
 		if op.RequestBody != nil {
@@ -156,6 +158,39 @@ func queryParam(p rawir.RawParameter) runtime.ParamSpec {
 	case "boolean":
 		ps.GoType = "bool"
 	case "array":
+		ps.GoType = "[]string"
+	default:
+		ps.GoType = "string"
+	}
+	return ps
+}
+
+func variableParam(p rawir.RawParameter) runtime.ParamSpec {
+	ps := runtime.ParamSpec{
+		Name:       p.Name,
+		Flag:       camelToKebab(p.Name),
+		In:         runtime.InVariable,
+		Help:       helpText(p),
+		Required:   p.Required,
+		Default:    p.Default,
+		Enum:       p.Enum,
+		Format:     p.Format,
+		Deprecated: p.Deprecated,
+	}
+	switch p.Type {
+	case "integer":
+		ps.GoType = "int64"
+	case "number":
+		ps.GoType = "float64"
+	case "boolean":
+		ps.GoType = "bool"
+	case "integer-array":
+		ps.GoType = "[]int64"
+	case "number-array":
+		ps.GoType = "[]float64"
+	case "boolean-array":
+		ps.GoType = "[]bool"
+	case "string-array", "array":
 		ps.GoType = "[]string"
 	default:
 		ps.GoType = "string"

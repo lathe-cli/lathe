@@ -13,6 +13,25 @@ import (
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
+func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
+	got := bodySummary(&runtime.RequestBody{
+		Required:  true,
+		MediaType: "application/json",
+		Template:  `{"query":"mutation($name:String!){createApp(name:$name){id}}","variables":{}}`,
+		MergePath: "variables",
+	})
+	if !strings.Contains(got, "variables") || !strings.Contains(got, "--set") {
+		t.Errorf("bodySummary = %q, want merge-path guidance", got)
+	}
+}
+
+func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
+	got := bodySummary(&runtime.RequestBody{Required: true, MediaType: "application/json"})
+	if want := "required; media type `application/json`"; got != want {
+		t.Errorf("bodySummary = %q, want %q", got, want)
+	}
+}
+
 func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	dir := t.TempDir()
 	manifest := &config.Manifest{

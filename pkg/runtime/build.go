@@ -122,6 +122,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			q := url.Values{}
 			hdrs := map[string]string{}
 			form := url.Values{}
+			vars := map[string]any{}
 			for _, p := range s.Params {
 				switch p.In {
 				case InPath:
@@ -133,6 +134,29 @@ func buildCmd(s CommandSpec) *cobra.Command {
 						continue
 					}
 					hdrs[p.Name] = *vals[p.Name].(*string)
+					continue
+				case InVariable:
+					if !cmd.Flags().Changed(p.Flag) {
+						continue
+					}
+					switch v := vals[p.Name].(type) {
+					case *int64:
+						vars[p.Name] = *v
+					case *float64:
+						vars[p.Name] = *v
+					case *bool:
+						vars[p.Name] = *v
+					case *[]int64:
+						vars[p.Name] = *v
+					case *[]float64:
+						vars[p.Name] = *v
+					case *[]bool:
+						vars[p.Name] = *v
+					case *[]string:
+						vars[p.Name] = *v
+					case *string:
+						vars[p.Name] = *v
+					}
 					continue
 				case InFormData:
 					if !cmd.Flags().Changed(p.Flag) {
@@ -181,7 +205,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					}
 					fileData = fd
 				}
-				raw, berr := buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, bodySets, bodyStringSets, fileData, hasFile)
+				raw, berr := buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, vars, bodySets, bodyStringSets, fileData, hasFile)
 				if berr != nil {
 					return berr
 				}
@@ -268,11 +292,31 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				def, _ = strconv.ParseInt(p.Default, 10, 64)
 			}
 			cmd.Flags().Int64Var(v, p.Flag, def, p.Help)
+		case "float64":
+			v := new(float64)
+			vals[p.Name] = v
+			var def float64
+			if p.Default != "" {
+				def, _ = strconv.ParseFloat(p.Default, 64)
+			}
+			cmd.Flags().Float64Var(v, p.Flag, def, p.Help)
 		case "bool":
 			v := new(bool)
 			vals[p.Name] = v
 			def := p.Default == "true"
 			cmd.Flags().BoolVar(v, p.Flag, def, p.Help)
+		case "[]int64":
+			v := new([]int64)
+			vals[p.Name] = v
+			cmd.Flags().Int64SliceVar(v, p.Flag, nil, p.Help)
+		case "[]float64":
+			v := new([]float64)
+			vals[p.Name] = v
+			cmd.Flags().Float64SliceVar(v, p.Flag, nil, p.Help)
+		case "[]bool":
+			v := new([]bool)
+			vals[p.Name] = v
+			cmd.Flags().BoolSliceVar(v, p.Flag, nil, p.Help)
 		case "[]string":
 			v := new([]string)
 			vals[p.Name] = v

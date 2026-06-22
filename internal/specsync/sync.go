@@ -53,6 +53,10 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 			if err := syncOpenAPI3(src, workDir, syncDir); err != nil {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
+		case sourceconfig.BackendGraphQL:
+			if err := syncGraphQL(src, workDir, syncDir); err != nil {
+				return fmt.Errorf("source %q: %w", src.Name, err)
+			}
 		default:
 			return fmt.Errorf("source %q: unsupported backend %q", src.Name, src.Backend)
 		}

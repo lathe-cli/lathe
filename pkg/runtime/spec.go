@@ -41,6 +41,7 @@ const (
 	InQuery    = "query"
 	InHeader   = "header"
 	InFormData = "formData"
+	InVariable = "variable"
 )
 
 type RequestBody struct {

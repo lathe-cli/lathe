@@ -572,6 +572,13 @@ func bodySummary(body *runtime.RequestBody) string {
 	if body.Required {
 		state = "required"
 	}
+	if body.Template != "" {
+		merge := body.MergePath
+		if merge == "" {
+			merge = "the document root"
+		}
+		return state + "; templated body, set inputs under `" + merge + "` with --set/--set-str/--file"
+	}
 	if body.MediaType != "" {
 		return state + "; media type `" + body.MediaType + "`"
 	}

@@ -52,7 +52,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	const tmpl = `{"query":"mutation($name:String!){createApp(name:$name){id}}","variables":{}}`
 
 	t.Run("merges --set under merge path, keeps baked query", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", []string{"name=demo", "replicas=3"}, nil, nil, false)
+		raw, err := buildEnvelopeBody(tmpl, "variables", nil, []string{"name=demo", "replicas=3"}, nil, nil, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -69,8 +69,23 @@ func TestBuildEnvelopeBody(t *testing.T) {
 		}
 	})
 
+	t.Run("merges typed variable values at merge path", func(t *testing.T) {
+		raw, err := buildEnvelopeBody(tmpl, "variables", map[string]any{"name": "demo", "count": int64(3)}, nil, nil, nil, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		vars, _ := got["variables"].(map[string]any)
+		if vars["name"] != "demo" || vars["count"] != float64(3) {
+			t.Errorf("variables = %#v, want name=demo count=3", vars)
+		}
+	})
+
 	t.Run("no user input sends template unchanged", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, false)
+		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, nil, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -84,7 +99,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("--file replaces merge target", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, []byte(`{"name":"from-file"}`), true)
+		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, []byte(`{"name":"from-file"}`), true)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -98,13 +113,13 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("--file with empty merge path is rejected", func(t *testing.T) {
-		if _, err := buildEnvelopeBody(tmpl, "", nil, nil, []byte(`{}`), true); err == nil {
+		if _, err := buildEnvelopeBody(tmpl, "", nil, nil, nil, []byte(`{}`), true); err == nil {
 			t.Fatal("expected error for --file with empty merge path")
 		}
 	})
 
 	t.Run("invalid template is reported", func(t *testing.T) {
-		if _, err := buildEnvelopeBody(`{not json`, "variables", nil, nil, nil, false); err == nil {
+		if _, err := buildEnvelopeBody(`{not json`, "variables", nil, nil, nil, nil, false); err == nil {
 			t.Fatal("expected error for invalid template")
 		}
 	})

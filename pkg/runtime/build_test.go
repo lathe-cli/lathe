@@ -242,6 +242,153 @@ func TestBuild_SetStrSendsStringBodyFields(t *testing.T) {
 	}
 }
 
+func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Apps",
+		Use:     "create-app",
+		Method:  "POST",
+		PathTpl: "/graphql",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InVariable, GoType: "string", Required: true, Help: "name"},
+		},
+		RequestBody: &RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Template:  `{"query":"mutation createApp($name: String!) { createApp(name: $name) { id } }","variables":{}}`,
+			MergePath: "variables",
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	Build(root, "demo", specs)
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "create-app", "--name", "demo"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	if q, _ := got["query"].(string); !strings.Contains(q, "mutation createApp") {
+		t.Errorf("query missing baked document: %#v", got["query"])
+	}
+	if vars, _ := got["variables"].(map[string]any); vars["name"] != "demo" {
+		t.Errorf("variables = %#v, want name=demo", got["variables"])
+	}
+}
+
+func TestBuild_FloatVariableSentAsJSONNumber(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Apps",
+		Use:     "set-weight",
+		Method:  "POST",
+		PathTpl: "/graphql",
+		Params: []ParamSpec{
+			{Name: "weight", Flag: "weight", In: InVariable, GoType: "float64", Required: true, Help: "weight"},
+		},
+		RequestBody: &RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Template:  `{"query":"mutation setWeight($weight: Float!) { setWeight(weight: $weight) { id } }","variables":{}}`,
+			MergePath: "variables",
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	Build(root, "demo", specs)
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "set-weight", "--weight", "1.5"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	vars, _ := got["variables"].(map[string]any)
+	if vars["weight"] != 1.5 {
+		t.Errorf("variables.weight = %#v (%T), want 1.5 (float64)", vars["weight"], vars["weight"])
+	}
+}
+
+func TestBuild_IntListVariableSentAsJSONNumbers(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Apps",
+		Use:     "set-ids",
+		Method:  "POST",
+		PathTpl: "/graphql",
+		Params: []ParamSpec{
+			{Name: "ids", Flag: "ids", In: InVariable, GoType: "[]int64", Required: true, Help: "ids"},
+		},
+		RequestBody: &RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Template:  `{"query":"mutation setIds($ids: [Int!]!) { setIds(ids: $ids) { id } }","variables":{}}`,
+			MergePath: "variables",
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	Build(root, "demo", specs)
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "set-ids", "--ids", "1", "--ids", "2"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	vars, _ := got["variables"].(map[string]any)
+	ids, ok := vars["ids"].([]any)
+	if !ok || len(ids) != 2 || ids[0] != float64(1) || ids[1] != float64(2) {
+		t.Errorf("variables.ids = %#v, want [1,2] as JSON numbers", vars["ids"])
+	}
+}
+
 func TestBuild_RequiredQueryParamBlocksBeforeRequest(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())

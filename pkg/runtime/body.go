@@ -49,7 +49,7 @@ func buildBodyFromSet(sets []string, stringSets []string) ([]byte, error) {
 	return json.Marshal(out)
 }
 
-func buildEnvelopeBody(template, mergePath string, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
+func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
 	var envelope map[string]any
 	if err := json.Unmarshal([]byte(template), &envelope); err != nil {
 		return nil, fmt.Errorf("invalid request body template: %w", err)
@@ -65,6 +65,11 @@ func buildEnvelopeBody(template, mergePath string, sets, stringSets []string, fi
 			}
 		}
 		if err := setNestedPath(envelope, mergePath, v); err != nil {
+			return nil, err
+		}
+	}
+	for name, value := range vars {
+		if err := setNestedPath(envelope, joinBodyPath(mergePath, name), value); err != nil {
 			return nil, err
 		}
 	}
