@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 const DefaultMaxPages = 100
@@ -38,6 +39,19 @@ func PaginateAll(ctx context.Context, hostname, method, basePath string, body an
 				goto done
 			}
 			currentPath = setQueryParam(basePath, hint.TokenParam, token)
+		case "body-cursor":
+			if hasNext, ok := extractJSONBool(data, relayHasNextPath(hint.TokenField)); ok && !hasNext {
+				goto done
+			}
+			token := extractJSONString(data, hint.TokenField)
+			if token == "" {
+				goto done
+			}
+			nextBody, berr := setBodyParam(body, hint.TokenParam, token)
+			if berr != nil {
+				return nil, berr
+			}
+			body = nextBody
 		case "offset":
 			offset += len(items)
 			currentPath = setQueryParam(basePath, hint.TokenParam, strconv.Itoa(offset))
@@ -47,6 +61,31 @@ func PaginateAll(ctx context.Context, hostname, method, basePath string, body an
 	}
 done:
 	return buildMergedJSON(allItems, listPath)
+}
+
+func setBodyParam(body any, path string, value string) ([]byte, error) {
+	if path == "" {
+		return nil, fmt.Errorf("pagination token body path is empty")
+	}
+	var root map[string]any
+	switch v := body.(type) {
+	case []byte:
+		if err := json.Unmarshal(v, &root); err != nil {
+			return nil, fmt.Errorf("pagination body is not JSON: %w", err)
+		}
+	case json.RawMessage:
+		if err := json.Unmarshal(v, &root); err != nil {
+			return nil, fmt.Errorf("pagination body is not JSON: %w", err)
+		}
+	case map[string]any:
+		root = v
+	default:
+		return nil, fmt.Errorf("pagination body must be JSON")
+	}
+	if err := setNestedPath(root, path, value); err != nil {
+		return nil, err
+	}
+	return json.Marshal(root)
 }
 
 func extractItemsRaw(data []byte, listPath string) []json.RawMessage {
@@ -100,6 +139,26 @@ func extractJSONString(data []byte, field string) string {
 	}
 	s, _ := raw.(string)
 	return s
+}
+
+func extractJSONBool(data []byte, field string) (bool, bool) {
+	if field == "" {
+		return false, false
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return false, false
+	}
+	raw, ok := getNestedPath(obj, field)
+	if !ok {
+		return false, false
+	}
+	b, ok := raw.(bool)
+	return b, ok
+}
+
+func relayHasNextPath(tokenField string) string {
+	return strings.TrimSuffix(tokenField, ".endCursor") + ".hasNextPage"
 }
 
 func setQueryParam(basePath, key, value string) string {

@@ -166,6 +166,9 @@ flags and merge under `variables`. Input-object arguments expand scalar and enum
 leaf fields into dotted variable flags such as `--input-name`; required fields
 that cannot be faithfully represented as flags fail codegen. Optional complex
 fields remain query-declared and can be supplied with `--set` or `--file`.
+Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
+`pageInfo.endCursor`, `pageInfo.hasNextPage`, and an `after` argument get
+`--all`; subsequent pages write the cursor back under `variables.after`.
 
 ## Generate Code
 

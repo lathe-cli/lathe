@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,6 +46,83 @@ func TestPaginateAll_Cursor(t *testing.T) {
 	}
 	if atomic.LoadInt32(&call) != 2 {
 		t.Errorf("made %d requests, want 2", atomic.LoadInt32(&call))
+	}
+}
+
+func TestPaginateAll_BodyCursor(t *testing.T) {
+	pages := []map[string]any{
+		{
+			"data": map[string]any{
+				"listApps": map[string]any{
+					"nodes": []any{map[string]any{"id": "1"}},
+					"pageInfo": map[string]any{
+						"endCursor":   "cursor-2",
+						"hasNextPage": true,
+					},
+				},
+			},
+		},
+		{
+			"data": map[string]any{
+				"listApps": map[string]any{
+					"nodes": []any{map[string]any{"id": "2"}},
+					"pageInfo": map[string]any{
+						"endCursor":   "cursor-3",
+						"hasNextPage": false,
+					},
+				},
+			},
+		},
+	}
+	var bodies []map[string]any
+	var bodiesMu sync.Mutex
+	var call int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("request body is not JSON: %v", err)
+		}
+		bodiesMu.Lock()
+		bodies = append(bodies, body)
+		bodiesMu.Unlock()
+		idx := int(atomic.LoadInt32(&call))
+		if idx >= len(pages) {
+			idx = len(pages) - 1
+		}
+		atomic.AddInt32(&call, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(pages[idx])
+	}))
+	defer srv.Close()
+
+	body := []byte(`{"query":"query listApps($first: Int, $after: String) { listApps(first: $first, after: $after) { nodes { id } pageInfo { endCursor hasNextPage } } }","variables":{"first":1}}`)
+	hint := PaginationHint{Strategy: "body-cursor", TokenParam: "variables.after", TokenField: "data.listApps.pageInfo.endCursor", LimitParam: "variables.first"}
+	data, err := PaginateAll(context.Background(), srv.URL, "POST", "/graphql", body, ClientOptions{Timeout: 5 * time.Second}, hint, "data.listApps.nodes", 10)
+	if err != nil {
+		t.Fatalf("PaginateAll: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	items := result["data"].(map[string]any)["listApps"].(map[string]any)["nodes"].([]any)
+	if len(items) != 2 {
+		t.Errorf("got %d items, want 2", len(items))
+	}
+	if atomic.LoadInt32(&call) != 2 {
+		t.Errorf("made %d requests, want 2", atomic.LoadInt32(&call))
+	}
+	bodiesMu.Lock()
+	defer bodiesMu.Unlock()
+	firstVars := bodies[0]["variables"].(map[string]any)
+	if _, ok := firstVars["after"]; ok {
+		t.Fatalf("first request after = %#v, want absent", firstVars["after"])
+	}
+	secondVars := bodies[1]["variables"].(map[string]any)
+	if secondVars["after"] != "cursor-2" {
+		t.Fatalf("second request after = %#v, want cursor-2", secondVars["after"])
 	}
 }
 

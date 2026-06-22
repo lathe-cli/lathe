@@ -55,6 +55,14 @@ type RawOutputHints struct {
 	ListPath          string   `json:",omitempty"`
 	DefaultColumns    []string `json:",omitempty"`
 	ResponseMediaType string   `json:",omitempty"`
+	Pagination        *RawPaginationHint
+}
+
+type RawPaginationHint struct {
+	Strategy   string
+	TokenParam string
+	TokenField string
+	LimitParam string
 }
 
 type RawSchema struct {

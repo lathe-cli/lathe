@@ -88,6 +88,14 @@ func applyRawOutputHints(spec *runtime.CommandSpec, hints *rawir.RawOutputHints)
 	if hints.ResponseMediaType != "" {
 		spec.Output.ResponseMediaType = hints.ResponseMediaType
 	}
+	if hints.Pagination != nil {
+		spec.Output.Pagination = &runtime.PaginationHint{
+			Strategy:   hints.Pagination.Strategy,
+			TokenParam: hints.Pagination.TokenParam,
+			TokenField: hints.Pagination.TokenField,
+			LimitParam: hints.Pagination.LimitParam,
+		}
+	}
 }
 
 func group(op rawir.RawOperation) string {
