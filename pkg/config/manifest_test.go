@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLoad_FullSpec(t *testing.T) {
 	data := []byte(`
@@ -8,6 +11,7 @@ cli:
   name: demo
   short: "demo CLI"
 auth:
+  login_aliases: [Login]
   validate:
     method: POST
     path: /whoami
@@ -24,6 +28,9 @@ auth:
 	}
 	if m.Auth.Validate == nil {
 		t.Fatal("expected Auth.Validate non-nil")
+	}
+	if len(m.Auth.LoginAliases) != 1 || m.Auth.LoginAliases[0] != "login" {
+		t.Fatalf("unexpected Auth.LoginAliases: %#v", m.Auth.LoginAliases)
 	}
 	if m.Auth.Validate.Method != "POST" || m.Auth.Validate.Path != "/whoami" {
 		t.Errorf("unexpected AuthValidate: %+v", m.Auth.Validate)
@@ -143,6 +150,46 @@ cli:
 `))
 	if err == nil {
 		t.Fatal("expected invalid command_path error")
+	}
+}
+
+func TestLoad_RejectsInvalidAuthLoginAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want string
+	}{
+		{
+			name: "empty",
+			data: "cli:\n  name: foo\nauth:\n  login_aliases: ['']\n",
+			want: "empty aliases",
+		},
+		{
+			name: "path",
+			data: "cli:\n  name: foo\nauth:\n  login_aliases: ['auth login']\n",
+			want: "single command names",
+		},
+		{
+			name: "reserved",
+			data: "cli:\n  name: foo\nauth:\n  login_aliases: [search]\n",
+			want: "reserved root command",
+		},
+		{
+			name: "duplicate",
+			data: "cli:\n  name: foo\nauth:\n  login_aliases: [login, Login]\n",
+			want: "duplicate alias",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load([]byte(tc.data))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
 	}
 }
 

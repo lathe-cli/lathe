@@ -23,7 +23,8 @@ type CLIInfo struct {
 }
 
 type AuthInfo struct {
-	Validate *AuthValidate `yaml:"validate,omitempty"`
+	Validate     *AuthValidate `yaml:"validate,omitempty"`
+	LoginAliases []string      `yaml:"login_aliases,omitempty"`
 }
 
 type AuthValidate struct {
@@ -59,6 +60,11 @@ func Load(bytes []byte) (*Manifest, error) {
 	if m.CLI.Name == "" {
 		return nil, fmt.Errorf("cli.name is required")
 	}
+	aliases, err := normalizeAuthLoginAliases(m.Auth.LoginAliases)
+	if err != nil {
+		return nil, err
+	}
+	m.Auth.LoginAliases = aliases
 	m.CLI.CommandPath = strings.ToLower(strings.TrimSpace(m.CLI.CommandPath))
 	if m.CLI.CommandPath == "" {
 		m.CLI.CommandPath = CommandPathAuto
@@ -79,6 +85,41 @@ func Load(bytes []byte) (*Manifest, error) {
 		m.CLI.HostEnv = upper + "_HOST"
 	}
 	return &m, nil
+}
+
+func normalizeAuthLoginAliases(aliases []string) ([]string, error) {
+	if len(aliases) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(aliases))
+	seen := map[string]bool{}
+	for _, raw := range aliases {
+		alias := strings.ToLower(strings.TrimSpace(raw))
+		if alias == "" {
+			return nil, fmt.Errorf("auth.login_aliases cannot contain empty aliases")
+		}
+		if len(strings.Fields(alias)) != 1 {
+			return nil, fmt.Errorf("auth.login_aliases entries must be single command names: %q", raw)
+		}
+		if reservedAuthLoginAlias(alias) {
+			return nil, fmt.Errorf("auth.login_aliases cannot use reserved root command %q", alias)
+		}
+		if seen[alias] {
+			return nil, fmt.Errorf("auth.login_aliases contains duplicate alias %q", alias)
+		}
+		seen[alias] = true
+		out = append(out, alias)
+	}
+	return out, nil
+}
+
+func reservedAuthLoginAlias(alias string) bool {
+	switch alias {
+	case "auth", "commands", "completion", "help", "search", "version":
+		return true
+	default:
+		return false
+	}
 }
 
 var (

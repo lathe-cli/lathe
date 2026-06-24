@@ -39,6 +39,12 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	authCmd := auth.NewCommand(m)
 	authCmd.GroupID = authGroupID
 	cmd.AddCommand(authCmd)
+	for _, alias := range m.Auth.LoginAliases {
+		aliasCmd := auth.LoginCommand(m, alias)
+		aliasCmd.Short = "Shortcut for auth login"
+		aliasCmd.GroupID = authGroupID
+		cmd.AddCommand(aliasCmd)
+	}
 	cmd.AddCommand(commandsCmd(m))
 	cmd.AddCommand(searchCmd(m))
 	cmd.AddCommand(versionCmd())

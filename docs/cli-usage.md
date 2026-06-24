@@ -60,6 +60,7 @@ cli:
   short: "Command-line tool for Acme services"
 
 auth:
+  login_aliases: [login]
   validate:
     method: GET
     path: /api/v1/whoami
@@ -74,6 +75,15 @@ The `cli.name` value becomes the generated binary name and root command name.
 and multiple modules use `<cli> <module> <group> <operation>`. Set it to
 `namespaced` to always keep the module segment, or `flat` to require the single
 module flat path and fail codegen on root command conflicts.
+
+The optional `auth.login_aliases` list adds root-level shortcuts for the
+built-in auth login command. For example, `login_aliases: [login]` makes
+`acmectl login` execute the same code path as `acmectl auth login`, including
+hostname handling, token storage, validation, `--insecure`, and
+`--skip-validate`. These aliases are built-in auth shortcuts, not generated API
+commands: they do not appear in `search`, `commands --json`, or `commands show`.
+Use overlays only for generated API commands; overlays cannot add or modify
+built-in auth shortcuts.
 
 To customize generated Skill output, add an optional top-level `skill` block:
 

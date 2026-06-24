@@ -2,7 +2,9 @@ package lathe
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -38,6 +40,69 @@ func TestNewAppBindsManifest(t *testing.T) {
 	}
 	if got := config.Active(); got != m {
 		t.Fatalf("bound manifest = %p, want %p", got, m)
+	}
+}
+
+func TestNewAppAuthLoginAliasUsesBuiltinLoginPath(t *testing.T) {
+	m, err := config.Load([]byte(`
+cli:
+  name: myctl
+  short: test cli
+auth:
+  login_aliases: [login]
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	root := NewApp(m)
+	if child := findChild(root, "login"); child == nil {
+		t.Fatal("root missing login alias")
+	} else if child.Short != "Shortcut for auth login" {
+		t.Fatalf("alias short = %q", child.Short)
+	}
+
+	restoreStdin := replaceStdin(t, "secret-token\n")
+	defer restoreStdin()
+	if _, err := execute(root, "login", "--hostname", "https://api.example.com", "--with-token", "--skip-validate"); err != nil {
+		t.Fatalf("login alias execute: %v", err)
+	}
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatalf("LoadHosts: %v", err)
+	}
+	entry, ok := hosts.Get("api.example.com")
+	if !ok {
+		t.Fatal("expected saved host")
+	}
+	if entry.OAuthToken != "secret-token" {
+		t.Fatalf("OAuthToken = %q, want secret-token", entry.OAuthToken)
+	}
+
+	root = NewApp(m)
+	out, err := execute(root, "commands", "--json")
+	if err != nil {
+		t.Fatalf("commands: %v", err)
+	}
+	var catalog runtime.Catalog
+	if err := json.Unmarshal([]byte(out), &catalog); err != nil {
+		t.Fatalf("unmarshal catalog: %v", err)
+	}
+	if len(catalog.Commands) != 0 {
+		t.Fatalf("alias should not appear in generated catalog: %+v", catalog.Commands)
+	}
+
+	out, err = execute(root, "search", "login", "--json")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	var results []runtime.SearchResult
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("unmarshal search: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("alias should not appear in generated search: %+v", results)
 	}
 }
 
@@ -139,5 +204,35 @@ func TestRunUsesRuntimeExecuteErrors(t *testing.T) {
 	}, []string{"needs-auth"}, &stdout, &stderr)
 	if code != runtime.ExitNotAuthenticated {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitNotAuthenticated)
+	}
+}
+
+func findChild(parent *cobra.Command, name string) *cobra.Command {
+	for _, child := range parent.Commands() {
+		if child.Name() == name {
+			return child
+		}
+	}
+	return nil
+}
+
+func replaceStdin(t *testing.T, content string) func() {
+	t.Helper()
+
+	old := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	if _, err := w.WriteString(content); err != nil {
+		t.Fatalf("write stdin pipe: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdin pipe writer: %v", err)
+	}
+	os.Stdin = r
+	return func() {
+		os.Stdin = old
+		_ = r.Close()
 	}
 }

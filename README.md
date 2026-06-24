@@ -266,6 +266,7 @@ Defines CLI identity and optional auth validation behavior.
 | `cli.name` | Binary and command name, for example `acmectl`. |
 | `cli.short` | Root command summary. |
 | `auth.validate` | Optional endpoint used by `auth status` to display the logged-in user. |
+| `auth.login_aliases` | Optional root shortcuts such as `login` for the built-in `auth login` command. These shortcuts are not generated API commands and are not configured through overlays. |
 
 ### `specs/sources.yaml`
 

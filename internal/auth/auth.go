@@ -20,7 +20,7 @@ func NewCommand(m *config.Manifest) *cobra.Command {
 		Use:   "auth",
 		Short: fmt.Sprintf("Authenticate %s with a host", m.CLI.Name),
 	}
-	cmd.AddCommand(newLogin(m), newStatus(), newLogout())
+	cmd.AddCommand(LoginCommand(m, "login"), newStatus(), newLogout())
 	return cmd
 }
 
@@ -34,14 +34,19 @@ func rootBool(cmd *cobra.Command, name string) bool {
 	return v
 }
 
-func newLogin(m *config.Manifest) *cobra.Command {
+// LoginCommand builds the auth login command under either `auth login` or a
+// root-level shortcut. The execution path stays identical for both forms.
+func LoginCommand(m *config.Manifest, use string) *cobra.Command {
+	if use == "" {
+		use = "login"
+	}
 	var (
 		authType     string
 		withToken    bool
 		skipValidate bool
 	)
 	cmd := &cobra.Command{
-		Use:   "login",
+		Use:   use,
 		Short: "Authenticate with a host",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostname := rootString(cmd, "hostname")

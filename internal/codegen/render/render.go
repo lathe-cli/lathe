@@ -52,7 +52,7 @@ func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides m
 	return renderModuleSpecs(name, cliName, merged)
 }
 
-func ResolveFlatCommandPath(policy string, moduleCount int, specs []runtime.CommandSpec) (bool, error) {
+func ResolveFlatCommandPath(policy string, moduleCount int, specs []runtime.CommandSpec, extraReservedRootCommands ...string) (bool, error) {
 	if policy == "" {
 		policy = config.CommandPathAuto
 	}
@@ -66,12 +66,12 @@ func ResolveFlatCommandPath(policy string, moduleCount int, specs []runtime.Comm
 	case config.CommandPathNamespaced:
 		return false, nil
 	case config.CommandPathFlat:
-		if conflict, ok := flatPathConflict(specs); ok {
+		if conflict, ok := flatPathConflict(specs, extraReservedRootCommands); ok {
 			return false, fmt.Errorf("cli.command_path=flat conflicts with command %q", conflict)
 		}
 		return true, nil
 	case config.CommandPathAuto:
-		_, conflict := flatPathConflict(specs)
+		_, conflict := flatPathConflict(specs, extraReservedRootCommands)
 		return !conflict, nil
 	default:
 		return false, fmt.Errorf("unknown cli.command_path %q", policy)
@@ -93,14 +93,24 @@ func RewriteCommandExamples(cli, module string, specs []runtime.CommandSpec, fla
 	return rewritten
 }
 
-func flatPathConflict(specs []runtime.CommandSpec) (string, bool) {
+func flatPathConflict(specs []runtime.CommandSpec, extraReservedRootCommands []string) (string, bool) {
 	seen := map[string]string{}
+	reserved := map[string]bool{}
+	for name := range reservedRootCommands {
+		reserved[name] = true
+	}
+	for _, name := range extraReservedRootCommands {
+		if name == "" {
+			continue
+		}
+		reserved[rootCommandName(name)] = true
+	}
 	for _, spec := range specs {
 		name := rootCommandName(spec.Group)
 		if name == "" {
 			continue
 		}
-		if reservedRootCommands[name] {
+		if reserved[name] {
 			return name, true
 		}
 		if group, ok := seen[name]; ok && group != spec.Group {

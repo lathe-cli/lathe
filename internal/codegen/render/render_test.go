@@ -452,6 +452,14 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		t.Fatal("auto should keep Cobra-normalized root command conflicts namespaced")
 	}
 
+	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{{Group: "Login", Use: "create-session"}}, "login")
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if flat {
+		t.Fatal("auto should keep configured auth login alias conflicts namespaced")
+	}
+
 	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{
 		{Group: "Users", Use: "list-users"},
 		{Group: "Users API", Use: "get-user"},
@@ -471,6 +479,11 @@ func TestResolveFlatCommandPath(t *testing.T) {
 	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}})
 	if err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("expected Cobra-normalized flat conflict error, got %v", err)
+	}
+
+	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{{Group: "Login", Use: "create-session"}}, "login")
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected configured auth login alias conflict error, got %v", err)
 	}
 
 	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{

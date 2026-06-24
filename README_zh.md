@@ -231,6 +231,7 @@ go run ./cmd/lathe codegen -skill-root ""
 | `cli.name` | 二进制和命令名称，例如 `acmectl`。 |
 | `cli.short` | 根命令摘要。 |
 | `auth.validate` | 可选端点，供 `auth status` 展示已登录用户。 |
+| `auth.login_aliases` | 可选根级快捷入口，例如用 `login` 指向内置 `auth login`。这些快捷入口不是生成的 API 命令，也不通过 overlay 配置。 |
 
 ### `specs/sources.yaml`
 

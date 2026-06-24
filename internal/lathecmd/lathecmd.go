@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/backends/graphql"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/openapi3"
@@ -192,9 +193,14 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		if src.DisplayName != "" {
 			cliName = src.DisplayName
 		}
-		flat, err := render.ResolveFlatCommandPath(manifest.CLI.CommandPath, len(ordered), specs)
+		flat, err := render.ResolveFlatCommandPath(manifest.CLI.CommandPath, len(ordered), specs, manifest.Auth.LoginAliases...)
 		if err != nil {
 			return err
+		}
+		if !flat {
+			if alias := conflictingAuthLoginAlias(cliName, manifest.Auth.LoginAliases); alias != "" {
+				return fmt.Errorf("auth.login_aliases command %q conflicts with source module %q", alias, cliName)
+			}
 		}
 		specs = render.RewriteCommandExamples(manifest.CLI.Name, cliName, specs, flat)
 		if err := render.RenderModule(src.Name, cliName, specs, nil); err != nil {
@@ -217,6 +223,27 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		}
 	}
 	return nil
+}
+
+func conflictingAuthLoginAlias(moduleName string, aliases []string) string {
+	moduleRoot := rootCommandName(moduleName)
+	if moduleRoot == "" {
+		return ""
+	}
+	for _, alias := range aliases {
+		if rootCommandName(alias) == moduleRoot {
+			return alias
+		}
+	}
+	return ""
+}
+
+func rootCommandName(use string) string {
+	fields := strings.Fields(strings.ToLower(use))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Manifest, string, string, error) {

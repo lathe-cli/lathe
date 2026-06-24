@@ -408,6 +408,30 @@ paths:
 	}
 }
 
+func TestRunCodegen_RejectsAuthLoginAliasModuleConflict(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", "cli:\n  name: acmectl\n  short: Acme CLI\n  command_path: namespaced\nauth:\n  login_aliases: [login]\n")
+	writeCodegenFile(t, "specs/sources.yaml", `sources:
+  acme:
+    display_name: login
+    repo_url: https://example.com/acme.git
+    pinned_tag: v1.0.0
+    backend: openapi3
+    openapi3:
+      files: [openapi.yaml]
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `auth.login_aliases command "login" conflicts with source module "login"`) {
+		t.Fatalf("expected auth login alias module conflict error, got %v", err)
+	}
+	if _, err := os.Stat("internal/generated/acme/acme_gen.go"); !os.IsNotExist(err) {
+		t.Fatalf("conflicting alias should fail before writing module output, stat err = %v", err)
+	}
+}
+
 func TestRunCodegen_MissingManifestFailsWhenSkillEnabled(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
