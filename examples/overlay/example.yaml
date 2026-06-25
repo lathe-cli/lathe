@@ -8,7 +8,7 @@
 #     -sources specs/sources.yaml \
 #     -overlay internal/overlay
 #
-# The overlay layer rewrites help text and aliases for commands synthesized
+# The overlay layer rewrites command names, help text, and aliases for commands synthesized
 # from the upstream spec. The command's Use string matches CommandSpec.Use
 # emitted by codegen (typically the lowercased operationId / rpc name).
 # Overrides are baked into the generated CommandSpec at codegen time; the
@@ -27,6 +27,7 @@ commands: {}
 #       pageSize: "20"
 # commands:
 #   create-user:
+#     use: create
 #     aliases: [adduser]
 #     short: "Create a user in the IAM service"
 #     long: |

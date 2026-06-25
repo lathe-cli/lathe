@@ -10,6 +10,7 @@ import (
 )
 
 type Override struct {
+	Use           string                   `yaml:"use"`
 	Aliases       []string                 `yaml:"aliases"`
 	Short         string                   `yaml:"short"`
 	Long          string                   `yaml:"long"`

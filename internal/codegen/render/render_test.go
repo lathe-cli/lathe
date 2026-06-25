@@ -250,6 +250,24 @@ func TestMergeOverlay_ParamRequiredOverride(t *testing.T) {
 	}
 }
 
+func TestMergeOverlay_UseRename(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group:   "Repos",
+		Use:     "create-repo",
+		Aliases: []string{"new-repo"},
+	}}
+	merged := MergeOverlay(specs, map[string]overlay.Override{
+		"create-repo": {Use: "create", Aliases: []string{"new"}},
+	})
+
+	if got := merged[0].Use; got != "create" {
+		t.Fatalf("Use = %q, want create", got)
+	}
+	if !reflect.DeepEqual(merged[0].Aliases, []string{"new-repo", "new"}) {
+		t.Fatalf("aliases = %#v", merged[0].Aliases)
+	}
+}
+
 func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
 	specs := []runtime.CommandSpec{
 		{
@@ -487,6 +505,17 @@ func TestResolveFlatCommandPath(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("expected duplicate group flat conflict error, got %v", err)
+	}
+
+	renamed := MergeOverlay([]runtime.CommandSpec{
+		{Group: "Repos", Use: "create-repo", OperationID: "Repos_CreateRepo"},
+		{Group: "Repos", Use: "create", OperationID: "Repos_Create"},
+	}, map[string]overlay.Override{
+		"create-repo": {Use: "create"},
+	})
+	_, err = ResolveFlatCommandPath("namespaced", 1, renamed)
+	if err == nil || !strings.Contains(err.Error(), `command path "repos create" conflicts`) {
+		t.Fatalf("expected renamed command conflict error, got %v", err)
 	}
 }
 
