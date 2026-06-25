@@ -6,7 +6,7 @@ Use it in a target CLI repository that owns:
 
 - `go.mod`: the downstream module path for generated internal package imports.
 - `cli.yaml`: the generated CLI identity and optional auth validation config.
-- `specs/sources.yaml`: pinned upstream API specs.
+- `specs/sources.yaml`: declared upstream or local API specs.
 - `cmd/<cli-name>/main.go`: the thin runtime entrypoint for the generated CLI.
 
 The normal path is:
@@ -88,7 +88,7 @@ set it to `""` to disable Skill generation. The optional `skill.include` value
 points at repo-local Skill resources merged into generated Skill files. Keep the
 include directory outside `skill.root`.
 
-## Pin API Specs
+## Declare API Specs
 
 Create `specs/sources.yaml`:
 
@@ -140,10 +140,21 @@ sources:
       selection:
         max_depth: 2
         prune: ["App.secretToken"]
+
+  awire:
+    local_path: ../awire
+    backend: openapi3
+    openapi3:
+      files:
+        - openapi/awire.yaml
 ```
 
 Use immutable tags for reproducibility. `lathe specsync` resolves each tag to a
 commit SHA and writes sync state under `.cache/specs-sync/`.
+
+Use `local_path` instead of `repo_url`/`pinned_tag` for a working-tree source.
+Relative paths resolve from `specs/sources.yaml`; sync state records the
+resolved local path for cache checks.
 
 For `backend: graphql`, the pinned `graphql.schema` SDL file supplies API facts:
 root operations, arguments, return types, and selectable fields. The required
@@ -216,7 +227,7 @@ internal/generated/
 `internal/generated/` contains generated Go command specs. `<skill.root>/<cli-name>/`
 contains the generated agent Skill guide and module references when Skill
 generation is enabled. These outputs are reproducible from `cli.yaml`,
-`specs/sources.yaml`, pinned specs, and overlays. Skill output also includes any
+`specs/sources.yaml`, synced specs, and overlays. Skill output also includes any
 resources declared by `skill.include`.
 
 ## Wire the Generated CLI
@@ -320,7 +331,7 @@ bin/richapi commands show users list --json
 
 ### GraphQL
 
-`examples/graphql` is the minimal GraphQL path for a pinned SDL file plus
+`examples/graphql` is the minimal GraphQL path for a staged SDL file plus
 explicit `graphql:` policy:
 
 ```text

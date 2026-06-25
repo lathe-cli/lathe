@@ -2,8 +2,10 @@ package sourceconfig
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -28,6 +30,7 @@ type Source struct {
 	DefaultHostname *string         `yaml:"default_hostname,omitempty"`
 	RepoURL         string          `yaml:"repo_url"`
 	PinnedTag       string          `yaml:"pinned_tag"`
+	LocalPath       string          `yaml:"local_path"`
 	Backend         string          `yaml:"backend"`
 	Swagger         *SwaggerConfig  `yaml:"swagger,omitempty"`
 	Proto           *ProtoConfig    `yaml:"proto,omitempty"`
@@ -95,9 +98,10 @@ func Load(path string) (*Config, error) {
 	if len(cfg.Sources) == 0 {
 		return nil, fmt.Errorf("%s declares no sources", path)
 	}
+	baseDir := filepath.Dir(path)
 	for name, src := range cfg.Sources {
 		src.Name = name
-		if err := validate(src); err != nil {
+		if err := validate(src, baseDir); err != nil {
 			return nil, fmt.Errorf("source %q: %w", name, err)
 		}
 	}
@@ -117,7 +121,7 @@ func (c *Config) Ordered() []*Source {
 	return out
 }
 
-func validate(s *Source) error {
+func validate(s *Source, baseDir string) error {
 	if s.DefaultHostname != nil {
 		hostname := latheconfig.NormalizeHostname(*s.DefaultHostname)
 		if hostname == "" {
@@ -125,14 +129,28 @@ func validate(s *Source) error {
 		}
 		*s.DefaultHostname = hostname
 	}
-	if s.RepoURL == "" {
-		return fmt.Errorf("missing repo_url")
-	}
-	if s.PinnedTag == "" {
-		return fmt.Errorf("missing pinned_tag")
-	}
-	if err := validateRef(s.PinnedTag); err != nil {
-		return err
+	if s.LocalPath != "" {
+		if s.RepoURL != "" {
+			return fmt.Errorf("local_path cannot be used with repo_url")
+		}
+		if s.PinnedTag != "" {
+			return fmt.Errorf("local_path cannot be used with pinned_tag")
+		}
+		localPath, err := resolveLocalPath(baseDir, s.LocalPath)
+		if err != nil {
+			return err
+		}
+		s.LocalPath = localPath
+	} else {
+		if s.RepoURL == "" {
+			return fmt.Errorf("missing repo_url")
+		}
+		if s.PinnedTag == "" {
+			return fmt.Errorf("missing pinned_tag")
+		}
+		if err := validateRef(s.PinnedTag); err != nil {
+			return err
+		}
 	}
 	switch s.Backend {
 	case BackendSwagger:
@@ -166,6 +184,37 @@ func validate(s *Source) error {
 		return fmt.Errorf("unknown backend %q", s.Backend)
 	}
 	return rejectForeignBlocks(s)
+}
+
+func resolveLocalPath(baseDir, raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("local_path must not be empty")
+	}
+	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
+		if u.Scheme != "file" {
+			return "", fmt.Errorf("local_path must be a filesystem path or file:// URL")
+		}
+		if u.Host != "" && u.Host != "localhost" {
+			return "", fmt.Errorf("local_path file:// URL must not include a remote host")
+		}
+		raw = filepath.FromSlash(u.Path)
+		if raw == "" {
+			return "", fmt.Errorf("local_path file:// URL must include a path")
+		}
+	} else if strings.Contains(raw, "://") {
+		return "", fmt.Errorf("local_path must be a filesystem path or file:// URL")
+	}
+	if colon := strings.IndexByte(raw, ':'); colon > 0 && strings.Contains(raw[:colon], "@") && !strings.ContainsAny(raw[:colon], `/\`) {
+		return "", fmt.Errorf("local_path must be a filesystem path or file:// URL")
+	}
+	if !filepath.IsAbs(raw) {
+		raw = filepath.Join(baseDir, raw)
+	}
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		return "", fmt.Errorf("resolve local_path: %w", err)
+	}
+	return abs, nil
 }
 
 func rejectForeignBlocks(s *Source) error {

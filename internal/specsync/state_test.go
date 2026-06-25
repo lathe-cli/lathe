@@ -5,9 +5,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 const fakeSHA = "1234567890abcdef1234567890abcdef12345678"
+
+func gitSource() *sourceconfig.Source {
+	return &sourceconfig.Source{
+		Name:      "demo",
+		Backend:   sourceconfig.BackendSwagger,
+		PinnedTag: "v1.2.3",
+	}
+}
 
 func TestSaveLoadState_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
@@ -39,7 +49,28 @@ func TestVerifyState_AcceptsFullState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveState: %v", err)
 	}
-	if err := VerifyState(dir, "demo", "swagger", "v1.2.3"); err != nil {
+	if err := VerifyState(dir, gitSource()); err != nil {
+		t.Errorf("VerifyState: %v", err)
+	}
+}
+
+func TestVerifyState_AcceptsLocalState(t *testing.T) {
+	dir := t.TempDir()
+	localPath := filepath.Join(t.TempDir(), "api")
+	if err := SaveState(dir, &State{
+		SourceKind: SourceKindLocal,
+		Source:     "demo",
+		Backend:    "openapi3",
+		SyncedFrom: localPath,
+	}); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+	src := &sourceconfig.Source{
+		Name:      "demo",
+		Backend:   sourceconfig.BackendOpenAPI3,
+		LocalPath: localPath,
+	}
+	if err := VerifyState(dir, src); err != nil {
 		t.Errorf("VerifyState: %v", err)
 	}
 }
@@ -52,7 +83,7 @@ func TestVerifyState_RejectsMissingResolvedSHA(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, StateFile), []byte(legacy), 0o644); err != nil {
 		t.Fatalf("seed legacy state: %v", err)
 	}
-	err := VerifyState(dir, "demo", "swagger", "v1.2.3")
+	err := VerifyState(dir, gitSource())
 	if err == nil {
 		t.Fatalf("VerifyState accepted state missing resolved_sha")
 	}
@@ -71,7 +102,7 @@ func TestVerifyState_RejectsStaleTag(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveState: %v", err)
 	}
-	err := VerifyState(dir, "demo", "swagger", "v1.2.3")
+	err := VerifyState(dir, gitSource())
 	if err == nil {
 		t.Fatalf("VerifyState accepted stale tag")
 	}
@@ -82,7 +113,7 @@ func TestVerifyState_RejectsStaleTag(t *testing.T) {
 
 func TestVerifyState_RejectsMissingFile(t *testing.T) {
 	dir := t.TempDir() // empty
-	err := VerifyState(dir, "demo", "swagger", "v1.2.3")
+	err := VerifyState(dir, gitSource())
 	if err == nil {
 		t.Fatalf("VerifyState accepted missing sync-state")
 	}

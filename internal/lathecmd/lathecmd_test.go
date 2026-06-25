@@ -324,6 +324,77 @@ paths:
 	}
 }
 
+func TestRunBootstrapLocalPathSyncsAndGenerates(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeCodegenFile(t, "go.mod", "module example.com/fake\n\ngo 1.25\n")
+	writeCodegenFile(t, "cli.yaml", "cli:\n  name: acmectl\n  short: Acme CLI\n")
+	writeCodegenFile(t, "api/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /users:
+    get:
+      operationId: Users_List
+      tags: [Users]
+      summary: List users
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+`)
+	writeCodegenFile(t, "specs/sources.yaml", `sources:
+  acme:
+    local_path: ../api
+    backend: openapi3
+    openapi3:
+      files: [openapi.yaml]
+`)
+
+	if err := RunBootstrap([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	localPath, err := filepath.Abs("api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := os.ReadFile(".cache/specs-sync/acme/sync-state.yaml")
+	if err != nil {
+		t.Fatalf("read sync state: %v", err)
+	}
+	if !strings.Contains(string(state), "source_kind: local") || !strings.Contains(string(state), "synced_from: "+localPath) {
+		t.Fatalf("sync state = %s, want local source path %q", state, localPath)
+	}
+	for _, path := range []string{"internal/generated/acme/acme_gen.go", "skills/acmectl/SKILL.md"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if strings.Contains(string(data), localPath) {
+			t.Fatalf("%s encoded local path %q", path, localPath)
+		}
+	}
+
+	writeCodegenFile(t, "other/openapi.yaml", `openapi: "3.0.3"
+paths: {}
+`)
+	writeCodegenFile(t, "specs/sources.yaml", `sources:
+  acme:
+    local_path: ../other
+    backend: openapi3
+    openapi3:
+      files: [openapi.yaml]
+`)
+	err = RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatalf("codegen accepted stale local_path cache")
+	}
+	if !strings.Contains(err.Error(), "local_path") {
+		t.Fatalf("error = %v, want local_path mismatch", err)
+	}
+}
+
 func TestRunCodegen_SkillRootEmptyDisablesSkillGeneration(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
