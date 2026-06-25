@@ -301,6 +301,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	fmt.Fprintf(&b, "Run `%s commands --json` to inspect the generated command catalog. Use `--include-hidden` only when hidden commands are relevant.\n\n", cli)
 	b.WriteString("Key fields:\n\n")
 	b.WriteString("- `path`: command path to pass to `commands show` or execute after the CLI name.\n")
+	b.WriteString("- `shortcuts`: root-level commands that execute the same operation with preset flag values.\n")
 	b.WriteString("- `http`: HTTP method and path template.\n")
 	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host selected after explicit `--hostname` and `$%s`; when present it is used before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, and help.\n")
@@ -362,6 +363,7 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 			fmt.Fprintf(&b, "- HTTP: `%s %s`\n", spec.Method, spec.PathTpl)
 			fmt.Fprintf(&b, "- Auth: %s\n", authSummary(spec.Security))
 			fmt.Fprintf(&b, "- Body: %s\n", bodySummary(spec.RequestBody))
+			writeShortcuts(&b, cli, spec)
 			if len(spec.Params) == 0 {
 				b.WriteString("- Flags: none\n")
 			} else {
@@ -402,6 +404,46 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 		}
 	}
 	return b.String()
+}
+
+func writeShortcuts(b *strings.Builder, cli string, spec runtime.CommandSpec) {
+	if len(spec.Shortcuts) == 0 {
+		return
+	}
+	b.WriteString("- Shortcuts:\n")
+	for _, shortcut := range spec.Shortcuts {
+		preset := shortcutPreset(spec, shortcut)
+		if preset == "" {
+			fmt.Fprintf(b, "  - `%s %s`\n", cli, shortcut.Use)
+			continue
+		}
+		fmt.Fprintf(b, "  - `%s %s` preset %s\n", cli, shortcut.Use, preset)
+	}
+}
+
+func shortcutPreset(spec runtime.CommandSpec, shortcut runtime.CommandShortcut) string {
+	if len(shortcut.Params) == 0 {
+		return ""
+	}
+	flags := make(map[string]string, len(spec.Params)*2)
+	for _, param := range spec.Params {
+		flags[param.Name] = param.Flag
+		flags[param.Flag] = param.Flag
+	}
+	keys := make([]string, 0, len(shortcut.Params))
+	for key := range shortcut.Params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		flag := flags[key]
+		if flag == "" {
+			flag = key
+		}
+		parts = append(parts, fmt.Sprintf("`--%s=%s`", flag, shortcut.Params[key]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func commandExample(example, cli, module string, spec runtime.CommandSpec, flat bool) string {

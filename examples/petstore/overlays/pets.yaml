@@ -1,0 +1,6 @@
+commands:
+  get:
+    shortcuts:
+      - use: pet-123
+        params:
+          id: "123"

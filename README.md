@@ -328,6 +328,11 @@ commands:
   create-user:
     short: "Create a user in the IAM service"
     aliases: [adduser]
+    shortcuts:
+      - use: quick-user
+        params:
+          type: human
+          role: viewer
     example: |
       acmectl iam create-user \
         --set email=alice@example.com \
@@ -349,6 +354,9 @@ Bulk pagination defaults fill matching command params that have no spec default.
 Explicit `commands.<use>.params.<name>.default` still wins when a command needs a
 different value. Parameter `required: true` marks an existing generated flag as
 required when an upstream spec is incomplete; it does not create new flags.
+Command `shortcuts` add root-level commands that execute the same generated
+operation with preset values for existing parameters. Shortcut params may use
+the parameter name or flag name; invocation flags can still override the preset.
 
 Run codegen with an overlay directory:
 

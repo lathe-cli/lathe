@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 5
+const CatalogSchemaVersion = 6
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -44,25 +44,26 @@ type CatalogOutputFormats struct {
 }
 
 type CatalogCommand struct {
-	Path          []string      `json:"path"`
-	Service       string        `json:"service"`
-	Group         string        `json:"group"`
-	Use           string        `json:"use"`
-	Aliases       []string      `json:"aliases,omitempty"`
-	Summary       string        `json:"summary,omitempty"`
-	Description   string        `json:"description,omitempty"`
-	Example       string        `json:"example,omitempty"`
-	OperationID   string        `json:"operation_id,omitempty"`
-	HTTP          CatalogHTTP   `json:"http"`
-	Auth          CatalogAuth   `json:"auth"`
-	Body          *CatalogBody  `json:"body,omitempty"`
-	Flags         []CatalogFlag `json:"flags"`
-	Output        CatalogOutput `json:"output"`
-	Hidden        bool          `json:"hidden"`
-	Deprecated    bool          `json:"deprecated"`
-	Notes         []string      `json:"notes,omitempty"`
-	Prerequisites []string      `json:"prerequisites,omitempty"`
-	KnownErrors   []KnownError  `json:"known_errors,omitempty"`
+	Path          []string          `json:"path"`
+	Service       string            `json:"service"`
+	Group         string            `json:"group"`
+	Use           string            `json:"use"`
+	Aliases       []string          `json:"aliases,omitempty"`
+	Shortcuts     []CommandShortcut `json:"shortcuts,omitempty"`
+	Summary       string            `json:"summary,omitempty"`
+	Description   string            `json:"description,omitempty"`
+	Example       string            `json:"example,omitempty"`
+	OperationID   string            `json:"operation_id,omitempty"`
+	HTTP          CatalogHTTP       `json:"http"`
+	Auth          CatalogAuth       `json:"auth"`
+	Body          *CatalogBody      `json:"body,omitempty"`
+	Flags         []CatalogFlag     `json:"flags"`
+	Output        CatalogOutput     `json:"output"`
+	Hidden        bool              `json:"hidden"`
+	Deprecated    bool              `json:"deprecated"`
+	Notes         []string          `json:"notes,omitempty"`
+	Prerequisites []string          `json:"prerequisites,omitempty"`
+	KnownErrors   []KnownError      `json:"known_errors,omitempty"`
 }
 
 type CatalogHTTP struct {
@@ -156,16 +157,30 @@ func FindCatalogCommand(root *cobra.Command, path []string, opts CatalogOptions)
 	for _, segment := range path {
 		child := findChildCommand(cur, segment)
 		if child == nil {
-			return CatalogCommand{}, false
+			return findCatalogShortcut(root, path, opts)
 		}
 		canonical = append(canonical, child.Name())
 		cur = child
 	}
 	cmd, ok := catalogCommandFromAnnotation(cur, canonical)
 	if !ok || (!opts.IncludeHidden && cmd.Hidden) {
-		return CatalogCommand{}, false
+		return findCatalogShortcut(root, path, opts)
 	}
 	return cmd, true
+}
+
+func findCatalogShortcut(root *cobra.Command, path []string, opts CatalogOptions) (CatalogCommand, bool) {
+	if len(path) != 1 {
+		return CatalogCommand{}, false
+	}
+	for _, cmd := range BuildCatalog(root, opts).Commands {
+		for _, shortcut := range cmd.Shortcuts {
+			if shortcut.Use == path[0] {
+				return cmd, true
+			}
+		}
+	}
+	return CatalogCommand{}, false
 }
 
 func SearchCatalog(root *cobra.Command, query string, opts SearchOptions) []SearchResult {
@@ -262,6 +277,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		Group:       spec.Group,
 		Use:         spec.Use,
 		Aliases:     append([]string(nil), spec.Aliases...),
+		Shortcuts:   cloneShortcuts(spec.Shortcuts),
 		Summary:     spec.Short,
 		Description: spec.Long,
 		Example:     spec.Example,
@@ -292,6 +308,25 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		}
 	}
 	return cmd
+}
+
+func cloneShortcuts(shortcuts []CommandShortcut) []CommandShortcut {
+	out := make([]CommandShortcut, 0, len(shortcuts))
+	for _, shortcut := range shortcuts {
+		out = append(out, CommandShortcut{Use: shortcut.Use, Params: copyStringMap(shortcut.Params)})
+	}
+	return out
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func catalogPagination(p *PaginationHint) *CatalogPagination {
@@ -327,6 +362,7 @@ type searchView struct {
 	group        string
 	use          string
 	aliases      []string
+	shortcuts    []string
 	summary      string
 	description  string
 	operationID  string
@@ -345,6 +381,10 @@ func newSearchView(cmd CatalogCommand) searchView {
 	aliases := make([]string, 0, len(cmd.Aliases))
 	for _, alias := range cmd.Aliases {
 		aliases = append(aliases, strings.ToLower(alias))
+	}
+	shortcuts := make([]string, 0, len(cmd.Shortcuts))
+	for _, shortcut := range cmd.Shortcuts {
+		shortcuts = append(shortcuts, strings.ToLower(shortcut.Use))
 	}
 	flags := make([]searchFlagView, 0, len(cmd.Flags))
 	for _, flag := range cmd.Flags {
@@ -365,6 +405,7 @@ func newSearchView(cmd CatalogCommand) searchView {
 		group:        strings.ToLower(cmd.Group),
 		use:          strings.ToLower(cmd.Use),
 		aliases:      aliases,
+		shortcuts:    shortcuts,
 		summary:      strings.ToLower(cmd.Summary),
 		description:  strings.ToLower(cmd.Description),
 		operationID:  strings.ToLower(cmd.OperationID),
@@ -395,7 +436,9 @@ func scoreCatalogCommand(cmd searchView, tokens []string, fullQuery string, norm
 	if fullQuery == cmd.fullPath || fullQuery == cmd.operationID || fullQuery == cmd.use ||
 		normalizedQuery == normalizeSearchText(cmd.fullPath) ||
 		normalizedQuery == normalizeSearchText(cmd.operationID) ||
-		normalizedQuery == normalizeSearchText(cmd.use) {
+		normalizedQuery == normalizeSearchText(cmd.use) ||
+		slices.Contains(cmd.shortcuts, fullQuery) ||
+		slices.Contains(cmd.shortcuts, normalizedQuery) {
 		score += 100
 	}
 	return score, true
@@ -407,6 +450,9 @@ func scoreToken(cmd searchView, token string) int {
 	score = max(score, scoreField(cmd.use, token, 80))
 	for _, alias := range cmd.aliases {
 		score = max(score, scoreField(alias, token, 80))
+	}
+	for _, shortcut := range cmd.shortcuts {
+		score = max(score, scoreField(shortcut, token, 80))
 	}
 	for _, segment := range cmd.path {
 		if strings.HasPrefix(segment, token) {
