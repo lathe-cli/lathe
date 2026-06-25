@@ -53,6 +53,9 @@ func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides m
 }
 
 func ResolveFlatCommandPath(policy string, moduleCount int, specs []runtime.CommandSpec) (bool, error) {
+	if err := validateCommandPaths(specs); err != nil {
+		return false, err
+	}
 	if policy == "" {
 		policy = config.CommandPathAuto
 	}
@@ -109,6 +112,41 @@ func flatPathConflict(specs []runtime.CommandSpec) (string, bool) {
 		seen[name] = spec.Group
 	}
 	return "", false
+}
+
+func validateCommandPaths(specs []runtime.CommandSpec) error {
+	seen := map[string]runtime.CommandSpec{}
+	for _, spec := range specs {
+		group := rootCommandName(spec.Group)
+		use := commandUseName(spec.Use)
+		if group == "" || use == "" {
+			return fmt.Errorf("command %q has empty generated path", commandIdentity(spec))
+		}
+		cmdPath := group + " " + use
+		if prev, ok := seen[cmdPath]; ok {
+			return fmt.Errorf("command path %q conflicts between %q and %q", cmdPath, commandIdentity(prev), commandIdentity(spec))
+		}
+		seen[cmdPath] = spec
+	}
+	return nil
+}
+
+func commandUseName(use string) string {
+	fields := strings.Fields(use)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func commandIdentity(spec runtime.CommandSpec) string {
+	if spec.OperationID != "" {
+		return spec.OperationID
+	}
+	if spec.Group != "" || spec.Use != "" {
+		return strings.TrimSpace(spec.Group + " " + spec.Use)
+	}
+	return spec.PathTpl
 }
 
 func rootCommandName(use string) string {
@@ -196,6 +234,9 @@ func matchesAny(patterns []string, value string) bool {
 }
 
 func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) {
+	if override.Use != "" {
+		spec.Use = override.Use
+	}
 	if override.Short != "" {
 		spec.Short = override.Short
 	}

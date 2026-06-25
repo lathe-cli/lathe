@@ -30,6 +30,7 @@ func TestLoadDir_ParsesMultipleModules(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "iam.yaml"), `commands:
   create-user:
+    use: create
     aliases: [adduser, new-user]
     short: "Create a user"
     long: "Long description for create-user."
@@ -49,6 +50,9 @@ func TestLoadDir_ParsesMultipleModules(t *testing.T) {
 		t.Fatalf("want 2 modules, got %d: %v", len(got), got)
 	}
 	u := got["iam"].Commands["create-user"]
+	if u.Use != "create" {
+		t.Errorf("iam create-user use: %q", u.Use)
+	}
 	if u.Short != "Create a user" || u.Long == "" || u.Example == "" {
 		t.Errorf("iam create-user override incomplete: %+v", u)
 	}
