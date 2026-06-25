@@ -88,6 +88,27 @@ set it to `""` to disable Skill generation. The optional `skill.include` value
 points at repo-local Skill resources merged into generated Skill files. Keep the
 include directory outside `skill.root`.
 
+Generated CLIs expose `--version` and `-v`. The release version is
+build metadata, not `cli.yaml` data: pass `Version`, `Commit`, and `Date` through
+`lathe.RunOptions`, or inject `github.com/lathe-cli/lathe/pkg/lathe.Version`,
+`Commit`, and `Date` with Go `-ldflags` in your release build.
+
+To let the generated CLI update itself from GitHub Releases, add:
+
+```yaml
+update:
+  github:
+    owner: acme
+    repo: acmectl
+    asset: "acmectl_{{ .Version }}_{{ .OS }}_{{ .Arch }}.tar.gz"
+```
+
+`asset` is a Go template with `Name`, `Version`, `Tag`, `OS`, and `Arch`.
+`update` fetches the latest GitHub release, reports when the current binary is
+already current, and asks for confirmation before replacing the executable. Pass
+`--yes` to skip the prompt. The release asset must expose a `sha256:` digest; zip,
+tar.gz, and tgz assets must contain a binary named after `cli.name`.
+
 ## Declare API Specs
 
 Create `specs/sources.yaml`:

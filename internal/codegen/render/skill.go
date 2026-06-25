@@ -261,6 +261,12 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	fmt.Fprintf(&b, "- `%s commands show <path...> --json`: source of truth for one command.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands schema --json`: catalog schema version for parser compatibility.\n", cli)
 	fmt.Fprintf(&b, "- `%s search \"<intent>\" --json`: ranked candidate commands.\n\n", cli)
+	b.WriteString("## Maintenance Commands\n\n")
+	fmt.Fprintf(&b, "- `%s --version` or `%s -v`: print CLI build version.\n", cli, cli)
+	if manifest.Update.GitHub != nil {
+		fmt.Fprintf(&b, "- `%s update`: update this CLI from configured GitHub Releases. Run only when the user explicitly asks to update `%s`; it may replace the current executable. Use `--yes` only when explicitly authorized.\n", cli, cli)
+	}
+	b.WriteString("\n")
 	b.WriteString("## References\n\n")
 	b.WriteString("- Read `references/catalog.md` for the command discovery protocol and catalog field meanings.\n")
 	for _, ref := range refs {
