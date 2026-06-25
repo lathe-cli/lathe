@@ -218,6 +218,44 @@ func TestFindAndSearchCatalog(t *testing.T) {
 	}
 }
 
+func TestSearchCatalog_SoftMatchesNoisyIntent(t *testing.T) {
+	root := newRootWithModuleGroup()
+	Build(root, "demo", []CommandSpec{
+		{
+			Group:       "Users",
+			Use:         "get-user",
+			Aliases:     []string{"show-user"},
+			Short:       "Get a user",
+			OperationID: "getUser",
+			Method:      "GET",
+			PathTpl:     "/users/{id}",
+		},
+		{
+			Group:       "Users",
+			Use:         "list-users",
+			Short:       "List users",
+			OperationID: "listUsers",
+			Method:      "GET",
+			PathTpl:     "/users",
+		},
+	})
+
+	results := SearchCatalog(root, "get user stray", SearchOptions{Limit: 10})
+	if len(results) == 0 || results[0].Command.Use != "get-user" {
+		t.Fatalf("noisy get user results = %+v", results)
+	}
+
+	results = SearchCatalog(root, "show_user stray", SearchOptions{Limit: 10})
+	if len(results) == 0 || results[0].Command.Use != "get-user" {
+		t.Fatalf("normalized alias results = %+v", results)
+	}
+
+	results = SearchCatalog(root, "doesnotexist", SearchOptions{Limit: 10})
+	if len(results) != 0 {
+		t.Fatalf("unknown query results = %+v", results)
+	}
+}
+
 func TestBuildCatalog_DefaultAuthRequired(t *testing.T) {
 	root := newRootWithModuleGroup()
 	Build(root, "demo", []CommandSpec{{
