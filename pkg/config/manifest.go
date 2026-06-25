@@ -9,8 +9,9 @@ import (
 )
 
 type Manifest struct {
-	CLI  CLIInfo  `yaml:"cli"`
-	Auth AuthInfo `yaml:"auth"`
+	CLI    CLIInfo    `yaml:"cli"`
+	Auth   AuthInfo   `yaml:"auth"`
+	Update UpdateInfo `yaml:"update,omitempty"`
 }
 
 type CLIInfo struct {
@@ -24,6 +25,16 @@ type CLIInfo struct {
 
 type AuthInfo struct {
 	Validate *AuthValidate `yaml:"validate,omitempty"`
+}
+
+type UpdateInfo struct {
+	GitHub *GitHubUpdate `yaml:"github,omitempty"`
+}
+
+type GitHubUpdate struct {
+	Owner string `yaml:"owner"`
+	Repo  string `yaml:"repo"`
+	Asset string `yaml:"asset"`
 }
 
 type AuthValidate struct {
@@ -58,6 +69,14 @@ func Load(bytes []byte) (*Manifest, error) {
 	}
 	if m.CLI.Name == "" {
 		return nil, fmt.Errorf("cli.name is required")
+	}
+	if m.Update.GitHub != nil {
+		m.Update.GitHub.Owner = strings.TrimSpace(m.Update.GitHub.Owner)
+		m.Update.GitHub.Repo = strings.TrimSpace(m.Update.GitHub.Repo)
+		m.Update.GitHub.Asset = strings.TrimSpace(m.Update.GitHub.Asset)
+		if m.Update.GitHub.Owner == "" || m.Update.GitHub.Repo == "" || m.Update.GitHub.Asset == "" {
+			return nil, fmt.Errorf("update.github.owner, update.github.repo, and update.github.asset are required")
+		}
 	}
 	m.CLI.CommandPath = strings.ToLower(strings.TrimSpace(m.CLI.CommandPath))
 	if m.CLI.CommandPath == "" {

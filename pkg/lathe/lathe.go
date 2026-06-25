@@ -28,9 +28,11 @@ func NewApp(m *config.Manifest) *cobra.Command {
 		Use:          m.CLI.Name,
 		Short:        m.CLI.Short,
 		Long:         agentHint(m.CLI.Name, m.CLI.Short),
+		Version:      versionInfo(),
 		SilenceUsage: true,
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = true
+	cmd.SetVersionTemplate("{{.Use}} {{.Version}}\n")
 	cmd.PersistentFlags().String("hostname", "", fmt.Sprintf("Server hostname (overrides $%s)", m.CLI.HostEnv))
 	cmd.PersistentFlags().StringP("output", "o", "table", "Output format: table|json|yaml|raw")
 	cmd.PersistentFlags().Bool("insecure", false, "Skip TLS certificate verification for this invocation")
@@ -48,6 +50,9 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	cmd.AddCommand(authCmd)
 	cmd.AddCommand(commandsCmd(m))
 	cmd.AddCommand(searchCmd(m))
+	if m.Update.GitHub != nil {
+		cmd.AddCommand(updateCmd(m))
+	}
 	cmd.AddCommand(metaCmd(m.CLI.Name))
 	return cmd
 }

@@ -125,6 +125,7 @@ var reservedRootCommands = map[string]bool{
 	"commands": true,
 	"help":     true,
 	"search":   true,
+	"update":   true,
 }
 
 func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
