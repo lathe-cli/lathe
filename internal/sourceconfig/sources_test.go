@@ -103,6 +103,98 @@ func TestLoad_AcceptsImmutableTag(t *testing.T) {
 	}
 }
 
+func TestLoad_AcceptsLocalPathWithoutPinnedTag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "specs", "sources.yaml")
+	body := `sources:
+  demo:
+    local_path: ..
+    backend: openapi3
+    openapi3:
+      files: [api.yaml]
+`
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sources["demo"].LocalPath != want {
+		t.Errorf("local_path = %q, want %q", cfg.Sources["demo"].LocalPath, want)
+	}
+}
+
+func TestLoad_RejectsLocalPathWithGitSourceFields(t *testing.T) {
+	cases := map[string]string{
+		"repo_url": `sources:
+  demo:
+    local_path: ..
+    repo_url: https://example.com/repo.git
+    backend: openapi3
+    openapi3:
+      files: [api.yaml]
+`,
+		"pinned_tag": `sources:
+  demo:
+    local_path: ..
+    pinned_tag: v1.0.0
+    backend: openapi3
+    openapi3:
+      files: [api.yaml]
+`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sources.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatalf("seed yaml: %v", err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("Load accepted local_path with %s", name)
+			}
+			if !strings.Contains(err.Error(), "local_path") {
+				t.Errorf("error should mention local_path: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_RejectsRemoteLookingLocalPath(t *testing.T) {
+	for _, localPath := range []string{"https://example.com/repo.git", "git@example.com:repo.git"} {
+		t.Run(localPath, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sources.yaml")
+			body := `sources:
+  demo:
+    local_path: ` + localPath + `
+    backend: openapi3
+    openapi3:
+      files: [api.yaml]
+`
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatalf("seed yaml: %v", err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("Load accepted remote local_path")
+			}
+			if !strings.Contains(err.Error(), "local_path") {
+				t.Errorf("error should mention local_path: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoad_AcceptsOpenAPI3(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sources.yaml")

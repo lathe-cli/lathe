@@ -36,36 +36,48 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 		if err := os.RemoveAll(syncDir); err != nil {
 			return err
 		}
-		sha, err := ensureRepo(workDir, src.RepoURL, src.PinnedTag)
-		if err != nil {
-			return fmt.Errorf("source %q: %w", src.Name, err)
+		sourceDir := workDir
+		sha := ""
+		if src.LocalPath != "" {
+			sourceDir = src.LocalPath
+		} else {
+			var err error
+			sha, err = ensureRepo(workDir, src.RepoURL, src.PinnedTag)
+			if err != nil {
+				return fmt.Errorf("source %q: %w", src.Name, err)
+			}
 		}
 		switch src.Backend {
 		case sourceconfig.BackendSwagger:
-			if err := syncSwagger(src, workDir, syncDir); err != nil {
+			if err := syncSwagger(src, sourceDir, syncDir); err != nil {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
 		case sourceconfig.BackendProto:
-			if err := syncProto(src, workDir, syncDir); err != nil {
+			if err := syncProto(src, sourceDir, syncDir); err != nil {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
 		case sourceconfig.BackendOpenAPI3:
-			if err := syncOpenAPI3(src, workDir, syncDir); err != nil {
+			if err := syncOpenAPI3(src, sourceDir, syncDir); err != nil {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
 		case sourceconfig.BackendGraphQL:
-			if err := syncGraphQL(src, workDir, syncDir); err != nil {
+			if err := syncGraphQL(src, sourceDir, syncDir); err != nil {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
 		default:
 			return fmt.Errorf("source %q: unsupported backend %q", src.Name, src.Backend)
 		}
-		if err := SaveState(syncDir, &State{
+		state := &State{
 			Source:      src.Name,
 			Backend:     src.Backend,
 			SyncedFrom:  src.PinnedTag,
 			ResolvedSHA: sha,
-		}); err != nil {
+		}
+		if src.LocalPath != "" {
+			state.SourceKind = SourceKindLocal
+			state.SyncedFrom = src.LocalPath
+		}
+		if err := SaveState(syncDir, state); err != nil {
 			return fmt.Errorf("source %q: write sync-state: %w", src.Name, err)
 		}
 	}

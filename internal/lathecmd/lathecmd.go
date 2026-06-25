@@ -168,7 +168,7 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	var skillModules []render.SkillModule
 	for _, src := range ordered {
 		syncDir := filepath.Join(syncRoot, src.Name)
-		if err := specsync.VerifyState(syncDir, src.Name, src.Backend, src.PinnedTag); err != nil {
+		if err := specsync.VerifyState(syncDir, src); err != nil {
 			return err
 		}
 		state, err := specsync.LoadState(syncDir)

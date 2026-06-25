@@ -57,9 +57,9 @@ life keeping those commands from drifting.
 
 Lathe makes the API spec the source of truth.
 
-You pin upstream specs, declare the CLI identity, add optional help-text
-overlays, and generate the binary. When the API changes, bump the pinned tag and
-regenerate.
+You declare pinned upstream specs or local working-tree specs, declare the CLI
+identity, add optional help-text overlays, and generate the binary. When the API
+changes, bump the pinned tag or rerun sync for the local source, then regenerate.
 
 The result is not just a wrapper. It is an agentic-friendly CLI surface with a
 runtime catalog that tells agents what commands exist, which flags are required,
@@ -74,7 +74,7 @@ built, and which output format to prefer.
 | Single runtime shape | Generated modules share one runtime for auth, request building, output formatting, pagination, streaming, and error handling. |
 | Agentic-friendly discovery | `search`, `commands --json`, `commands show`, and `commands schema` expose the CLI as structured data. |
 | Generated Skills | Codegen writes `skills/<cli-name>/` so agents can load the CLI's operating guide and module references. |
-| Reproducible inputs | Specs are pinned by tag, resolved to commit SHA, and regenerated from checked-in configuration. |
+| Reproducible inputs | Git specs are pinned by tag and resolved to commit SHA; local sources are staged from checked-in configuration. |
 | Real CLI UX | Hostname-keyed auth, --file, --set, --set-str, -o table\|json\|yaml\|raw, enum validation, pagination, streaming, and --debug. |
 | Overlay polish | Improve summaries, aliases, parameter help, grouping, and examples without editing generated code. |
 
@@ -98,7 +98,7 @@ then configure two files.
 Lathe release archives include one command-line tool, `lathe`, with generation
 subcommands:
 
-- `lathe specsync`: sync pinned upstream specs into the local cache.
+- `lathe specsync`: sync declared API specs into the local cache.
 - `lathe codegen`: generate runtime command specs and optional Skill files.
 - `lathe bootstrap`: run `specsync` and `codegen` in one pass.
 
@@ -129,7 +129,7 @@ auth:
 `<cli> <module> <group> <operation>`. Use `namespaced` to always keep the
 module segment.
 
-### 2. Pin API Sources
+### 2. Declare API Sources
 
 `specs/sources.yaml`:
 
@@ -181,6 +181,13 @@ sources:
       selection:
         max_depth: 2
         prune: ["App.secretToken"]
+
+  awire:
+    local_path: ../awire
+    backend: openapi3
+    openapi3:
+      files:
+        - openapi/awire.yaml
 ```
 
 ### 3. Generate and Build
@@ -190,7 +197,7 @@ lathe bootstrap
 go build -o bin/acmectl ./cmd/acmectl
 ```
 
-`lathe bootstrap` syncs pinned specs and runs codegen. Codegen emits generated Go
+`lathe bootstrap` syncs declared specs and runs codegen. Codegen emits generated Go
 modules and, by default, a Skill directory at `skills/acmectl/`.
 
 ### 4. Use the CLI
@@ -273,8 +280,9 @@ Declares which upstream specs become modules.
 
 | Field | Required | Notes |
 |---|---|---|
-| `repo_url` | Yes | Any URL `git clone` accepts. |
-| `pinned_tag` | Yes | Floating branches are rejected; reproducibility is mandatory. |
+| `repo_url` | Git sources | Any URL `git clone` accepts. |
+| `pinned_tag` | Git sources | Floating branches are rejected; reproducibility is mandatory. |
+| `local_path` | Local sources | Local filesystem path or `file://` URL, relative paths resolve from `specs/sources.yaml`. Mutually exclusive with `repo_url` and `pinned_tag`. |
 | `backend` | Yes | One of `swagger`, `openapi3`, `proto`, or `graphql`. |
 | `swagger.files` | Swagger only | One or more Swagger 2.0 JSON specs. |
 | `openapi3.files` | OpenAPI 3 only | JSON or YAML OpenAPI specs. |
@@ -384,8 +392,8 @@ body:
 
 Lathe has two phases:
 
-1. `lathe specsync` clones pinned upstream specs, verifies the resolved commit
-   SHA, and writes local spec state.
+1. `lathe specsync` checks out pinned Git sources or stages `local_path`
+   sources, then writes local spec state.
 2. `lathe codegen` normalizes specs into one intermediate representation, applies
    overlays, renders Go command modules, and renders the Skill directory.
 

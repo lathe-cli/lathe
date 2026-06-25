@@ -153,12 +153,12 @@ graph TD
 |---|---|---|
 | `cmd/lathe` | codegen | Single binary entrypoint for `specsync`, `codegen`, and `bootstrap`. |
 | `internal/lathecmd` | codegen | Resolves CLI flags and orchestrates: sync specs, load sources, verify sync state, parse, normalize, render. |
-| `internal/sourceconfig` | codegen | Parse `specs/sources.yaml`. Requires `pinned_tag`; treats the value as an immutable ref. |
-| `internal/specsync` | codegen | `git clone --filter=blob:none`, checkout pinned ref, stage relevant files into `.cache/specs-sync/<module>/`. Writes `sync-state.yaml` (including `resolved_sha`). |
+| `internal/sourceconfig` | codegen | Parse `specs/sources.yaml`. Supports immutable Git sources (`repo_url` + `pinned_tag`) and local working-tree sources (`local_path`). |
+| `internal/specsync` | codegen | For Git sources, `git clone --filter=blob:none` and checkout the pinned ref. For local sources, stage files directly from `local_path`. Writes `sync-state.yaml`. |
 | `internal/codegen/backends/swagger` | codegen | Parse `*.swagger.json` → `RawModule`. Merges multiple files; first-seen wins on duplicates. |
 | `internal/codegen/backends/openapi3` | codegen | Parse OpenAPI 3.x YAML/JSON → `RawModule`. Rewrites `$ref`; inherits path-level parameters. |
 | `internal/codegen/backends/proto` | codegen | Parse staged `.proto` tree → `RawModule`. Only RPCs with `google.api.http` become operations. |
-| `internal/codegen/backends/graphql` | codegen | Parse pinned SDL plus `graphql:` policy → `RawModule`. Emits `POST /graphql` operations with baked query templates and variable params. |
+| `internal/codegen/backends/graphql` | codegen | Parse staged SDL plus `graphql:` policy → `RawModule`. Emits `POST /graphql` operations with baked query templates and variable params. |
 | `internal/codegen/rawir` | codegen | Backend-agnostic raw types (`RawModule`, `RawOperation`, `RawSchema`). Includes `$ref` resolution. |
 | `internal/codegen/normalize` | codegen | Semantic projection: groups, `Short`, list path, default columns, method-ordering for determinism. |
 | `internal/codegen/render` | codegen | `text/template` → gofmt'd Go. Emits per-module `_gen.go` and top-level `modules_gen.go`. |
@@ -173,8 +173,8 @@ graph TD
 ```mermaid
 stateDiagram-v2
     [*] --> Declared: edit specs/sources.yaml
-    Declared --> Cloned: lathe specsync\n(git clone + checkout pinned_tag)
-    Cloned --> Staged: backend-specific staging\n(.cache/specs-sync/&lt;mod&gt;/)
+    Declared --> SourceReady: lathe specsync\n(git checkout or local_path)
+    SourceReady --> Staged: backend-specific staging\n(.cache/specs-sync/&lt;mod&gt;/)
     Staged --> Parsed: backend.Parse\n→ RawModule
     Parsed --> Normalized: normalize.Normalize\n→ []CommandSpec
     Normalized --> Polished: overlay merge\n(optional)
@@ -183,10 +183,10 @@ stateDiagram-v2
     Compiled --> Runnable: ./bin/&lt;name&gt; &lt;mod&gt; &lt;cmd&gt;
     Runnable --> [*]
 
-    Declared --> Declared: bump pinned_tag\n→ restart cycle
+    Declared --> Declared: bump pinned_tag/local_path\n→ restart cycle
 ```
 
-Each transition is idempotent and cache-checked. `specsync.VerifyState` rejects a stale cache where `sync-state.yaml` does not match `pinned_tag`.
+Each transition is idempotent and cache-checked. `specsync.VerifyState` rejects a stale cache where `sync-state.yaml` does not match the source mode, `pinned_tag`, or resolved `local_path`.
 
 ## Overlay merge matrix
 
@@ -293,11 +293,11 @@ Each extension is an injection point. The core works with a zero-config `Command
 These are structural, not stylistic. Violating any means the architecture breaks.
 
 1. **`pkg/runtime` does not import `internal/codegen/**`.** The runtime cannot know how a `CommandSpec` was produced. This is what makes "three backends, one IR" real rather than aspirational.
-2. **`pinned_tag` is required and validated.** `sourceconfig.Load` rejects empty values and floating refs (`HEAD`, `main`, `refs/heads/*`). Only immutable tags and 40-char SHAs are accepted. `specsync` records the resolved SHA and codegen verifies it.
+2. **Git sources require `pinned_tag`; local sources require `local_path`.** `sourceconfig.Load` rejects floating refs (`HEAD`, `main`, `refs/heads/*`) for Git sources and rejects configs that mix `local_path` with `repo_url` or `pinned_tag`. Relative `local_path` values resolve from `specs/sources.yaml`.
 3. **Codegen is never invoked at `go build` time.** Downstream consumers need no Go toolchain tags, build flags, or network access to install.
 4. **Overlays bake at codegen-time.** The runtime has no overlay concept. This keeps `pkg/runtime` small and overlay bugs from being runtime bugs.
 5. **No ambient "current host".** The host is a per-invocation input. This mirrors `gh` and avoids the "oops, wrong cluster" class of bug.
-6. **`sync-state.yaml` guards the cache.** `lathe codegen` refuses a cache that doesn't match `pinned_tag`. Stale generation fails loud, not silent.
+6. **`sync-state.yaml` guards the cache.** `lathe codegen` refuses a cache that doesn't match the source mode, pinned tag, or resolved local path. Stale generation fails loud, not silent.
 7. **Static codegen.** Downstream binaries carry no spec parser. The generated file is a pure data literal.
 8. **Single Go binary.** No `protoc`, `buf`, or other toolchain at install time. `go install` is the install path.
 

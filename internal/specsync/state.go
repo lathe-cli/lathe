@@ -5,12 +5,19 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"gopkg.in/yaml.v3"
 )
 
 const StateFile = "sync-state.yaml"
 
+const (
+	SourceKindGit   = "git"
+	SourceKindLocal = "local"
+)
+
 type State struct {
+	SourceKind  string `yaml:"source_kind,omitempty"`
 	Source      string `yaml:"source"`
 	Backend     string `yaml:"backend"`
 	SyncedFrom  string `yaml:"synced_from"`
@@ -40,22 +47,38 @@ func SaveState(syncDir string, s *State) error {
 	return os.WriteFile(filepath.Join(syncDir, StateFile), data, 0o644)
 }
 
-func VerifyState(syncDir, source, backend, wantTag string) error {
+func VerifyState(syncDir string, src *sourceconfig.Source) error {
 	s, err := LoadState(syncDir)
 	if err != nil {
-		return fmt.Errorf("source %q: sync-state missing or unreadable (run `lathe specsync`): %w", source, err)
+		return fmt.Errorf("source %q: sync-state missing or unreadable (run `lathe specsync`): %w", src.Name, err)
 	}
-	if s.Source != source {
-		return fmt.Errorf("source %q: sync-state mismatch (got %q)", source, s.Source)
+	if s.Source != src.Name {
+		return fmt.Errorf("source %q: sync-state mismatch (got %q)", src.Name, s.Source)
 	}
-	if s.Backend != backend {
-		return fmt.Errorf("source %q: sync-state backend %q != config %q (re-run `lathe specsync`)", source, s.Backend, backend)
+	if s.Backend != src.Backend {
+		return fmt.Errorf("source %q: sync-state backend %q != config %q (re-run `lathe specsync`)", src.Name, s.Backend, src.Backend)
 	}
-	if s.SyncedFrom != wantTag {
-		return fmt.Errorf("source %q: synced_from=%q but pinned_tag=%q (re-run `lathe specsync`)", source, s.SyncedFrom, wantTag)
+	wantKind := SourceKindGit
+	wantFrom := src.PinnedTag
+	if src.LocalPath != "" {
+		wantKind = SourceKindLocal
+		wantFrom = src.LocalPath
 	}
-	if s.ResolvedSHA == "" {
-		return fmt.Errorf("source %q: sync-state missing resolved_sha (re-run `lathe specsync`)", source)
+	gotKind := s.SourceKind
+	if gotKind == "" {
+		gotKind = SourceKindGit
+	}
+	if gotKind != wantKind {
+		return fmt.Errorf("source %q: sync-state source_kind %q != config %q (re-run `lathe specsync`)", src.Name, gotKind, wantKind)
+	}
+	if s.SyncedFrom != wantFrom {
+		if wantKind == SourceKindLocal {
+			return fmt.Errorf("source %q: synced_from=%q but local_path=%q (re-run `lathe specsync`)", src.Name, s.SyncedFrom, wantFrom)
+		}
+		return fmt.Errorf("source %q: synced_from=%q but pinned_tag=%q (re-run `lathe specsync`)", src.Name, s.SyncedFrom, wantFrom)
+	}
+	if wantKind == SourceKindGit && s.ResolvedSHA == "" {
+		return fmt.Errorf("source %q: sync-state missing resolved_sha (re-run `lathe specsync`)", src.Name)
 	}
 	return nil
 }
