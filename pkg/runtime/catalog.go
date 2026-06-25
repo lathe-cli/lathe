@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 )
@@ -172,14 +173,16 @@ func SearchCatalog(root *cobra.Command, query string, opts SearchOptions) []Sear
 	if limit <= 0 {
 		limit = DefaultSearchLimit
 	}
-	tokens := strings.Fields(strings.ToLower(query))
+	tokens := searchTokens(query)
 	if len(tokens) == 0 {
 		return []SearchResult{}
 	}
+	fullQuery := strings.ToLower(query)
+	normalizedQuery := normalizeSearchText(query)
 	results := make([]SearchResult, 0)
 	for _, cmd := range BuildCatalog(root, opts.CatalogOptions).Commands {
 		view := newSearchView(cmd)
-		score, ok := scoreCatalogCommand(view, tokens, strings.ToLower(query))
+		score, ok := scoreCatalogCommand(view, tokens, fullQuery, normalizedQuery)
 		if !ok {
 			continue
 		}
@@ -371,16 +374,28 @@ func newSearchView(cmd CatalogCommand) searchView {
 	}
 }
 
-func scoreCatalogCommand(cmd searchView, tokens []string, fullQuery string) (int, bool) {
+func scoreCatalogCommand(cmd searchView, tokens []string, fullQuery string, normalizedQuery string) (int, bool) {
 	score := 0
+	matches := 0
+	strong := false
 	for _, token := range tokens {
 		tokenScore := scoreToken(cmd, token)
 		if tokenScore == 0 {
-			return 0, false
+			continue
+		}
+		matches++
+		if tokenScore >= 45 {
+			strong = true
 		}
 		score += tokenScore
 	}
-	if fullQuery == cmd.fullPath || fullQuery == cmd.operationID || fullQuery == cmd.use {
+	if matches == 0 || (!strong && matches < 2) {
+		return 0, false
+	}
+	if fullQuery == cmd.fullPath || fullQuery == cmd.operationID || fullQuery == cmd.use ||
+		normalizedQuery == normalizeSearchText(cmd.fullPath) ||
+		normalizedQuery == normalizeSearchText(cmd.operationID) ||
+		normalizedQuery == normalizeSearchText(cmd.use) {
 		score += 100
 	}
 	return score, true
@@ -413,8 +428,33 @@ func scoreToken(cmd searchView, token string) int {
 }
 
 func scoreField(field string, token string, value int) int {
-	if strings.Contains(field, token) {
+	if strings.Contains(field, token) || strings.Contains(normalizeSearchText(field), token) {
 		return value
 	}
 	return 0
+}
+
+func searchTokens(query string) []string {
+	return strings.Fields(normalizeSearchText(query))
+}
+
+func normalizeSearchText(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	var prev rune
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if b.Len() > 0 && unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
+				b.WriteByte(' ')
+			}
+			b.WriteRune(unicode.ToLower(r))
+			prev = r
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		prev = 0
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
