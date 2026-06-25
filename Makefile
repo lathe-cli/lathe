@@ -1,5 +1,6 @@
 GO          ?= go
 OUT_DIR     := ./bin
+BINDIR      ?= $(if $(GOBIN),$(GOBIN),$(or $(GOPATH),$(HOME)/go)/bin)
 
 BOLD  := \033[1m
 CYAN  := \033[36m
@@ -10,12 +11,17 @@ RESET := \033[0m
 
 # ── Build ────────────────────────────────────────────────────────────────────
 
-.PHONY: build
+.PHONY: build install
 
 build: ## Build local lathe binary into ./bin/lathe
 	@mkdir -p $(OUT_DIR)
 	$(GO) build -trimpath -o $(OUT_DIR)/lathe ./cmd/lathe
 	@printf '\n$(GREEN)  ✓ built $(CYAN)$(OUT_DIR)/lathe$(RESET)\n\n'
+
+install: build ## Install local lathe binary into BINDIR
+	@mkdir -p $(BINDIR)
+	@cp $(OUT_DIR)/lathe $(BINDIR)/lathe
+	@printf '\n$(GREEN)  ✓ installed $(CYAN)$(BINDIR)/lathe$(RESET)\n\n'
 
 # ── Quality ──────────────────────────────────────────────────────────────────
 
