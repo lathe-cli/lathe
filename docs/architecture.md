@@ -275,7 +275,7 @@ Three pieces of state cross the boundary:
 
 1. **Manifest** (immutable, from `cli.yaml` embedded at build time) — CLI identity and auth shape.
 2. **Hosts** (mutable, `~/.config/<name>/hosts.yml`) — per-hostname credentials. No "current host" stored.
-3. **Flags** (transient) — `--hostname`, `--output`, `--insecure`, plus operation-specific flags.
+3. **Flags** (transient) — `--hostname`, `--output`, plus operation-specific flags.
 
 ## Extension points
 

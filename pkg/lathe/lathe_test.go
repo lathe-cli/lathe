@@ -74,7 +74,7 @@ func TestRunMountsAndExecutesGeneratedCommands(t *testing.T) {
 		Version:  "1.2.3",
 		Commit:   "abc123",
 		Date:     "2026-05-26",
-	}, []string{"version"}, &stdout, &stderr)
+	}, []string{metaCommandName, "version"}, &stdout, &stderr)
 	if code != runtime.ExitOK {
 		t.Fatalf("version exit = %d, stderr = %q", code, stderr.String())
 	}
