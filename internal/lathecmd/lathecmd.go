@@ -164,9 +164,18 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	}
 
 	ordered := cfg.Ordered()
+	moduleNames := make([]string, 0, len(ordered))
+	for _, src := range ordered {
+		name := src.Name
+		if src.DisplayName != "" {
+			name = src.DisplayName
+		}
+		moduleNames = append(moduleNames, name)
+	}
 	var mounts []render.ModuleMount
 	var skillModules []render.SkillModule
-	for _, src := range ordered {
+	var shortcutRootNames []string
+	for i, src := range ordered {
 		syncDir := filepath.Join(syncRoot, src.Name)
 		if err := specsync.VerifyState(syncDir, src); err != nil {
 			return err
@@ -188,13 +197,19 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 				specs[i].DefaultHostname = *src.DefaultHostname
 			}
 		}
-		cliName := src.Name
-		if src.DisplayName != "" {
-			cliName = src.DisplayName
-		}
+		cliName := moduleNames[i]
 		flat, err := render.ResolveFlatCommandPath(manifest.CLI.CommandPath, len(ordered), specs)
 		if err != nil {
 			return err
+		}
+		validateRootNames := append(append([]string(nil), moduleNames...), shortcutRootNames...)
+		if err := render.ValidateShortcuts(validateRootNames, specs, flat); err != nil {
+			return err
+		}
+		for _, spec := range specs {
+			for _, shortcut := range spec.Shortcuts {
+				shortcutRootNames = append(shortcutRootNames, shortcut.Use)
+			}
 		}
 		specs = render.RewriteCommandExamples(manifest.CLI.Name, cliName, specs, flat)
 		if err := render.RenderModule(src.Name, cliName, specs, nil); err != nil {

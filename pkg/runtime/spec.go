@@ -1,11 +1,12 @@
 package runtime
 
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 type CommandSpec struct {
 	Group           string
 	Use             string
 	Aliases         []string
+	Shortcuts       []CommandShortcut `json:",omitempty"`
 	Short           string
 	Long            string
 	Example         string
@@ -22,6 +23,11 @@ type CommandSpec struct {
 	Notes           []string     `json:",omitempty"`
 	Prerequisites   []string     `json:",omitempty"`
 	KnownErrors     []KnownError `json:",omitempty"`
+}
+
+type CommandShortcut struct {
+	Use    string            `json:"use"`
+	Params map[string]string `json:"params,omitempty"`
 }
 
 type ParamSpec struct {

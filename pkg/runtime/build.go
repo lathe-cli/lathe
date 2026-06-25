@@ -33,7 +33,13 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) {
 	for _, group := range buildGroups(service, specs) {
 		svc.AddCommand(group)
 	}
+	if err := ValidateShortcuts(specs, rootCommandNames(root, svc)); err != nil {
+		panic(err)
+	}
 	root.AddCommand(svc)
+	if err := mountShortcuts(root, specs); err != nil {
+		panic(err)
+	}
 }
 
 func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
@@ -50,8 +56,11 @@ func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
 			return fmt.Errorf("flat mount command %q conflicts with existing root command", name)
 		}
 	}
+	if err := ValidateShortcuts(specs, rootCommandNames(root, groups...)); err != nil {
+		return err
+	}
 	root.AddCommand(groups...)
-	return nil
+	return mountShortcuts(root, specs)
 }
 
 func buildGroups(service string, specs []CommandSpec) []*cobra.Command {
@@ -101,7 +110,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			}
 
 			for _, p := range s.Params {
-				if len(p.Enum) == 0 || !cmd.Flags().Changed(p.Flag) {
+				if len(p.Enum) == 0 || !flagChangedOrDefault(cmd, p) {
 					continue
 				}
 				raw := flagStringValue(vals[p.Name])
@@ -130,13 +139,13 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					path = strings.Replace(path, "{"+p.Name+"}", url.PathEscape(*v), 1)
 					continue
 				case InHeader:
-					if !cmd.Flags().Changed(p.Flag) {
+					if !flagChangedOrDefault(cmd, p) {
 						continue
 					}
 					hdrs[p.Name] = *vals[p.Name].(*string)
 					continue
 				case InVariable:
-					if !cmd.Flags().Changed(p.Flag) {
+					if !flagChangedOrDefault(cmd, p) {
 						continue
 					}
 					switch v := vals[p.Name].(type) {
@@ -159,7 +168,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					}
 					continue
 				case InFormData:
-					if !cmd.Flags().Changed(p.Flag) {
+					if !flagChangedOrDefault(cmd, p) {
 						continue
 					}
 					switch v := vals[p.Name].(type) {
@@ -172,7 +181,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					}
 					continue
 				}
-				if !cmd.Flags().Changed(p.Flag) && p.Default == "" {
+				if !flagChangedOrDefault(cmd, p) {
 					continue
 				}
 				switch v := vals[p.Name].(type) {
@@ -277,7 +286,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			v := new(string)
 			vals[p.Name] = v
 			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
-			_ = cmd.MarkFlagRequired(p.Flag)
+			if p.Default == "" {
+				_ = cmd.MarkFlagRequired(p.Flag)
+			}
 			if p.Deprecated {
 				_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
 			}
@@ -326,7 +337,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			vals[p.Name] = v
 			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		}
-		if p.Required {
+		if p.Required && p.Default == "" {
 			_ = cmd.MarkFlagRequired(p.Flag)
 		}
 		if p.Deprecated {
@@ -364,14 +375,165 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	return cmd
 }
 
+func mountShortcuts(root *cobra.Command, specs []CommandSpec) error {
+	for _, spec := range specs {
+		for _, shortcut := range spec.Shortcuts {
+			target, err := shortcutSpec(spec, shortcut)
+			if err != nil {
+				return err
+			}
+			cmd := buildCmd(target)
+			cmd.GroupID = ModuleGroupID
+			root.AddCommand(cmd)
+		}
+	}
+	return nil
+}
+
+func ValidateShortcuts(specs []CommandSpec, rootNames []string) error {
+	roots := map[string]bool{}
+	for _, name := range rootNames {
+		if name != "" {
+			roots[name] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, spec := range specs {
+		for _, shortcut := range spec.Shortcuts {
+			name, err := shortcutName(shortcut.Use, spec.Use)
+			if err != nil {
+				return err
+			}
+			if roots[name] {
+				return fmt.Errorf("shortcut %q conflicts with root command", name)
+			}
+			if seen[name] {
+				return fmt.Errorf("shortcut %q conflicts with another shortcut", name)
+			}
+			seen[name] = true
+			if _, err := shortcutSpec(spec, shortcut); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rootCommandNames(root *cobra.Command, planned ...*cobra.Command) []string {
+	var names []string
+	for _, cmd := range root.Commands() {
+		names = append(names, cmd.Name())
+		names = append(names, cmd.Aliases...)
+	}
+	for _, cmd := range planned {
+		names = append(names, cmd.Name())
+		names = append(names, cmd.Aliases...)
+	}
+	return names
+}
+
+func shortcutSpec(spec CommandSpec, shortcut CommandShortcut) (CommandSpec, error) {
+	name, err := shortcutName(shortcut.Use, spec.Use)
+	if err != nil {
+		return CommandSpec{}, err
+	}
+	target := spec
+	target.Use = name
+	target.Aliases = nil
+	target.Shortcuts = nil
+	target.Params = append([]ParamSpec(nil), spec.Params...)
+	set := map[int]string{}
+	for key, value := range shortcut.Params {
+		i := shortcutParamIndex(spec, key)
+		if i < 0 {
+			return CommandSpec{}, fmt.Errorf("shortcut %q param %q does not match command %q", name, key, spec.Use)
+		}
+		if prior, ok := set[i]; ok && prior != key {
+			return CommandSpec{}, fmt.Errorf("shortcut %q sets param %q more than once", name, spec.Params[i].Name)
+		}
+		if err := validateShortcutParamValue(spec.Params[i], value); err != nil {
+			return CommandSpec{}, fmt.Errorf("shortcut %q param %q: %w", name, key, err)
+		}
+		set[i] = key
+		target.Params[i].Default = value
+		target.Params[i].Required = false
+	}
+	return target, nil
+}
+
+func shortcutName(use string, target string) (string, error) {
+	name := strings.TrimSpace(use)
+	if name == "" || name != use || len(strings.Fields(name)) != 1 {
+		return "", fmt.Errorf("shortcut for command %q must be a single command name", target)
+	}
+	return name, nil
+}
+
+func shortcutParamIndex(spec CommandSpec, key string) int {
+	for i, param := range spec.Params {
+		if key == param.Name || key == param.Flag {
+			return i
+		}
+	}
+	return -1
+}
+
+func validateShortcutParamValue(p ParamSpec, value string) error {
+	if strings.HasPrefix(p.GoType, "[]") {
+		return fmt.Errorf("repeated params are not supported")
+	}
+	switch {
+	case (p.In == InPath || p.In == InHeader) && p.GoType != "" && p.GoType != "string":
+		return fmt.Errorf("type %s is not supported for %s params", p.GoType, p.In)
+	case p.In == InFormData && p.GoType == "float64":
+		return fmt.Errorf("type %s is not supported for %s params", p.GoType, p.In)
+	case p.In != InVariable && p.GoType == "float64":
+		return fmt.Errorf("type %s is not supported for %s params", p.GoType, p.In)
+	}
+	switch p.GoType {
+	case "int64":
+		_, err := strconv.ParseInt(value, 10, 64)
+		return err
+	case "float64":
+		_, err := strconv.ParseFloat(value, 64)
+		return err
+	case "bool":
+		if value != "true" && value != "false" {
+			return fmt.Errorf("must be true or false")
+		}
+	}
+	return nil
+}
+
+func flagChangedOrDefault(cmd *cobra.Command, p ParamSpec) bool {
+	return cmd.Flags().Changed(p.Flag) || p.Default != ""
+}
+
 func flagStringValue(v any) string {
 	switch tv := v.(type) {
 	case *string:
 		return *tv
 	case *int64:
 		return strconv.FormatInt(*tv, 10)
+	case *float64:
+		return strconv.FormatFloat(*tv, 'f', -1, 64)
 	case *bool:
 		return strconv.FormatBool(*tv)
+	case *[]int64:
+		if len(*tv) > 0 {
+			return strconv.FormatInt((*tv)[0], 10)
+		}
+		return ""
+	case *[]float64:
+		if len(*tv) > 0 {
+			return strconv.FormatFloat((*tv)[0], 'f', -1, 64)
+		}
+		return ""
+	case *[]bool:
+		if len(*tv) > 0 {
+			return strconv.FormatBool((*tv)[0])
+		}
+		return ""
 	case *[]string:
 		if len(*tv) > 0 {
 			return (*tv)[0]

@@ -24,6 +24,12 @@ func NewCommand(m *config.Manifest) *cobra.Command {
 	return cmd
 }
 
+func NewHiddenLoginCommand(m *config.Manifest) *cobra.Command {
+	cmd := newLogin(m)
+	cmd.Hidden = true
+	return cmd
+}
+
 func rootString(cmd *cobra.Command, name string) string {
 	v, _ := cmd.Root().PersistentFlags().GetString(name)
 	return v

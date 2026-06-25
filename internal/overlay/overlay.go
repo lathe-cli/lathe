@@ -11,6 +11,7 @@ import (
 
 type Override struct {
 	Aliases       []string                 `yaml:"aliases"`
+	Shortcuts     []Shortcut               `yaml:"shortcuts"`
 	Short         string                   `yaml:"short"`
 	Long          string                   `yaml:"long"`
 	Example       string                   `yaml:"example"`
@@ -21,6 +22,11 @@ type Override struct {
 	Notes         []string                 `yaml:"notes"`
 	Prerequisites []string                 `yaml:"prerequisites"`
 	KnownErrors   []KnownError             `yaml:"known_errors"`
+}
+
+type Shortcut struct {
+	Use    string            `yaml:"use"`
+	Params map[string]string `yaml:"params"`
 }
 
 type ParamOverride struct {
