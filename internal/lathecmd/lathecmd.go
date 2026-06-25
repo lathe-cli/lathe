@@ -224,30 +224,27 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		return err
 	}
 	if skillDir != "" {
-		if err := render.RenderSkillDirectory(skillDir, manifest, skillModules); err != nil {
-			return err
-		}
-		if err := render.ApplySkillIncludes(skillDir, skillInclude); err != nil {
+		if err := render.RenderSkillDirectoryWithInclude(skillDir, manifest, skillModules, skillInclude); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Manifest, string, string, error) {
+func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Manifest, string, render.SkillInclude, error) {
 	manifest, rootConfig, include, err := loadCodegenManifest(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) && flags.RootSet && flags.Root == "" && (!flags.IncludeSet || flags.Include == "") {
-			return &config.Manifest{CLI: config.CLIInfo{CommandPath: config.CommandPathAuto}}, "", "", nil
+			return &config.Manifest{CLI: config.CLIInfo{CommandPath: config.CommandPathAuto}}, "", render.SkillInclude{}, nil
 		}
-		return nil, "", "", err
+		return nil, "", render.SkillInclude{}, err
 	}
 
 	if flags.RootSet && flags.Root == "" {
-		if flags.IncludeSet && flags.Include != "" {
-			return nil, "", "", fmt.Errorf("skill include requires skill generation")
+		if skillIncludeConfigured(include) || flags.IncludeSet && flags.Include != "" {
+			return nil, "", render.SkillInclude{}, fmt.Errorf("skill include requires skill generation")
 		}
-		return manifest, "", "", nil
+		return manifest, "", render.SkillInclude{}, nil
 	}
 
 	root := "skills"
@@ -259,24 +256,28 @@ func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Ma
 	}
 
 	if flags.IncludeSet {
-		include = flags.Include
+		include.Path = flags.Include
 	}
 
 	if root == "" {
-		if include != "" {
-			return nil, "", "", fmt.Errorf("skill include requires skill generation")
+		if skillIncludeConfigured(include) {
+			return nil, "", render.SkillInclude{}, fmt.Errorf("skill include requires skill generation")
 		}
-		return manifest, "", "", nil
+		return manifest, "", render.SkillInclude{}, nil
 	}
 
 	skillDir, err := skillOutputDir(root, manifest.CLI.Name)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", render.SkillInclude{}, err
 	}
-	if err := render.ValidateSkillIncludeRoot(root, include); err != nil {
-		return nil, "", "", err
+	if err := render.ValidateSkillIncludeRoot(root, include.Path); err != nil {
+		return nil, "", render.SkillInclude{}, err
 	}
 	return manifest, skillDir, include, nil
+}
+
+func skillIncludeConfigured(include render.SkillInclude) bool {
+	return include.Path != "" || len(include.Files) > 0
 }
 
 func skillFlagsFrom(fs *flag.FlagSet, root, include *string) skillFlagOptions {
@@ -297,25 +298,79 @@ func skillFlagsFrom(fs *flag.FlagSet, root, include *string) skillFlagOptions {
 	}
 }
 
-func loadCodegenManifest(path string) (*config.Manifest, *string, string, error) {
+func loadCodegenManifest(path string) (*config.Manifest, *string, render.SkillInclude, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, render.SkillInclude{}, err
 	}
 	manifest, err := config.Load(data)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, render.SkillInclude{}, err
 	}
 	var codegen struct {
 		Skill struct {
-			Root    *string `yaml:"root"`
-			Include string  `yaml:"include"`
+			Root    *string            `yaml:"root"`
+			Include skillIncludeConfig `yaml:"include"`
 		} `yaml:"skill"`
 	}
 	if err := yaml.Unmarshal(data, &codegen); err != nil {
-		return nil, nil, "", fmt.Errorf("parse cli.yaml: %w", err)
+		return nil, nil, render.SkillInclude{}, fmt.Errorf("parse cli.yaml: %w", err)
 	}
-	return manifest, codegen.Skill.Root, codegen.Skill.Include, nil
+	return manifest, codegen.Skill.Root, codegen.Skill.Include.SkillInclude, nil
+}
+
+type skillIncludeConfig struct {
+	render.SkillInclude
+}
+
+func (c *skillIncludeConfig) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		c.Path = value.Value
+		return nil
+	case yaml.MappingNode:
+		for i := 0; i < len(value.Content); i += 2 {
+			key := value.Content[i]
+			val := value.Content[i+1]
+			switch key.Value {
+			case "path":
+				if val.Kind != yaml.ScalarNode {
+					return fmt.Errorf("skill.include.path must be a string")
+				}
+				c.Path = val.Value
+			case "files":
+				files, err := decodeSkillIncludeFiles(val)
+				if err != nil {
+					return err
+				}
+				c.Files = files
+			default:
+				return fmt.Errorf("unknown skill.include field %q", key.Value)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("skill.include must be a string or mapping")
+	}
+}
+
+func decodeSkillIncludeFiles(node *yaml.Node) (map[string]render.SkillFileAction, error) {
+	if node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("skill.include.files must be a mapping")
+	}
+	files := map[string]render.SkillFileAction{}
+	for i := 0; i < len(node.Content); i += 2 {
+		key := node.Content[i]
+		val := node.Content[i+1]
+		if key.Kind != yaml.ScalarNode || val.Kind != yaml.ScalarNode {
+			return nil, fmt.Errorf("skill.include.files entries must map file paths to actions")
+		}
+		if _, ok := files[key.Value]; ok {
+			return nil, fmt.Errorf("duplicate skill.include.files entry %q", key.Value)
+		}
+		files[key.Value] = render.SkillFileAction(val.Value)
+	}
+	return files, nil
 }
 
 func resolveCacheRoot(root string) (string, error) {

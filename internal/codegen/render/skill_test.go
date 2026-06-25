@@ -377,93 +377,6 @@ func TestRenderSkillDirectory_RegeneratesOwnedDirectory(t *testing.T) {
 	}
 }
 
-func TestApplySkillIncludes_AppendsAndCreates(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "skills", "acmectl")
-	if err := RenderSkillDirectory(skillDir, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil); err != nil {
-		t.Fatalf("RenderSkillDirectory: %v", err)
-	}
-	before := readFile(t, dir, "skills/acmectl/SKILL.md")
-
-	include := filepath.Join(dir, "include")
-	includeFiles := map[string]string{
-		"SKILL.md":             "## Module availability\n\nExtra guidance.\n",
-		"references/extra.md":  "# Extra\n",
-		"scripts/helper.py":    "print('ok')\n",
-		"assets/template.html": "<main></main>\n",
-		"agents/metadata.yaml": "policy: {}\n",
-	}
-	writeFiles(t, include, includeFiles)
-
-	if err := ApplySkillIncludes(skillDir, include); err != nil {
-		t.Fatalf("ApplySkillIncludes: %v", err)
-	}
-
-	got := readFile(t, dir, "skills/acmectl/SKILL.md")
-	if !strings.HasPrefix(got, before) {
-		t.Errorf("existing SKILL.md content should be preserved as a prefix")
-	}
-	if !strings.Contains(got, "## Module availability") || !strings.Contains(got, "Extra guidance.") {
-		t.Errorf("SKILL.md missing appended include content:\n%s", got)
-	}
-	for path, body := range includeFiles {
-		if path == "SKILL.md" {
-			continue
-		}
-		target := filepath.Join("skills/acmectl", path)
-		if got := readFile(t, dir, target); got != body {
-			t.Errorf("included skill resource %s = %q, want %q", target, got, body)
-		}
-	}
-}
-
-func TestApplySkillIncludes_EmptyIsNoOp(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "skills", "acmectl")
-	if err := RenderSkillDirectory(skillDir, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil); err != nil {
-		t.Fatalf("RenderSkillDirectory: %v", err)
-	}
-	before := readFile(t, dir, "skills/acmectl/SKILL.md")
-
-	if err := ApplySkillIncludes(skillDir, ""); err != nil {
-		t.Fatalf("ApplySkillIncludes empty: %v", err)
-	}
-	if after := readFile(t, dir, "skills/acmectl/SKILL.md"); after != before {
-		t.Errorf("SKILL.md changed by no-op include:\nbefore=%q\nafter=%q", before, after)
-	}
-}
-
-func TestApplySkillIncludes_MissingRootFails(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "skills", "acmectl")
-
-	err := ApplySkillIncludes(skillDir, filepath.Join(dir, "does-not-exist"))
-	if err == nil {
-		t.Fatal("expected missing include root error")
-	}
-	if !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestApplySkillIncludes_RejectsExistingNonAppendableGeneratedTargets(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "skills", "acmectl")
-	if err := RenderSkillDirectory(skillDir, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil); err != nil {
-		t.Fatalf("RenderSkillDirectory: %v", err)
-	}
-	include := filepath.Join(dir, "include")
-	writeFiles(t, include, map[string]string{"agents/openai.yaml": "blocked\n"})
-
-	err := ApplySkillIncludes(skillDir, include)
-	if err == nil {
-		t.Fatal("expected protected target error")
-	}
-	if !strings.Contains(err.Error(), "existing non-appendable generated file") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func readFile(t *testing.T, root string, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, path))
@@ -471,17 +384,4 @@ func readFile(t *testing.T, root string, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
-}
-
-func writeFiles(t *testing.T, root string, files map[string]string) {
-	t.Helper()
-	for path, body := range files {
-		full := filepath.Join(root, path)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 }

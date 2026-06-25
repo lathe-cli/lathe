@@ -85,8 +85,19 @@ skill:
 
 The optional `skill.root` value controls where generated Skill files are written;
 set it to `""` to disable Skill generation. The optional `skill.include` value
-points at repo-local Skill resources merged into generated Skill files. Keep the
-include directory outside `skill.root`.
+points at repo-local Skill resources merged into generated Skill files. The
+include path must stay outside `skill.root`. For per-file policy, use object
+form:
+
+```yaml
+skill:
+  root: skills
+  include:
+    path: internal/skill-include
+    files:
+      agents/openai.yaml: replace
+      references/modules/acme.md: omit
+```
 
 Generated CLIs expose `--version` and `-v`. The release version is
 build metadata, not `cli.yaml` data: pass `Version`, `Commit`, and `Date` through
@@ -228,15 +239,20 @@ lathe codegen -skill-include internal/skill-include
 ```
 
 `-skill-root` and `-skill-include` override the `skill.root` and `skill.include`
-values from `cli.yaml` for one run. Prefer `cli.yaml` for reproducible generated
-Skill output. When `skill.include` or `-skill-include` is set, the directory must
-already exist and must be outside `skill.root`. Files under the include directory
-are mapped by relative path onto `<skill.root>/<cli-name>/<rel>`. Include files
-may target `SKILL.md`, `references/`, `scripts/`, `assets/`, and `agents/`.
-`SKILL.md` and existing `references/**/*.md` targets are appended after a blank
-line. New files under the allowed Skill resource directories are created. Existing
-generated non-markdown files, such as `agents/openai.yaml`, are not overwritten
-or appended.
+path from `cli.yaml` for one run. Prefer `cli.yaml` for reproducible generated
+Skill output. When an include path is set, the directory must already exist and
+must be outside `skill.root`. Files under the include directory are mapped by
+relative path onto `<skill.root>/<cli-name>/<rel>`. Include files may target
+`SKILL.md`, `references/`, `scripts/`, `assets/`, and `agents/`.
+By default, `SKILL.md` and existing `references/**/*.md` targets are appended
+after a blank line; new files under the allowed Skill resource directories are
+created. Object-form `skill.include.files` can set a path to `append`, `create`,
+`replace`, or `omit`. `replace` requires a same-path include file and an existing
+generated target. `omit` removes eligible generated files such as
+`agents/openai.yaml` or `references/modules/*.md`; omitted module references are
+also removed from generated `SKILL.md`. `SKILL.md` may be appended or replaced,
+but not omitted. `.lathe-skill`, dotfiles, path traversal, and symlinks are
+rejected.
 
 Generated outputs:
 
