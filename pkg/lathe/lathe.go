@@ -2,6 +2,7 @@ package lathe
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -10,7 +11,10 @@ import (
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
-const authGroupID = "auth"
+const (
+	authGroupID     = "auth"
+	metaCommandName = "__lathe"
+)
 
 // NewApp builds the root cobra command for a lathe-style CLI identified by m.
 // It binds m for package-level helpers before returning the command.
@@ -26,10 +30,13 @@ func NewApp(m *config.Manifest) *cobra.Command {
 		Long:         agentHint(m.CLI.Name, m.CLI.Short),
 		SilenceUsage: true,
 	}
+	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().String("hostname", "", fmt.Sprintf("Server hostname (overrides $%s)", m.CLI.HostEnv))
 	cmd.PersistentFlags().StringP("output", "o", "table", "Output format: table|json|yaml|raw")
 	cmd.PersistentFlags().Bool("insecure", false, "Skip TLS certificate verification for this invocation")
 	cmd.PersistentFlags().Bool("debug", false, "Print HTTP request/response details to stderr")
+	_ = cmd.PersistentFlags().MarkHidden("insecure")
+	_ = cmd.PersistentFlags().MarkHidden("debug")
 
 	cmd.AddGroup(
 		&cobra.Group{ID: authGroupID, Title: "Authentication:"},
@@ -41,8 +48,30 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	cmd.AddCommand(authCmd)
 	cmd.AddCommand(commandsCmd(m))
 	cmd.AddCommand(searchCmd(m))
-	cmd.AddCommand(versionCmd())
+	cmd.AddCommand(metaCmd(m.CLI.Name))
 	return cmd
+}
+
+func metaCmd(cliName string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    metaCommandName,
+		Short:  "Lathe control commands",
+		Hidden: true,
+	}
+	cmd.AddCommand(versionCmd())
+	cmd.InitDefaultCompletionCmd()
+	rewriteCompletionHelp(cmd, cliName)
+	return cmd
+}
+
+func rewriteCompletionHelp(cmd *cobra.Command, cliName string) {
+	oldPath := metaCommandName + " completion"
+	newPath := cliName + " " + metaCommandName + " completion"
+	for _, child := range cmd.Commands() {
+		child.Long = strings.ReplaceAll(child.Long, oldPath, newPath)
+		child.Long = strings.ReplaceAll(child.Long, "for "+metaCommandName, "for "+cliName)
+		rewriteCompletionHelp(child, cliName)
+	}
 }
 
 // agentHint surfaces the catalog protocol in `<cli> --help` so agents

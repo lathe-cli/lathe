@@ -75,7 +75,7 @@ built, and which output format to prefer.
 | Agentic-friendly discovery | `search`, `commands --json`, `commands show`, and `commands schema` expose the CLI as structured data. |
 | Generated Skills | Codegen writes `skills/<cli-name>/` so agents can load the CLI's operating guide and module references. |
 | Reproducible inputs | Git specs are pinned by tag and resolved to commit SHA; local sources are staged from checked-in configuration. |
-| Real CLI UX | Hostname-keyed auth, --file, --set, --set-str, -o table\|json\|yaml\|raw, enum validation, pagination, streaming, and --debug. |
+| Real CLI UX | Hostname-keyed auth, --file, --set, --set-str, -o table\|json\|yaml\|raw, enum validation, pagination, and streaming. |
 | Overlay polish | Improve summaries, aliases, parameter help, grouping, and examples without editing generated code. |
 
 ## Project Resources
@@ -364,8 +364,15 @@ go run ./cmd/lathe codegen -overlay internal/overlay
 |---|---|
 | `--hostname` | Select host for this invocation. |
 | `-o, --output` | Output format: `table`, `json`, `yaml`, or `raw`. |
-| `--insecure` | Skip TLS certificate verification. |
-| `--debug` | Print HTTP request/response details to stderr. |
+
+### Lathe Control Commands
+
+Lathe runtime commands that should not occupy generated API command names live under the hidden `__lathe` command:
+
+| Command | Effect |
+|---|---|
+| `<cli> __lathe version` | Print version information. |
+| `<cli> __lathe completion <shell>` | Generate shell completion scripts. |
 
 ### Environment
 

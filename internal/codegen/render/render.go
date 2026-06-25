@@ -120,12 +120,11 @@ func rootCommandName(use string) string {
 }
 
 var reservedRootCommands = map[string]bool{
-	"auth":       true,
-	"commands":   true,
-	"completion": true,
-	"help":       true,
-	"search":     true,
-	"version":    true,
+	"__lathe":  true,
+	"auth":     true,
+	"commands": true,
+	"help":     true,
+	"search":   true,
 }
 
 func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
