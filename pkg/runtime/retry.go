@@ -10,10 +10,11 @@ import (
 )
 
 type retryTransport struct {
-	inner      http.RoundTripper
-	maxRetries int
-	sleepFn    func(time.Duration)
-	debug      bool
+	inner           http.RoundTripper
+	maxRetries      int
+	sleepFn         func(time.Duration)
+	debug           bool
+	safeMethodsOnly bool
 }
 
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -48,7 +49,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !isRetryable(resp.StatusCode) {
+		if !isRetryable(req.Method, resp.StatusCode, t.safeMethodsOnly) {
 			return resp, nil
 		}
 		if attempt < t.maxRetries {
@@ -58,9 +59,17 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func isRetryable(status int) bool {
+func isRetryable(method string, status int, safeMethodsOnly bool) bool {
 	switch status {
 	case 429, 500, 502, 503, 504:
+	default:
+		return false
+	}
+	if !safeMethodsOnly {
+		return true
+	}
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return true
 	}
 	return false
