@@ -61,6 +61,54 @@ func TestPollUntilDone_EventualSuccess(t *testing.T) {
 	}
 }
 
+func TestPollUntilDone_AcceptsSameHostAbsoluteLocation(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	if _, err := PollUntilDone(context.Background(), srv.URL, srv.URL+"/status?job=1", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second); err != nil {
+		t.Fatalf("PollUntilDone: %v", err)
+	}
+	if gotPath != "/status?job=1" {
+		t.Errorf("poll path = %q, want /status?job=1", gotPath)
+	}
+}
+
+func TestPollUntilDone_AcceptsDefaultPortAbsoluteLocation(t *testing.T) {
+	var gotHost string
+	opts := ClientOptions{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotHost = r.URL.Host
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+	})}
+
+	if _, err := PollUntilDone(context.Background(), "api.example.com", "https://api.example.com:443/status", opts, 30*time.Second); err != nil {
+		t.Fatalf("PollUntilDone: %v", err)
+	}
+	if gotHost != "api.example.com" {
+		t.Errorf("host = %q, want api.example.com", gotHost)
+	}
+}
+
+func TestPollUntilDone_RejectsCrossHostAbsoluteLocation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://example.com/status")
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	_, err := PollUntilDone(context.Background(), srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second)
+	if err == nil || err.Error() != `cross-host polling location "https://example.com/status"` {
+		t.Fatalf("PollUntilDone error = %v, want cross-host polling location", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestPollUntilDone_Timeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", "/status")
