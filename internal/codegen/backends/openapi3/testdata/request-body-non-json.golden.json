@@ -11,6 +11,7 @@
       "Parameters": null,
       "RequestBody": {
         "Required": true,
+        "MediaType": "application/xml",
         "Schema": {
           "Ref": "",
           "Type": "object",

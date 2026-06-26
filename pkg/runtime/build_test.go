@@ -243,6 +243,72 @@ func TestBuild_SetStrSendsStringBodyFields(t *testing.T) {
 	}
 }
 
+func TestBuild_FileSendsRequestBodyMediaType(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var gotContentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	bodyFile := t.TempDir() + "/body.txt"
+	if err := os.WriteFile(bodyFile, []byte("hello"), 0600); err != nil {
+		t.Fatalf("write body file: %v", err)
+	}
+
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	Build(root, "demo", []CommandSpec{{
+		Group:       "Exports",
+		Use:         "create-export",
+		Method:      "POST",
+		PathTpl:     "/exports",
+		RequestBody: &RequestBody{Required: true, MediaType: "text/plain"},
+		Security:    &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "exports", "create-export", "--file", bodyFile})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if gotContentType != "text/plain" {
+		t.Errorf("Content-Type = %q, want text/plain", gotContentType)
+	}
+}
+
+func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
+	for _, args := range [][]string{
+		{"--set", "id=1"},
+		nil,
+	} {
+		bindTestManifest(t, "myctl", "MYCTL_HOST")
+		t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+		root := newRootWithModuleGroup()
+		root.PersistentFlags().String("hostname", "", "")
+		root.PersistentFlags().StringP("output", "o", "raw", "")
+		Build(root, "demo", []CommandSpec{{
+			Group:       "Exports",
+			Use:         "create-export",
+			Method:      "POST",
+			PathTpl:     "/exports",
+			RequestBody: &RequestBody{Required: true, MediaType: "text/plain"},
+			Security:    &SecurityHint{Public: true},
+		}})
+		root.SetArgs(append([]string{"--hostname", "http://127.0.0.1:1", "demo", "exports", "create-export"}, args...))
+
+		err := root.Execute()
+		if err == nil || !strings.Contains(err.Error(), "requires --file") {
+			t.Fatalf("Execute error = %v, want requires --file", err)
+		}
+	}
+}
+
 func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
 	root, url, recorded := newRecordingGraphQLRoot(t, createAppSpec())
 	root.SetArgs([]string{"--hostname", url, "demo", "apps", "create-app", "--input-name", "demo"})
