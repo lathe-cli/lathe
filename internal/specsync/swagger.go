@@ -11,8 +11,14 @@ import (
 
 func syncSwagger(src *sourceconfig.Source, workDir, syncDir string) error {
 	for i, rel := range src.Swagger.Files {
-		srcPath := filepath.Join(workDir, rel)
-		dstPath := filepath.Join(syncDir, rel)
+		srcPath, err := safeJoin(workDir, rel)
+		if err != nil {
+			return err
+		}
+		dstPath, err := safeJoin(syncDir, rel)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(srcPath); err != nil {
 			return fmt.Errorf("missing %s in %s@%s", rel, src.Name, src.PinnedTag)
 		}
