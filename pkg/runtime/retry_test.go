@@ -75,6 +75,32 @@ func TestRetryTransport_RetriesOn5xx(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_DefaultRetriesSkipPost(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) > 1 {
+			w.WriteHeader(200)
+			return
+		}
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL, strings.NewReader(`{"key":"val"}`))
+	resp, err := HTTPClient(ClientOptions{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != 500 {
+		t.Fatalf("status = %d, want 500", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("calls = %d, want 1", got)
+	}
+}
+
 func TestRetryTransport_NoRetryOn4xx(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -55,11 +55,12 @@ func HTTPClient(opts ClientOptions) *http.Client {
 		transport = &http.Transport{TLSClientConfig: tlsCfg}
 	}
 	maxRetries := opts.MaxRetries
-	if maxRetries == 0 {
+	safeMethodsOnly := maxRetries == 0
+	if safeMethodsOnly {
 		maxRetries = 3
 	}
 	if maxRetries > 0 {
-		transport = &retryTransport{inner: transport, maxRetries: maxRetries, debug: opts.Debug}
+		transport = &retryTransport{inner: transport, maxRetries: maxRetries, debug: opts.Debug, safeMethodsOnly: safeMethodsOnly}
 	}
 	if opts.Debug {
 		transport = &debugTransport{inner: transport}
