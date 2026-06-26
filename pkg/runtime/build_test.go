@@ -265,6 +265,36 @@ func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
 	}
 }
 
+func TestBuild_SensitiveVariableSafeInputModes(t *testing.T) {
+	root, url, recorded := newRecordingGraphQLRoot(t, createCredentialSpec())
+	t.Setenv("OPENAI_API_KEY", "sk-env")
+
+	cmd := mustFindChild(t, mustFindChild(t, mustFindChild(t, root, "demo"), "credentials"), "create-credential")
+	for _, flag := range []string{"input-api-key-env", "input-api-key-file", "input-api-key-stdin"} {
+		if cmd.Flag(flag) == nil {
+			t.Fatalf("missing --%s", flag)
+		}
+	}
+
+	root.SetArgs([]string{"--hostname", url, "demo", "credentials", "create-credential", "--input-api-key-env", "OPENAI_API_KEY"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	body, called := recorded()
+	if !called {
+		t.Fatal("request was not sent")
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(body), err)
+	}
+	vars, _ := got["variables"].(map[string]any)
+	input, _ := vars["input"].(map[string]any)
+	if input["apiKey"] != "sk-env" {
+		t.Fatalf("apiKey = %#v, want sk-env", input["apiKey"])
+	}
+}
+
 func TestBuild_RequiredVariableCanComeFromBodyInput(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -333,6 +363,25 @@ func TestBuild_RequiredVariableCanComeFromBodyInput(t *testing.T) {
 				t.Errorf("variables = %#v, want input.name=%s", got["variables"], tc.wantName)
 			}
 		})
+	}
+}
+
+func createCredentialSpec() CommandSpec {
+	return CommandSpec{
+		Group:   "Credentials",
+		Use:     "create-credential",
+		Method:  "POST",
+		PathTpl: "/graphql",
+		Params: []ParamSpec{
+			{Name: "input.apiKey", Flag: "input-api-key", In: InVariable, GoType: "string", Required: true, Help: "API key"},
+		},
+		RequestBody: &RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Template:  `{"query":"mutation createCredential($input: CredentialInput!) { createCredential(input: $input) { id } }","variables":{"input":{}}}`,
+			MergePath: "variables",
+		},
+		Security: &SecurityHint{Public: true},
 	}
 }
 

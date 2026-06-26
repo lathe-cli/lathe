@@ -201,6 +201,34 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	}
 }
 
+func TestBuildCatalog_SensitiveFlagInputModes(t *testing.T) {
+	root := newRootWithModuleGroup()
+	Build(root, "demo", []CommandSpec{{
+		Group:       "Credentials",
+		Use:         "create-credential",
+		Short:       "Create credential",
+		OperationID: "Credentials_Create",
+		Method:      "POST",
+		PathTpl:     "/credentials",
+		Params: []ParamSpec{
+			{Name: "apiKey", Flag: "api-key", In: InQuery, GoType: "string", Required: true, Help: "API key"},
+			{Name: "name", Flag: "name", In: InQuery, GoType: "string", Required: true, Help: "Name"},
+		},
+	}})
+
+	catalog := BuildCatalog(root, CatalogOptions{CLIName: "myctl"})
+	if len(catalog.Commands) != 1 {
+		t.Fatalf("commands = %d, want 1", len(catalog.Commands))
+	}
+	flags := catalog.Commands[0].Flags
+	if !reflect.DeepEqual(flags[0].InputModes, []string{"flag", "env", "file", "stdin"}) {
+		t.Fatalf("api-key input modes = %#v", flags[0].InputModes)
+	}
+	if flags[1].InputModes != nil {
+		t.Fatalf("name input modes = %#v", flags[1].InputModes)
+	}
+}
+
 func TestBuildCatalog_HiddenCommands(t *testing.T) {
 	root := newRootWithModuleGroup()
 	Build(root, "demo", []CommandSpec{

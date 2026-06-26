@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -98,6 +99,13 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		Long:    s.Long,
 		Example: s.Example,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
+				return err
+			}
+			if err := validateRequiredSafeParams(cmd, s.Params, s.RequestBody != nil); err != nil {
+				return err
+			}
+
 			var hostname string
 			var clientOpts ClientOptions
 			var err error
@@ -290,7 +298,8 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			v := new(string)
 			vals[p.Name] = v
 			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
-			if p.Default == "" {
+			addSafeInputFlags(cmd, p)
+			if p.Default == "" && !isSensitiveStringParam(p) {
 				_ = cmd.MarkFlagRequired(p.Flag)
 			}
 			if p.Deprecated {
@@ -340,8 +349,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			v := new(string)
 			vals[p.Name] = v
 			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
+			addSafeInputFlags(cmd, p)
 		}
-		if p.Required && p.Default == "" && (p.In != InVariable || s.RequestBody == nil) {
+		if p.Required && p.Default == "" && (p.In != InVariable || s.RequestBody == nil) && !isSensitiveStringParam(p) {
 			_ = cmd.MarkFlagRequired(p.Flag)
 		}
 		if p.Deprecated {
@@ -377,6 +387,80 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+func addSafeInputFlags(cmd *cobra.Command, p ParamSpec) {
+	if !isSensitiveStringParam(p) {
+		return
+	}
+	cmd.Flags().String(p.Flag+"-env", "", "read --"+p.Flag+" from an environment variable")
+	cmd.Flags().String(p.Flag+"-file", "", "read --"+p.Flag+" from a file")
+	cmd.Flags().Bool(p.Flag+"-stdin", false, "read --"+p.Flag+" from stdin")
+}
+
+func resolveSafeInputFlags(cmd *cobra.Command, params []ParamSpec, vals map[string]any) error {
+	for _, p := range params {
+		if !isSensitiveStringParam(p) {
+			continue
+		}
+		changed := 0
+		for _, flag := range []string{p.Flag, p.Flag + "-env", p.Flag + "-file", p.Flag + "-stdin"} {
+			if cmd.Flags().Changed(flag) {
+				changed++
+			}
+		}
+		if changed == 0 {
+			continue
+		}
+		if changed > 1 {
+			return fmt.Errorf("use only one of --%s, --%s-env, --%s-file, or --%s-stdin", p.Flag, p.Flag, p.Flag, p.Flag)
+		}
+		var value string
+		switch {
+		case cmd.Flags().Changed(p.Flag):
+			continue
+		case cmd.Flags().Changed(p.Flag + "-env"):
+			name, _ := cmd.Flags().GetString(p.Flag + "-env")
+			value = os.Getenv(name)
+			if value == "" {
+				return fmt.Errorf("environment variable %s is empty", name)
+			}
+		case cmd.Flags().Changed(p.Flag + "-file"):
+			path, _ := cmd.Flags().GetString(p.Flag + "-file")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			value = string(data)
+		case cmd.Flags().Changed(p.Flag + "-stdin"):
+			data, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return err
+			}
+			value = string(data)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fmt.Errorf("--%s value is empty", p.Flag)
+		}
+		*vals[p.Name].(*string) = value
+	}
+	return nil
+}
+
+func validateRequiredSafeParams(cmd *cobra.Command, params []ParamSpec, hasRequestBody bool) error {
+	for _, p := range params {
+		if !p.Required || p.Default != "" || !isSensitiveStringParam(p) {
+			continue
+		}
+		if p.In == InVariable && hasRequestBody {
+			continue
+		}
+		if !flagChangedOrDefault(cmd, p) {
+			return fmt.Errorf("required flag(s) \"%s\" not set", p.Flag)
+		}
+	}
+	return nil
 }
 
 func mountShortcuts(root *cobra.Command, specs []CommandSpec) error {
@@ -540,7 +624,39 @@ func validateShortcutParamValue(p ParamSpec, value string) error {
 }
 
 func flagChangedOrDefault(cmd *cobra.Command, p ParamSpec) bool {
-	return cmd.Flags().Changed(p.Flag) || p.Default != ""
+	if cmd.Flags().Changed(p.Flag) || p.Default != "" {
+		return true
+	}
+	if !isSensitiveStringParam(p) {
+		return false
+	}
+	return cmd.Flags().Changed(p.Flag+"-env") || cmd.Flags().Changed(p.Flag+"-file") || cmd.Flags().Changed(p.Flag+"-stdin")
+}
+
+func isSensitiveStringParam(p ParamSpec) bool {
+	if p.GoType != "string" {
+		return false
+	}
+	if strings.EqualFold(p.Format, "password") {
+		return true
+	}
+	name := sensitiveNameKey(p.Name + " " + p.Flag)
+	for _, marker := range []string{"password", "secret", "credential", "apikey", "privatekey", "accesstoken", "refreshtoken", "bearertoken", "authtoken"} {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+	return sensitiveNameKey(p.Name) == "token" || sensitiveNameKey(p.Flag) == "token"
+}
+
+func sensitiveNameKey(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func flagStringValue(v any) string {
