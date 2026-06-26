@@ -1,5 +1,7 @@
 package runtime
 
+import "encoding/json"
+
 const SchemaVersion = 7
 
 type CommandSpec struct {
@@ -10,6 +12,7 @@ type CommandSpec struct {
 	Short           string
 	Long            string
 	Example         string
+	Examples        []CommandExample `json:",omitempty"`
 	OperationID     string
 	Hidden          bool
 	Deprecated      bool
@@ -23,6 +26,19 @@ type CommandSpec struct {
 	Notes           []string     `json:",omitempty"`
 	Prerequisites   []string     `json:",omitempty"`
 	KnownErrors     []KnownError `json:",omitempty"`
+}
+
+type CommandExample struct {
+	Summary          string              `json:"summary,omitempty"`
+	Command          string              `json:"command,omitempty"`
+	BodyShape        json.RawMessage     `json:"body_shape,omitempty"`
+	OutputHints      *ExampleOutputHints `json:"output_hints,omitempty"`
+	FollowUpCommands []string            `json:"follow_up_commands,omitempty"`
+}
+
+type ExampleOutputHints struct {
+	IDPath   string `json:"id_path,omitempty"`
+	ListPath string `json:"list_path,omitempty"`
 }
 
 type CommandShortcut struct {

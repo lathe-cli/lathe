@@ -54,10 +54,19 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	}
 	overrides := map[string]overlay.Override{
 		"install-addon": {
-			Aliases:       []string{"addon-install"},
-			Short:         "OVERLAY SHORT",
-			Long:          "OVERLAY LONG DESC",
-			Example:       "myctl demo install-addon --name foo",
+			Aliases: []string{"addon-install"},
+			Short:   "OVERLAY SHORT",
+			Long:    "OVERLAY LONG DESC",
+			Example: "myctl demo install-addon --name foo",
+			Examples: []overlay.Example{{
+				Summary: "Install from JSON",
+				Command: "myctl demo install-addon --file addon.json -o json",
+				BodyShape: map[string]any{
+					"input": map[string]any{"name": "foo"},
+				},
+				OutputHints:      overlay.ExampleOutputHints{IDPath: "data.installAddon.id"},
+				FollowUpCommands: []string{"myctl demo get-addon --id <id> -o json"},
+			}},
 			Notes:         []string{"Use the canonical addon ID."},
 			Prerequisites: []string{"List clusters before installing."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
@@ -73,6 +82,12 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`"OVERLAY SHORT"`,
 		`"OVERLAY LONG DESC"`,
 		`"myctl demo install-addon --name foo"`,
+		`Examples: []runtime.CommandExample{`,
+		`Summary: "Install from JSON"`,
+		`Command: "myctl demo install-addon --file addon.json -o json"`,
+		`BodyShape: []byte("{\"input\":{\"name\":\"foo\"}}")`,
+		`OutputHints: &runtime.ExampleOutputHints{IDPath: "data.installAddon.id"}`,
+		`FollowUpCommands: []string{"myctl demo get-addon --id <id> -o json"}`,
 		`"addon-install"`,
 		`Notes:`,
 		`"Use the canonical addon ID."`,
@@ -524,15 +539,28 @@ func TestRewriteCommandExamples_NormalizesMultiWordGroupPaths(t *testing.T) {
 		Group:   "Payment API",
 		Use:     "list-payments",
 		Example: "acmectl billing payment api list-payments -o json",
+		Examples: []runtime.CommandExample{{
+			Command:          "acmectl billing payment api list-payments --file payment.json -o json",
+			FollowUpCommands: []string{"acmectl billing payment api get-payment --id <id> -o json"},
+		}},
 	}}
 
 	got := RewriteCommandExamples("acmectl", "billing", specs, true)
 	if got[0].Example != "acmectl payment list-payments -o json" {
 		t.Fatalf("flat example = %q", got[0].Example)
 	}
+	if got[0].Examples[0].Command != "acmectl payment list-payments --file payment.json -o json" {
+		t.Fatalf("flat structured example = %q", got[0].Examples[0].Command)
+	}
+	if got[0].Examples[0].FollowUpCommands[0] != "acmectl billing payment api get-payment --id <id> -o json" {
+		t.Fatalf("flat follow-up = %q", got[0].Examples[0].FollowUpCommands[0])
+	}
 
 	got = RewriteCommandExamples("acmectl", "billing", specs, false)
 	if got[0].Example != "acmectl billing payment list-payments -o json" {
 		t.Fatalf("namespaced example = %q", got[0].Example)
+	}
+	if got[0].Examples[0].Command != "acmectl billing payment list-payments --file payment.json -o json" {
+		t.Fatalf("namespaced structured example = %q", got[0].Examples[0].Command)
 	}
 }

@@ -11,14 +11,23 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	root := newRootWithModuleGroup()
 	Build(root, "demo", []CommandSpec{
 		{
-			Group:       "Users",
-			Use:         "get-user",
-			Aliases:     []string{"show-user"},
-			Short:       "Get a user",
-			Long:        "Get one user by id.",
-			OperationID: "getUser",
-			Method:      "GET",
-			PathTpl:     "/users/{id}",
+			Group:   "Users",
+			Use:     "get-user",
+			Aliases: []string{"show-user"},
+			Short:   "Get a user",
+			Long:    "Get one user by id.",
+			Example: "myctl demo users get-user --id 123 -o json",
+			Examples: []CommandExample{{
+				Summary:          "Get a user by ID",
+				Command:          "myctl demo users get-user --id 123 -o json",
+				BodyShape:        []byte(`{"input":{"name":"..."}}`),
+				OutputHints:      &ExampleOutputHints{IDPath: "data.user.id", ListPath: "data.items"},
+				FollowUpCommands: []string{"myctl demo users list-users -o json"},
+			}},
+			OperationID:     "getUser",
+			Method:          "GET",
+			PathTpl:         "/users/{id}",
+			DefaultHostname: "api.example.com",
 			Params: []ParamSpec{
 				{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true, Help: "User id"},
 				{Name: "workspace", Flag: "workspace", In: InQuery, GoType: "string", Default: "default", Enum: []string{"default", "prod"}, Format: "slug", Help: "Target workspace"},
@@ -61,6 +70,18 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if cmd.Auth.Required != true || !reflect.DeepEqual(cmd.Auth.Scopes, []string{"users:read"}) {
 		t.Fatalf("auth = %+v", cmd.Auth)
+	}
+	if cmd.HTTP.DefaultHostname != "api.example.com" {
+		t.Fatalf("http = %+v", cmd.HTTP)
+	}
+	if len(cmd.Examples) != 1 || cmd.Examples[0].Summary != "Get a user by ID" || cmd.Examples[0].OutputHints.IDPath != "data.user.id" {
+		t.Fatalf("examples = %+v", cmd.Examples)
+	}
+	if string(cmd.Examples[0].BodyShape) != `{"input":{"name":"..."}}` {
+		t.Fatalf("body shape = %s", cmd.Examples[0].BodyShape)
+	}
+	if !reflect.DeepEqual(cmd.Examples[0].FollowUpCommands, []string{"myctl demo users list-users -o json"}) {
+		t.Fatalf("follow-up commands = %#v", cmd.Examples[0].FollowUpCommands)
 	}
 	if cmd.Body == nil || !cmd.Body.Required || cmd.Body.MediaType != "application/json" {
 		t.Fatalf("body = %+v", cmd.Body)
@@ -109,6 +130,33 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
 		t.Fatalf("round-trip known errors = %#v", roundTrip.Commands[0].KnownErrors)
+	}
+	if len(roundTrip.Commands[0].Examples) != 1 || roundTrip.Commands[0].Examples[0].OutputHints.IDPath != "data.user.id" {
+		t.Fatalf("round-trip examples = %#v", roundTrip.Commands[0].Examples)
+	}
+}
+
+func TestBuildCatalog_ProjectsLegacyExample(t *testing.T) {
+	root := newRootWithModuleGroup()
+	Build(root, "demo", []CommandSpec{{
+		Group:   "Users",
+		Use:     "get-user",
+		Short:   "Get a user",
+		Example: "myctl demo users get-user --id 123 -o json",
+		Method:  "GET",
+		PathTpl: "/users/{id}",
+	}})
+
+	catalog := BuildCatalog(root, CatalogOptions{})
+	if len(catalog.Commands) != 1 {
+		t.Fatalf("commands = %d, want 1", len(catalog.Commands))
+	}
+	cmd := catalog.Commands[0]
+	if cmd.Example != "myctl demo users get-user --id 123 -o json" {
+		t.Fatalf("legacy example = %q", cmd.Example)
+	}
+	if len(cmd.Examples) != 1 || cmd.Examples[0].Command != cmd.Example {
+		t.Fatalf("projected examples = %#v", cmd.Examples)
 	}
 }
 

@@ -16,6 +16,7 @@ type Override struct {
 	Short         string                   `yaml:"short"`
 	Long          string                   `yaml:"long"`
 	Example       string                   `yaml:"example"`
+	Examples      []Example                `yaml:"examples"`
 	Group         string                   `yaml:"group"`
 	Hidden        *bool                    `yaml:"hidden"`
 	Ignore        bool                     `yaml:"ignore"`
@@ -23,6 +24,19 @@ type Override struct {
 	Notes         []string                 `yaml:"notes"`
 	Prerequisites []string                 `yaml:"prerequisites"`
 	KnownErrors   []KnownError             `yaml:"known_errors"`
+}
+
+type Example struct {
+	Summary          string             `yaml:"summary"`
+	Command          string             `yaml:"command"`
+	BodyShape        map[string]any     `yaml:"body_shape"`
+	OutputHints      ExampleOutputHints `yaml:"output_hints"`
+	FollowUpCommands []string           `yaml:"follow_up_commands"`
+}
+
+type ExampleOutputHints struct {
+	IDPath   string `yaml:"id_path"`
+	ListPath string `yaml:"list_path"`
 }
 
 type Shortcut struct {

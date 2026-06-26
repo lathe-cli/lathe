@@ -35,6 +35,17 @@ func TestLoadDir_ParsesMultipleModules(t *testing.T) {
     short: "Create a user"
     long: "Long description for create-user."
     example: "myctl iam create-user --email a@b.c"
+    examples:
+      - summary: "Create a user from JSON"
+        command: "myctl iam create-user --file user.json -o json"
+        body_shape:
+          input:
+            email: "alice@example.com"
+        output_hints:
+          id_path: "data.createUser.id"
+          list_path: "data.users"
+        follow_up_commands:
+          - "myctl iam get-user --id <id> -o json"
 `)
 	writeFile(t, filepath.Join(dir, "billing.yaml"), `commands:
   list-invoices:
@@ -55,6 +66,18 @@ func TestLoadDir_ParsesMultipleModules(t *testing.T) {
 	}
 	if u.Short != "Create a user" || u.Long == "" || u.Example == "" {
 		t.Errorf("iam create-user override incomplete: %+v", u)
+	}
+	if len(u.Examples) != 1 || u.Examples[0].Summary != "Create a user from JSON" {
+		t.Fatalf("examples = %#v", u.Examples)
+	}
+	if u.Examples[0].OutputHints.IDPath != "data.createUser.id" || u.Examples[0].OutputHints.ListPath != "data.users" {
+		t.Errorf("example output hints = %#v", u.Examples[0].OutputHints)
+	}
+	if input, ok := u.Examples[0].BodyShape["input"].(map[string]any); !ok || input["email"] != "alice@example.com" {
+		t.Errorf("example body shape = %#v", u.Examples[0].BodyShape)
+	}
+	if len(u.Examples[0].FollowUpCommands) != 1 || u.Examples[0].FollowUpCommands[0] != "myctl iam get-user --id <id> -o json" {
+		t.Errorf("follow-up commands = %#v", u.Examples[0].FollowUpCommands)
 	}
 	if len(u.Aliases) != 2 || u.Aliases[0] != "adduser" || u.Aliases[1] != "new-user" {
 		t.Errorf("iam create-user aliases: %v", u.Aliases)

@@ -324,6 +324,7 @@ Rules:
 
 - Treat `search` output as candidates only.
 - Inspect exact command details with `commands show` before execution.
+- Use `examples` from command detail when overlays provide runnable command metadata.
 - Run `auth status --hostname <host>` before authenticated commands.
 - Prefer `-o json` for agent-readable output.
 - Use `--file`, `--set`, or `--set-str` according to the command detail body

@@ -38,6 +38,17 @@ commands: {}
 #         --email alice@example.com \
 #         --role viewer \
 #         --workspace default
+#     examples:
+#       - summary: "Create a user from a JSON body file"
+#         command: "myctl iam create-user --file user.json -o json"
+#         body_shape:
+#           input:
+#             email: "alice@example.com"
+#             role: "viewer"
+#         output_hints:
+#           id_path: "data.createUser.id"
+#         follow_up_commands:
+#           - "myctl iam get-user --id <id> -o json"
 #     group: "Identity"
 #     hidden: false
 #     params:

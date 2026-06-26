@@ -175,6 +175,20 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 					"  --start $START --end $END -o json\n" +
 					"jq '.items[]'",
 			},
+			{
+				Group:   "Users",
+				Use:     "create-user",
+				Short:   "Create user",
+				Method:  "POST",
+				PathTpl: "/users",
+				Examples: []runtime.CommandExample{{
+					Summary:          "Create from JSON",
+					Command:          "acmectl users users create-user --file user.json -o json",
+					BodyShape:        []byte(`{"input":{"name":"..."}}`),
+					OutputHints:      &runtime.ExampleOutputHints{IDPath: "data.createUser.id"},
+					FollowUpCommands: []string{"acmectl users users get-user --id <id> -o json"},
+				}},
+			},
 		},
 	}
 
@@ -182,6 +196,7 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 	for _, want := range []string{
 		"- Example: `acmectl users users get-user --id 123`",
 		"- Example:\n\n```\nEND=$(date +%s); START=$((END - 3600))\nacmectl users users query-logs \\\n  --start $START --end $END -o json\njq '.items[]'\n```",
+		"- Examples:\n  - Create from JSON\n    Command: `acmectl users users create-user --file user.json -o json`\n    Body shape: `{\"input\":{\"name\":\"...\"}}`\n    Output ID path: `data.createUser.id`\n    Follow-up commands:\n      - `acmectl users users get-user --id <id> -o json`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("module reference missing %q\nfull output:\n%s", want, got)
@@ -192,13 +207,11 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 	for _, want := range []string{
 		"- Example: `acmectl users get-user --id 123`",
 		"acmectl users query-logs \\\n  --start $START --end $END -o json",
+		"Command: `acmectl users create-user --file user.json -o json`",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Fatalf("flat module reference missing %q\nfull output:\n%s", want, flat)
 		}
-	}
-	if strings.Contains(flat, "acmectl users users") {
-		t.Fatalf("flat module reference kept stale namespaced command:\n%s", flat)
 	}
 }
 

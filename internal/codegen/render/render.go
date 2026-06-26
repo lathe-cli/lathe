@@ -1,6 +1,7 @@
 package render
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"os"
@@ -90,6 +91,14 @@ func RewriteCommandExamples(cli, module string, specs []runtime.CommandSpec, fla
 		next := cloneCommandSpec(spec)
 		if next.Example != "" {
 			next.Example = commandExample(next.Example, cli, module, next, flat)
+		}
+		for i := range next.Examples {
+			if next.Examples[i].Command != "" {
+				next.Examples[i].Command = commandExample(next.Examples[i].Command, cli, module, next, flat)
+			}
+			for j := range next.Examples[i].FollowUpCommands {
+				next.Examples[i].FollowUpCommands[j] = commandExample(next.Examples[i].FollowUpCommands[j], cli, module, next, flat)
+			}
 		}
 		rewritten = append(rewritten, next)
 	}
@@ -192,6 +201,10 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	cloned := spec
 	cloned.Aliases = append([]string(nil), spec.Aliases...)
+	cloned.Examples = append([]runtime.CommandExample(nil), spec.Examples...)
+	for i := range cloned.Examples {
+		cloned.Examples[i].FollowUpCommands = append([]string(nil), spec.Examples[i].FollowUpCommands...)
+	}
 	cloned.Shortcuts = append([]runtime.CommandShortcut(nil), spec.Shortcuts...)
 	for i := range cloned.Shortcuts {
 		cloned.Shortcuts[i].Params = copyStringMap(spec.Shortcuts[i].Params)
@@ -246,6 +259,12 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 	if override.Example != "" {
 		spec.Example = override.Example
 	}
+	if len(override.Examples) > 0 {
+		spec.Examples = make([]runtime.CommandExample, 0, len(override.Examples))
+		for _, example := range override.Examples {
+			spec.Examples = append(spec.Examples, runtimeCommandExample(example))
+		}
+	}
 	if len(override.Notes) > 0 {
 		spec.Notes = append([]string(nil), override.Notes...)
 	}
@@ -296,6 +315,26 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 			}
 		}
 	}
+}
+
+func runtimeCommandExample(example overlay.Example) runtime.CommandExample {
+	var bodyShape json.RawMessage
+	if len(example.BodyShape) > 0 {
+		bodyShape, _ = json.Marshal(example.BodyShape)
+	}
+	out := runtime.CommandExample{
+		Summary:          example.Summary,
+		Command:          example.Command,
+		BodyShape:        bodyShape,
+		FollowUpCommands: append([]string(nil), example.FollowUpCommands...),
+	}
+	if example.OutputHints.IDPath != "" || example.OutputHints.ListPath != "" {
+		out.OutputHints = &runtime.ExampleOutputHints{
+			IDPath:   example.OutputHints.IDPath,
+			ListPath: example.OutputHints.ListPath,
+		}
+	}
+	return out
 }
 
 func ValidateShortcuts(moduleNames []string, specs []runtime.CommandSpec, flat bool) error {
@@ -491,10 +530,28 @@ var Specs = []runtime.CommandSpec{
 		{{- if $op.Long}}
 		Long:        {{printf "%q" $op.Long}},
 		{{- end}}
-		{{- if $op.Example}}
-		Example:     {{printf "%q" $op.Example}},
-		{{- end}}
-		{{- if $op.Notes}}
+			{{- if $op.Example}}
+			Example:     {{printf "%q" $op.Example}},
+			{{- end}}
+			{{- if $op.Examples}}
+			Examples: []runtime.CommandExample{
+				{{- range $example := $op.Examples}}
+				{
+					{{- if $example.Summary}}Summary: {{printf "%q" $example.Summary}},{{end}}
+					{{- if $example.Command}}Command: {{printf "%q" $example.Command}},{{end}}
+					{{- if $example.BodyShape}}BodyShape: []byte({{printf "%q" $example.BodyShape}}),{{end}}
+					{{- if $example.OutputHints}}OutputHints: &runtime.ExampleOutputHints{
+						{{- if $example.OutputHints.IDPath}}IDPath: {{printf "%q" $example.OutputHints.IDPath}},{{end}}
+						{{- if $example.OutputHints.ListPath}}ListPath: {{printf "%q" $example.OutputHints.ListPath}},{{end}}
+					},{{end}}
+					{{- if $example.FollowUpCommands}}FollowUpCommands: []string{
+						{{- range $example.FollowUpCommands}}{{printf "%q" .}},{{end}}
+					},{{end}}
+				},
+				{{- end}}
+			},
+			{{- end}}
+			{{- if $op.Notes}}
 		Notes: []string{
 			{{- range $op.Notes}}{{printf "%q" .}},{{end}}
 		},
