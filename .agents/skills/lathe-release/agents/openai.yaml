@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lathe Release"
+  short_description: "Run Lathe release validation"
+  default_prompt: "Use $lathe-release to validate and prepare a Lathe version release."
