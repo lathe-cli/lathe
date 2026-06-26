@@ -12,8 +12,14 @@ import (
 
 func syncProto(src *sourceconfig.Source, workDir, syncDir string) error {
 	for _, st := range src.Proto.Staging {
-		from := filepath.Join(workDir, st.From)
-		to := filepath.Join(syncDir, st.To)
+		from, err := safeJoin(workDir, st.From)
+		if err != nil {
+			return err
+		}
+		to, err := safeJoin(syncDir, st.To)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(from); err != nil {
 			return fmt.Errorf("staging %s: source missing: %w", st.From, err)
 		}
@@ -24,7 +30,10 @@ func syncProto(src *sourceconfig.Source, workDir, syncDir string) error {
 	}
 	entries := make([]string, 0, len(src.Proto.Entries))
 	for _, e := range src.Proto.Entries {
-		full := filepath.Join(syncDir, e)
+		full, err := safeJoin(syncDir, e)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(full); err != nil {
 			return fmt.Errorf("entry %s not found in staged tree: %w", e, err)
 		}
@@ -38,7 +47,11 @@ func syncProto(src *sourceconfig.Source, workDir, syncDir string) error {
 		"--descriptor_set_out=" + descOut,
 	}
 	for _, r := range src.Proto.ImportRoots {
-		args = append(args, "-I", filepath.Join(syncDir, r))
+		full, err := safeJoin(syncDir, r)
+		if err != nil {
+			return err
+		}
+		args = append(args, "-I", full)
 	}
 	args = append(args, entries...)
 	cmd := exec.Command("protoc", args...)

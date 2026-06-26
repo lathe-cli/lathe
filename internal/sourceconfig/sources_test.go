@@ -241,6 +241,91 @@ func TestLoad_RejectsOpenAPI3WithoutFiles(t *testing.T) {
 	}
 }
 
+func TestValidate_RejectsUnsafeSourcePaths(t *testing.T) {
+	remote := func(src Source) Source {
+		src.RepoURL = "https://example.com/repo.git"
+		src.PinnedTag = "v2.0.0"
+		return src
+	}
+	cases := []struct {
+		name string
+		src  Source
+	}{
+		{
+			name: "swagger absolute file",
+			src:  remote(Source{Backend: BackendSwagger, Swagger: &SwaggerConfig{Files: []string{"/tmp/api.json"}}}),
+		},
+		{
+			name: "openapi empty segment",
+			src:  remote(Source{Backend: BackendOpenAPI3, OpenAPI3: &OpenAPI3Config{Files: []string{"api//openapi.yaml"}}}),
+		},
+		{
+			name: "proto staging from traversal",
+			src: remote(Source{
+				Backend: BackendProto,
+				Proto: &ProtoConfig{
+					Staging: []StagingEntry{{From: "../proto", To: "proto"}},
+					Entries: []string{"api/v1/service.proto"},
+				},
+			}),
+		},
+		{
+			name: "proto staging to absolute",
+			src: remote(Source{
+				Backend: BackendProto,
+				Proto: &ProtoConfig{
+					Staging: []StagingEntry{{From: "proto", To: "/tmp/proto"}},
+					Entries: []string{"api/v1/service.proto"},
+				},
+			}),
+		},
+		{
+			name: "proto entry traversal",
+			src: remote(Source{
+				Backend: BackendProto,
+				Proto: &ProtoConfig{
+					Staging: []StagingEntry{{From: "proto", To: "proto"}},
+					Entries: []string{"../api/v1/service.proto"},
+				},
+			}),
+		},
+		{
+			name: "proto import root traversal",
+			src: remote(Source{
+				Backend: BackendProto,
+				Proto: &ProtoConfig{
+					Staging:     []StagingEntry{{From: "proto", To: "proto"}},
+					Entries:     []string{"api/v1/service.proto"},
+					ImportRoots: []string{"../includes"},
+				},
+			}),
+		},
+		{
+			name: "graphql schema traversal",
+			src: remote(Source{
+				Backend: BackendGraphQL,
+				GraphQL: &GraphQLConfig{
+					Schema: "../schema.graphql",
+					Expose: &GraphQLExpose{
+						Queries: []string{"viewer"},
+					},
+				},
+			}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validate(&tc.src, t.TempDir())
+			if err == nil {
+				t.Fatal("validate accepted unsafe source path; want rejection")
+			}
+			if !strings.Contains(err.Error(), "unsafe path") {
+				t.Errorf("error = %v, want to mention unsafe path", err)
+			}
+		})
+	}
+}
+
 func TestLoad_RejectsOpenAPI3WithSwaggerBlock(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sources.yaml")

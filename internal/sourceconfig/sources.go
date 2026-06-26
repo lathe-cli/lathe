@@ -157,6 +157,9 @@ func validate(s *Source, baseDir string) error {
 		if s.Swagger == nil || len(s.Swagger.Files) == 0 {
 			return fmt.Errorf("backend=swagger requires non-empty swagger.files")
 		}
+		if err := validateRelPathList("swagger.files", s.Swagger.Files); err != nil {
+			return err
+		}
 	case BackendProto:
 		if s.Proto == nil || len(s.Proto.Entries) == 0 {
 			return fmt.Errorf("backend=proto requires non-empty proto.entries")
@@ -164,13 +167,33 @@ func validate(s *Source, baseDir string) error {
 		if len(s.Proto.Staging) == 0 {
 			return fmt.Errorf("backend=proto requires non-empty proto.staging")
 		}
+		for _, st := range s.Proto.Staging {
+			if err := ValidateRelPath("proto.staging.from", st.From); err != nil {
+				return err
+			}
+			if err := ValidateRelPath("proto.staging.to", st.To); err != nil {
+				return err
+			}
+		}
+		if err := validateRelPathList("proto.entries", s.Proto.Entries); err != nil {
+			return err
+		}
+		if err := validateRelPathList("proto.import_roots", s.Proto.ImportRoots); err != nil {
+			return err
+		}
 	case BackendOpenAPI3:
 		if s.OpenAPI3 == nil || len(s.OpenAPI3.Files) == 0 {
 			return fmt.Errorf("backend=openapi3 requires non-empty openapi3.files")
 		}
+		if err := validateRelPathList("openapi3.files", s.OpenAPI3.Files); err != nil {
+			return err
+		}
 	case BackendGraphQL:
 		if s.GraphQL == nil || s.GraphQL.Schema == "" {
 			return fmt.Errorf("backend=graphql requires graphql.schema")
+		}
+		if err := ValidateRelPath("graphql.schema", s.GraphQL.Schema); err != nil {
+			return err
 		}
 		if s.GraphQL.Expose == nil || (len(s.GraphQL.Expose.Queries) == 0 && len(s.GraphQL.Expose.Mutations) == 0) {
 			return fmt.Errorf("backend=graphql requires an explicit graphql.expose policy (queries and/or mutations); refusing to expose the whole schema")
@@ -184,6 +207,30 @@ func validate(s *Source, baseDir string) error {
 		return fmt.Errorf("unknown backend %q", s.Backend)
 	}
 	return rejectForeignBlocks(s)
+}
+
+func validateRelPathList(field string, paths []string) error {
+	for _, p := range paths {
+		if err := ValidateRelPath(field, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ValidateRelPath(field, value string) error {
+	if value == "" {
+		return fmt.Errorf("unsafe path %s: empty path", field)
+	}
+	if filepath.IsAbs(value) || !filepath.IsLocal(value) {
+		return fmt.Errorf("unsafe path %s: %q", field, value)
+	}
+	for _, part := range strings.Split(strings.ReplaceAll(value, "\\", "/"), "/") {
+		if part == "" || part == ".." {
+			return fmt.Errorf("unsafe path %s: %q", field, value)
+		}
+	}
+	return nil
 }
 
 func resolveLocalPath(baseDir, raw string) (string, error) {
