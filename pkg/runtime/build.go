@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -237,6 +238,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					return fmt.Errorf("request body required: pass --file, --set, or --set-str")
 				}
 			}
+			if err := validateRequiredVariableParams(s, body); err != nil {
+				return err
+			}
 
 			if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
 				clientOpts.Debug = true
@@ -337,7 +341,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			vals[p.Name] = v
 			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		}
-		if p.Required && p.Default == "" {
+		if p.Required && p.Default == "" && (p.In != InVariable || s.RequestBody == nil) {
 			_ = cmd.MarkFlagRequired(p.Flag)
 		}
 		if p.Deprecated {
@@ -459,6 +463,36 @@ func shortcutSpec(spec CommandSpec, shortcut CommandShortcut) (CommandSpec, erro
 		target.Params[i].Required = false
 	}
 	return target, nil
+}
+
+func validateRequiredVariableParams(s CommandSpec, body any) error {
+	if s.RequestBody == nil {
+		return nil
+	}
+	required := make([]ParamSpec, 0)
+	for _, p := range s.Params {
+		if p.In == InVariable && p.Required && p.Default == "" {
+			required = append(required, p)
+		}
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	raw, ok := body.([]byte)
+	if !ok || len(raw) == 0 {
+		return fmt.Errorf("required body field missing: %s", required[0].Name)
+	}
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("validate request body: %w", err)
+	}
+	for _, p := range required {
+		v, ok := getNestedPath(doc, joinBodyPath(s.RequestBody.MergePath, p.Name))
+		if !ok || v == nil {
+			return fmt.Errorf("required body field missing: %s", p.Name)
+		}
+	}
+	return nil
 }
 
 func shortcutName(use string, target string) (string, error) {

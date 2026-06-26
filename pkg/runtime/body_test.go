@@ -69,6 +69,22 @@ func TestBuildEnvelopeBody(t *testing.T) {
 		}
 	})
 
+	t.Run("merges empty array literal under merge path", func(t *testing.T) {
+		raw, err := buildEnvelopeBody(tmpl, "variables", nil, []string{"input.skillIds=[]"}, nil, nil, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		vars, _ := got["variables"].(map[string]any)
+		input, _ := vars["input"].(map[string]any)
+		if !reflect.DeepEqual(input["skillIds"], []any{}) {
+			t.Errorf("skillIds = %#v, want empty array", input["skillIds"])
+		}
+	})
+
 	t.Run("merges typed variable values at merge path", func(t *testing.T) {
 		raw, err := buildEnvelopeBody(tmpl, "variables", map[string]any{"name": "demo", "count": int64(3)}, nil, nil, nil, false)
 		if err != nil {
@@ -161,6 +177,11 @@ func TestBuildBodyFromSet_ArrayIndex(t *testing.T) {
 			name: "simple array",
 			in:   []string{"items[0]=a", "items[1]=b"},
 			want: map[string]any{"items": []any{"a", "b"}},
+		},
+		{
+			name: "empty array literal",
+			in:   []string{"items=[]"},
+			want: map[string]any{"items": []any{}},
 		},
 		{
 			name: "array with type inference",
