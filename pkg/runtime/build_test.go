@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -243,18 +244,100 @@ func TestBuild_SetStrSendsStringBodyFields(t *testing.T) {
 }
 
 func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
-	bindTestManifest(t, "myctl", "MYCTL_HOST")
-	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+	root, url, recorded := newRecordingGraphQLRoot(t, createAppSpec())
+	root.SetArgs([]string{"--hostname", url, "demo", "apps", "create-app", "--input-name", "demo"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
 
-	var rawBody []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rawBody, _ = io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
+	rawBody, _ := recorded()
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	if q, _ := got["query"].(string); !strings.Contains(q, "mutation createApp") {
+		t.Errorf("query missing baked document: %#v", got["query"])
+	}
+	vars, _ := got["variables"].(map[string]any)
+	input, _ := vars["input"].(map[string]any)
+	if input["name"] != "demo" {
+		t.Errorf("variables = %#v, want input.name=demo", got["variables"])
+	}
+}
 
-	specs := []CommandSpec{{
+func TestBuild_RequiredVariableCanComeFromBodyInput(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		fileBody string
+		wantName string
+		wantErr  bool
+	}{
+		{
+			name:     "file",
+			args:     []string{"--file", "BODY_FILE"},
+			fileBody: `{"input":{"name":"from-file"}}`,
+			wantName: "from-file",
+		},
+		{
+			name:     "set",
+			args:     []string{"--set", "input.name=from-set"},
+			wantName: "from-set",
+		},
+		{
+			name:    "missing",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, url, recorded := newRecordingGraphQLRoot(t, createAppSpec())
+			args := append([]string{"--hostname", url, "demo", "apps", "create-app"}, tc.args...)
+			if tc.fileBody != "" {
+				bodyFile := t.TempDir() + "/body.json"
+				if err := os.WriteFile(bodyFile, []byte(tc.fileBody), 0600); err != nil {
+					t.Fatalf("write body file: %v", err)
+				}
+				for i := range args {
+					if args[i] == "BODY_FILE" {
+						args[i] = bodyFile
+					}
+				}
+			}
+			root.SetArgs(args)
+			err := root.Execute()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				_, called := recorded()
+				if called {
+					t.Fatal("request should not be sent")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			rawBody, called := recorded()
+			if !called {
+				t.Fatal("request was not sent")
+			}
+			var got map[string]any
+			if err := json.Unmarshal(rawBody, &got); err != nil {
+				t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+			}
+			vars, _ := got["variables"].(map[string]any)
+			input, _ := vars["input"].(map[string]any)
+			if input["name"] != tc.wantName {
+				t.Errorf("variables = %#v, want input.name=%s", got["variables"], tc.wantName)
+			}
+		})
+	}
+}
+
+func createAppSpec() CommandSpec {
+	return CommandSpec{
 		Group:   "Apps",
 		Use:     "create-app",
 		Method:  "POST",
@@ -269,29 +352,29 @@ func TestBuild_VariableFlagsMergeIntoEnvelope(t *testing.T) {
 			MergePath: "variables",
 		},
 		Security: &SecurityHint{Public: true},
-	}}
+	}
+}
+
+func newRecordingGraphQLRoot(t *testing.T, spec CommandSpec) (*cobra.Command, string, func() ([]byte, bool)) {
+	t.Helper()
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
 
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", specs)
-	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "create-app", "--input-name", "demo"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-
-	var got map[string]any
-	if err := json.Unmarshal(rawBody, &got); err != nil {
-		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
-	}
-	if q, _ := got["query"].(string); !strings.Contains(q, "mutation createApp") {
-		t.Errorf("query missing baked document: %#v", got["query"])
-	}
-	vars, _ := got["variables"].(map[string]any)
-	input, _ := vars["input"].(map[string]any)
-	if input["name"] != "demo" {
-		t.Errorf("variables = %#v, want input.name=demo", got["variables"])
-	}
+	Build(root, "demo", []CommandSpec{spec})
+	return root, srv.URL, func() ([]byte, bool) { return rawBody, called }
 }
 
 func TestBuild_FloatVariableSentAsJSONNumber(t *testing.T) {

@@ -234,6 +234,8 @@ func inferValue(s string) any {
 		return false
 	case "null":
 		return nil
+	case "[]":
+		return []any{}
 	}
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
