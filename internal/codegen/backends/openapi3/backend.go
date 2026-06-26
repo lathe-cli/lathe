@@ -290,6 +290,7 @@ func convertOp(op *operation, method, path string, pathParams []parameter, globa
 				mediaTypes = append(mediaTypes, ct)
 			}
 			sort.Strings(mediaTypes)
+			out.RequestBody.MediaType = mediaTypes[0]
 			out.RequestBody.Schema = convertSchema(op.RequestBody.Content[mediaTypes[0]].Schema)
 		}
 	}

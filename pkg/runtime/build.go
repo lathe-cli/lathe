@@ -231,6 +231,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			} else if s.RequestBody != nil {
 				switch {
 				case cmd.Flags().Changed("set") || cmd.Flags().Changed("set-str"):
+					if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
+						return fmt.Errorf("request body media type %s requires --file; --set and --set-str only support JSON request bodies", s.RequestBody.MediaType)
+					}
 					raw, berr := buildBodyFromSet(bodySets, bodyStringSets)
 					if berr != nil {
 						return berr
@@ -243,11 +246,17 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					}
 					body = raw
 				case s.RequestBody.Required:
+					if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
+						return fmt.Errorf("request body media type %s requires --file", s.RequestBody.MediaType)
+					}
 					return fmt.Errorf("request body required: pass --file, --set, or --set-str")
 				}
 			}
 			if err := validateRequiredVariableParams(s, body); err != nil {
 				return err
+			}
+			if body != nil && s.RequestBody != nil && s.RequestBody.MediaType != "" {
+				hdrs["Content-Type"] = s.RequestBody.MediaType
 			}
 
 			if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
@@ -387,6 +396,12 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+func supportsJSONBodyBuilder(mediaType string) bool {
+	mt, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(mediaType)), ";")
+	mt = strings.TrimSpace(mt)
+	return mt == "" || mt == "application/json" || strings.HasSuffix(mt, "+json")
 }
 
 func addSafeInputFlags(cmd *cobra.Command, p ParamSpec) {
