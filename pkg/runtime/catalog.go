@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 7
+const CatalogSchemaVersion = 8
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -95,6 +95,7 @@ type CatalogFlag struct {
 	Default    string   `json:"default,omitempty"`
 	Enum       []string `json:"enum,omitempty"`
 	Format     string   `json:"format,omitempty"`
+	InputModes []string `json:"input_modes,omitempty"`
 	Deprecated bool     `json:"deprecated"`
 	Help       string   `json:"help,omitempty"`
 }
@@ -259,6 +260,10 @@ func findChildCommand(parent *cobra.Command, name string) *cobra.Command {
 func catalogCommand(service string, spec CommandSpec, path []string) CatalogCommand {
 	flags := make([]CatalogFlag, 0, len(spec.Params))
 	for _, p := range spec.Params {
+		var inputModes []string
+		if isSensitiveStringParam(p) {
+			inputModes = []string{"flag", "env", "file", "stdin"}
+		}
 		flags = append(flags, CatalogFlag{
 			Name:       p.Name,
 			Flag:       p.Flag,
@@ -268,6 +273,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 			Default:    p.Default,
 			Enum:       append([]string(nil), p.Enum...),
 			Format:     p.Format,
+			InputModes: inputModes,
 			Deprecated: p.Deprecated,
 			Help:       p.Help,
 		})
