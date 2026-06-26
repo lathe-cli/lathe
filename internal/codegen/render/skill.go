@@ -548,6 +548,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, and help.\n")
 	b.WriteString("- `body`: request body requirement and media type.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
+	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
 	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints.\n")
 	b.WriteString("- `notes`, `prerequisites`, and `known_errors`: overlay-provided operation context that is not inferred from the API spec.\n\n")
 	b.WriteString("## Command Detail\n\n")
@@ -638,9 +639,7 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 				fmt.Fprintf(&b, "- Output: %s\n", out)
 			}
 			writeOperationContext(&b, spec)
-			if spec.Example != "" {
-				writeExample(&b, commandExample(spec.Example, cli, module, spec, flat))
-			}
+			writeExamples(&b, cli, module, spec, flat)
 			b.WriteString("\n")
 		}
 	}
@@ -745,6 +744,51 @@ func writeExample(b *strings.Builder, example string) {
 		return
 	}
 	fmt.Fprintf(b, "- Example: `%s`\n", strings.ReplaceAll(oneLine(text), "`", "'"))
+}
+
+func writeExamples(b *strings.Builder, cli, module string, spec runtime.CommandSpec, flat bool) {
+	examples := spec.Examples
+	if len(examples) == 0 && spec.Example != "" {
+		examples = []runtime.CommandExample{{Command: spec.Example}}
+	}
+	if len(examples) == 0 {
+		return
+	}
+	if len(examples) == 1 {
+		example := examples[0]
+		if example.Summary == "" && example.Command != "" && len(example.BodyShape) == 0 && example.OutputHints == nil && len(example.FollowUpCommands) == 0 {
+			writeExample(b, commandExample(example.Command, cli, module, spec, flat))
+			return
+		}
+	}
+	b.WriteString("- Examples:\n")
+	for _, example := range examples {
+		summary := oneLine(example.Summary)
+		if summary == "" {
+			summary = "Example"
+		}
+		fmt.Fprintf(b, "  - %s\n", summary)
+		if example.Command != "" {
+			fmt.Fprintf(b, "    Command: `%s`\n", strings.ReplaceAll(oneLine(commandExample(example.Command, cli, module, spec, flat)), "`", "'"))
+		}
+		if len(example.BodyShape) > 0 {
+			fmt.Fprintf(b, "    Body shape: `%s`\n", strings.ReplaceAll(oneLine(string(example.BodyShape)), "`", "'"))
+		}
+		if example.OutputHints != nil {
+			if example.OutputHints.IDPath != "" {
+				fmt.Fprintf(b, "    Output ID path: `%s`\n", example.OutputHints.IDPath)
+			}
+			if example.OutputHints.ListPath != "" {
+				fmt.Fprintf(b, "    Output list path: `%s`\n", example.OutputHints.ListPath)
+			}
+		}
+		if len(example.FollowUpCommands) > 0 {
+			b.WriteString("    Follow-up commands:\n")
+			for _, command := range example.FollowUpCommands {
+				fmt.Fprintf(b, "      - `%s`\n", strings.ReplaceAll(oneLine(commandExample(command, cli, module, spec, flat)), "`", "'"))
+			}
+		}
+	}
 }
 
 func markdownFence(text string) string {

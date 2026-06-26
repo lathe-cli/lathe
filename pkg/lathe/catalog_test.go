@@ -33,9 +33,14 @@ func TestCommandsJSON_EmptyCatalog(t *testing.T) {
 func TestCommandsShowAndSearchJSON(t *testing.T) {
 	root := NewApp(testManifest())
 	runtime.Build(root, "demo", []runtime.CommandSpec{{
-		Group:       "Users",
-		Use:         "get-user",
-		Short:       "Get a user",
+		Group: "Users",
+		Use:   "get-user",
+		Short: "Get a user",
+		Examples: []runtime.CommandExample{{
+			Summary:     "Get a user by ID",
+			Command:     "myctl demo users get-user --id 123 -o json",
+			OutputHints: &runtime.ExampleOutputHints{IDPath: "data.user.id"},
+		}},
 		OperationID: "getUser",
 		Method:      "GET",
 		PathTpl:     "/users/{id}",
@@ -67,6 +72,9 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 	}
 	if len(entry.KnownErrors) != 1 || entry.KnownErrors[0].Status != 400 || entry.KnownErrors[0].Cause != "missing id" {
 		t.Fatalf("known errors = %#v", entry.KnownErrors)
+	}
+	if len(entry.Examples) != 1 || entry.Examples[0].Command != "myctl demo users get-user --id 123 -o json" || entry.Examples[0].OutputHints.IDPath != "data.user.id" {
+		t.Fatalf("examples = %#v", entry.Examples)
 	}
 	if len(entry.Flags) != 2 || !entry.Flags[1].Required || entry.Flags[1].Name != "type" {
 		t.Fatalf("required query flag = %#v", entry.Flags)
