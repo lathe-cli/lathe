@@ -8,6 +8,11 @@ cli:
   name: demo
   short: "demo CLI"
 auth:
+  login:
+    type: oauth_device
+    start_path: /auth/cli/start
+    token_path: /auth/cli/token
+    refresh_path: /auth/cli/refresh
   validate:
     method: POST
     path: /whoami
@@ -24,6 +29,12 @@ auth:
 	}
 	if m.Auth.Validate == nil {
 		t.Fatal("expected Auth.Validate non-nil")
+	}
+	if m.Auth.Login == nil {
+		t.Fatal("expected Auth.Login non-nil")
+	}
+	if m.Auth.Login.Type != AuthLoginOAuthDevice || m.Auth.Login.StartPath != "/auth/cli/start" || m.Auth.Login.TokenPath != "/auth/cli/token" || m.Auth.Login.RefreshPath != "/auth/cli/refresh" {
+		t.Errorf("unexpected AuthLogin: %+v", m.Auth.Login)
 	}
 	if m.Auth.Validate.Method != "POST" || m.Auth.Validate.Path != "/whoami" {
 		t.Errorf("unexpected AuthValidate: %+v", m.Auth.Validate)
@@ -143,6 +154,56 @@ cli:
 `))
 	if err == nil {
 		t.Fatal("expected invalid command_path error")
+	}
+}
+
+func TestLoad_AuthLoginValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "unsupported type",
+			yaml: `
+cli:
+  name: demo
+auth:
+  login:
+    type: github
+    start_path: /start
+    token_path: /token
+`,
+		},
+		{
+			name: "missing token path",
+			yaml: `
+cli:
+  name: demo
+auth:
+  login:
+    type: oauth_device
+    start_path: /start
+`,
+		},
+		{
+			name: "relative path",
+			yaml: `
+cli:
+  name: demo
+auth:
+  login:
+    type: oauth_device
+    start_path: start
+    token_path: /token
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Load([]byte(tc.yaml)); err == nil {
+				t.Fatal("Load succeeded, want error")
+			}
+		})
 	}
 }
 

@@ -142,3 +142,34 @@ func TestDoRaw_EncodesFormBody(t *testing.T) {
 		t.Errorf("body = %q, want %q", gotBody, form.Encode())
 	}
 }
+
+func TestDoRaw_RefreshesAuthAndRetriesOnceOn401(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if len(seen) == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"expired"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	data, err := DoRaw(context.Background(), srv.URL, "POST", "/x", map[string]string{"a": "b"}, ClientOptions{
+		Auth: BearerAuth{Token: "old"},
+		RefreshAuth: func(context.Context) (Authenticator, error) {
+			return BearerAuth{Token: "new"}, nil
+		},
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("DoRaw: %v", err)
+	}
+	if string(data) != `{"ok":true}` {
+		t.Fatalf("data = %s", data)
+	}
+	if len(seen) != 2 || seen[0] != "Bearer old" || seen[1] != "Bearer new" {
+		t.Fatalf("authorization sequence = %#v", seen)
+	}
+}

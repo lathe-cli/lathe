@@ -25,10 +25,18 @@ type CLIInfo struct {
 
 type AuthInfo struct {
 	Validate *AuthValidate `yaml:"validate,omitempty"`
+	Login    *AuthLogin    `yaml:"login,omitempty"`
 }
 
 type UpdateInfo struct {
 	GitHub *GitHubUpdate `yaml:"github,omitempty"`
+}
+
+type AuthLogin struct {
+	Type        string `yaml:"type"`
+	StartPath   string `yaml:"start_path"`
+	TokenPath   string `yaml:"token_path"`
+	RefreshPath string `yaml:"refresh_path,omitempty"`
 }
 
 type GitHubUpdate struct {
@@ -52,6 +60,7 @@ const (
 	CommandPathAuto       = "auto"
 	CommandPathFlat       = "flat"
 	CommandPathNamespaced = "namespaced"
+	AuthLoginOAuthDevice  = "oauth_device"
 )
 
 // Load parses raw cli.yaml bytes into a Manifest. The caller (typically main.go)
@@ -76,6 +85,24 @@ func Load(bytes []byte) (*Manifest, error) {
 		m.Update.GitHub.Asset = strings.TrimSpace(m.Update.GitHub.Asset)
 		if m.Update.GitHub.Owner == "" || m.Update.GitHub.Repo == "" || m.Update.GitHub.Asset == "" {
 			return nil, fmt.Errorf("update.github.owner, update.github.repo, and update.github.asset are required")
+		}
+	}
+	if m.Auth.Login != nil {
+		m.Auth.Login.Type = strings.ToLower(strings.TrimSpace(m.Auth.Login.Type))
+		m.Auth.Login.StartPath = strings.TrimSpace(m.Auth.Login.StartPath)
+		m.Auth.Login.TokenPath = strings.TrimSpace(m.Auth.Login.TokenPath)
+		m.Auth.Login.RefreshPath = strings.TrimSpace(m.Auth.Login.RefreshPath)
+		if m.Auth.Login.Type != AuthLoginOAuthDevice {
+			return nil, fmt.Errorf("auth.login.type must be %q", AuthLoginOAuthDevice)
+		}
+		if m.Auth.Login.StartPath == "" || m.Auth.Login.TokenPath == "" {
+			return nil, fmt.Errorf("auth.login.start_path and auth.login.token_path are required")
+		}
+		if !strings.HasPrefix(m.Auth.Login.StartPath, "/") || !strings.HasPrefix(m.Auth.Login.TokenPath, "/") {
+			return nil, fmt.Errorf("auth.login.start_path and auth.login.token_path must start with /")
+		}
+		if m.Auth.Login.RefreshPath != "" && !strings.HasPrefix(m.Auth.Login.RefreshPath, "/") {
+			return nil, fmt.Errorf("auth.login.refresh_path must start with /")
 		}
 	}
 	m.CLI.CommandPath = strings.ToLower(strings.TrimSpace(m.CLI.CommandPath))

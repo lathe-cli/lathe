@@ -22,14 +22,18 @@ func NormalizeHostname(s string) string {
 
 // HostEntry mirrors gh's per-host record in hosts.yml.
 type HostEntry struct {
-	AuthType      string `yaml:"auth_type,omitempty"`
-	User          string `yaml:"user,omitempty"`
-	OAuthToken    string `yaml:"oauth_token,omitempty"`
-	APIKey        string `yaml:"api_key,omitempty"`
-	APIKeyHeader  string `yaml:"api_key_header,omitempty"`
-	BasicUser     string `yaml:"basic_user,omitempty"`
-	BasicPassword string `yaml:"basic_password,omitempty"`
-	Insecure      bool   `yaml:"insecure,omitempty"`
+	AuthType          string `yaml:"auth_type,omitempty"`
+	LoginType         string `yaml:"login_type,omitempty"`
+	LoginProvider     string `yaml:"login_provider,omitempty"`
+	User              string `yaml:"user,omitempty"`
+	OAuthToken        string `yaml:"oauth_token,omitempty"`
+	OAuthRefreshToken string `yaml:"oauth_refresh_token,omitempty"`
+	OAuthExpiresAt    int64  `yaml:"oauth_expires_at,omitempty"`
+	APIKey            string `yaml:"api_key,omitempty"`
+	APIKeyHeader      string `yaml:"api_key_header,omitempty"`
+	BasicUser         string `yaml:"basic_user,omitempty"`
+	BasicPassword     string `yaml:"basic_password,omitempty"`
+	Insecure          bool   `yaml:"insecure,omitempty"`
 }
 
 type Hosts struct {

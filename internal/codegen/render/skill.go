@@ -496,6 +496,11 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	fmt.Fprintf(&b, "2. Inspect the exact command with `%s commands show <path...> --json` before executing an unfamiliar command.\n", cli)
 	fmt.Fprintf(&b, "3. If the command detail has `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`.\n", cli, manifest.CLI.HostEnv)
 	fmt.Fprintf(&b, "4. Execute only after flags, body, auth, HTTP path, and output hints are clear from `commands show`.\n\n")
+	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
+		b.WriteString("## Auth Login\n\n")
+		fmt.Fprintf(&b, "- Use `%s auth login --auth-type oauth --hostname <host> --provider <provider>` when the user needs browser-based OAuth login.\n", cli)
+		b.WriteString("- The saved host will use `auth_type: bearer`; OAuth is the login method, and the resulting API credential is a bearer token.\n\n")
+	}
 	b.WriteString("## General Commands\n\n")
 	fmt.Fprintf(&b, "- `%s commands --json`: full generated command catalog.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands --include-hidden --json`: include hidden generated commands.\n", cli)
@@ -572,6 +577,9 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`.\n\n")
 	b.WriteString("## Auth\n\n")
 	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
+	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
+		fmt.Fprintf(&b, "For browser-based OAuth login, run `%s auth login --auth-type oauth --hostname <host> --provider <provider>`. `auth_type: bearer` in `hosts.yml` is expected after login because API requests use the issued bearer token.\n", cli)
+	}
 	return b.String()
 }
 
