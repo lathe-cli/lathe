@@ -15,15 +15,16 @@ import (
 )
 
 type ClientOptions struct {
-	Auth       Authenticator
-	Transport  http.RoundTripper
-	Insecure   bool
-	Timeout    time.Duration
-	Headers    map[string]string
-	Debug      bool
-	MaxRetries int
-	UserAgent  string
-	Accept     string
+	Auth        Authenticator
+	RefreshAuth func(context.Context) (Authenticator, error)
+	Transport   http.RoundTripper
+	Insecure    bool
+	Timeout     time.Duration
+	Headers     map[string]string
+	Debug       bool
+	MaxRetries  int
+	UserAgent   string
+	Accept      string
 }
 
 // BaseURL normalizes a user-facing hostname into an absolute URL base.
@@ -84,26 +85,51 @@ func DoRawFull(ctx context.Context, hostname, method, path string, body any, opt
 	}
 	u := base + path
 
-	var reader io.Reader
-	contentType := ""
+	bodyBytes, contentType, err := encodeRequestBody(body)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := doRawFullOnce(ctx, method, u, bodyBytes, contentType, opts)
+	if err == nil {
+		return result, nil
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) || he.Status != http.StatusUnauthorized || opts.RefreshAuth == nil {
+		return nil, err
+	}
+	auth, refreshErr := opts.RefreshAuth(ctx)
+	if refreshErr != nil {
+		return nil, fmt.Errorf("refresh auth after 401: %w", refreshErr)
+	}
+	opts.Auth = auth
+	opts.RefreshAuth = nil
+	return doRawFullOnce(ctx, method, u, bodyBytes, contentType, opts)
+}
+
+func encodeRequestBody(body any) ([]byte, string, error) {
 	if body != nil {
 		switch b := body.(type) {
 		case []byte:
-			reader = bytes.NewReader(b)
-			contentType = "application/json"
+			return b, "application/json", nil
 		case url.Values:
-			reader = strings.NewReader(b.Encode())
-			contentType = "application/x-www-form-urlencoded"
+			return []byte(b.Encode()), "application/x-www-form-urlencoded", nil
 		default:
 			raw, err := json.Marshal(b)
 			if err != nil {
-				return nil, fmt.Errorf("marshal request body: %w", err)
+				return nil, "", fmt.Errorf("marshal request body: %w", err)
 			}
-			reader = bytes.NewReader(raw)
-			contentType = "application/json"
+			return raw, "application/json", nil
 		}
 	}
+	return nil, "", nil
+}
 
+func doRawFullOnce(ctx context.Context, method, u string, body []byte, contentType string, opts ClientOptions) (*RawResult, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, u, reader)
 	if err != nil {
 		return nil, err

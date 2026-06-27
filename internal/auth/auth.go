@@ -2,11 +2,13 @@ package auth
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -30,6 +32,23 @@ func NewHiddenLoginCommand(m *config.Manifest) *cobra.Command {
 	return cmd
 }
 
+type oauthDeviceStartResponse struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURI         string `json:"verification_uri"`
+	VerificationURIComplete string `json:"verification_uri_complete"`
+	Interval                int64  `json:"interval"`
+	ExpiresIn               int64  `json:"expires_in"`
+}
+
+type oauthDeviceTokenResponse struct {
+	Status       string            `json:"status"`
+	AccessToken  string            `json:"access_token"`
+	RefreshToken string            `json:"refresh_token"`
+	ExpiresIn    int64             `json:"expires_in"`
+	User         map[string]string `json:"user"`
+}
+
 func rootString(cmd *cobra.Command, name string) string {
 	v, _ := cmd.Root().PersistentFlags().GetString(name)
 	return v
@@ -40,9 +59,112 @@ func rootBool(cmd *cobra.Command, name string) bool {
 	return v
 }
 
+func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, provider string, insecure bool) (config.HostEntry, error) {
+	login := m.Auth.Login
+	if login == nil || login.Type != config.AuthLoginOAuthDevice {
+		return config.HostEntry{}, errors.New("auth.login with type oauth_device is required for --auth-type oauth")
+	}
+	body := map[string]string{"hostname": hostname}
+	provider = strings.TrimSpace(provider)
+	if provider != "" {
+		body["provider"] = provider
+	}
+	data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.StartPath, body, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
+	if err != nil {
+		return config.HostEntry{}, fmt.Errorf("start oauth login: %w", err)
+	}
+	var start oauthDeviceStartResponse
+	if err := json.Unmarshal(data, &start); err != nil {
+		return config.HostEntry{}, fmt.Errorf("decode oauth start response: %w", err)
+	}
+	if start.DeviceCode == "" {
+		return config.HostEntry{}, errors.New("oauth start response missing device_code")
+	}
+	verificationURL := start.VerificationURIComplete
+	if verificationURL == "" {
+		verificationURL = start.VerificationURI
+	}
+	if verificationURL == "" {
+		return config.HostEntry{}, errors.New("oauth start response missing verification_uri")
+	}
+	fmt.Fprintf(os.Stderr, "Open this URL to authenticate: %s\n", verificationURL)
+	if start.UserCode != "" {
+		fmt.Fprintf(os.Stderr, "Code: %s\n", start.UserCode)
+	}
+	token, err := pollOAuthDeviceToken(cmd, hostname, login.TokenPath, start, insecure)
+	if err != nil {
+		return config.HostEntry{}, err
+	}
+	entry := config.HostEntry{
+		AuthType:          "bearer",
+		LoginType:         config.AuthLoginOAuthDevice,
+		LoginProvider:     provider,
+		OAuthToken:        token.AccessToken,
+		OAuthRefreshToken: token.RefreshToken,
+		Insecure:          insecure,
+	}
+	if token.ExpiresIn > 0 {
+		entry.OAuthExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix()
+	}
+	if token.User != nil {
+		entry.User = token.User["email"]
+		if entry.User == "" {
+			entry.User = token.User["name"]
+		}
+	}
+	return entry, nil
+}
+
+func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, tokenPath string, start oauthDeviceStartResponse, insecure bool) (oauthDeviceTokenResponse, error) {
+	expiresIn := start.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 600
+	}
+	interval := start.Interval
+	if interval <= 0 {
+		interval = 5
+	}
+	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			return oauthDeviceTokenResponse{}, errors.New("oauth login expired")
+		}
+		data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", tokenPath, map[string]string{
+			"device_code": start.DeviceCode,
+		}, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
+		if err != nil {
+			return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
+		}
+		var token oauthDeviceTokenResponse
+		if err := json.Unmarshal(data, &token); err != nil {
+			return oauthDeviceTokenResponse{}, fmt.Errorf("decode oauth token response: %w", err)
+		}
+		if token.AccessToken != "" {
+			return token, nil
+		}
+		switch token.Status {
+		case "pending", "":
+			timer := time.NewTimer(time.Duration(interval) * time.Second)
+			select {
+			case <-cmd.Context().Done():
+				timer.Stop()
+				return oauthDeviceTokenResponse{}, cmd.Context().Err()
+			case <-timer.C:
+			}
+		case "denied":
+			return oauthDeviceTokenResponse{}, errors.New("oauth login denied")
+		case "expired":
+			return oauthDeviceTokenResponse{}, errors.New("oauth login expired")
+		default:
+			return oauthDeviceTokenResponse{}, fmt.Errorf("oauth login failed with status %q", token.Status)
+		}
+	}
+}
+
 func newLogin(m *config.Manifest) *cobra.Command {
 	var (
 		authType     string
+		provider     string
 		withToken    bool
 		skipValidate bool
 	)
@@ -110,8 +232,17 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return err
 				}
 				entry.BasicPassword = pass
+			case "oauth":
+				if withToken {
+					return errors.New("--with-token cannot be used with --auth-type oauth")
+				}
+				var err error
+				entry, err = oauthDeviceLogin(cmd, m, hostname, provider, insecure)
+				if err != nil {
+					return err
+				}
 			default:
-				return fmt.Errorf("unknown auth type: %q (use bearer, apikey, or basic)", authType)
+				return fmt.Errorf("unknown auth type: %q (use bearer, apikey, basic, or oauth)", authType)
 			}
 
 			if !skipValidate {
@@ -126,7 +257,9 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					}
 					return fmt.Errorf("credential validation failed against %s: %w", hostname, err)
 				}
-				entry.User = result.Username
+				if result.Username != "" {
+					entry.User = result.Username
+				}
 				if entry.User != "" {
 					fmt.Fprintf(os.Stderr, "✓ Authenticated as %s\n", entry.User)
 				}
@@ -144,7 +277,8 @@ func newLogin(m *config.Manifest) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&authType, "auth-type", "", "Authentication type: bearer (default), apikey, basic")
+	cmd.Flags().StringVar(&authType, "auth-type", "", "Authentication type: bearer (default), apikey, basic, oauth")
+	cmd.Flags().StringVar(&provider, "provider", "", "OAuth provider hint passed to the service")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read token/key from stdin")
 	cmd.Flags().BoolVar(&skipValidate, "skip-validate", false, "Do not validate credentials against the server")
 	return cmd
@@ -225,6 +359,13 @@ func printStatus(hostname string, e config.HostEntry) {
 	}
 	credential := maskedCredential(e)
 	fmt.Fprintf(os.Stdout, "%s\n  ✓ Logged in as %s\n  ✓ Auth: %s\n  ✓ Credential: %s\n", hostname, user, authLabel, credential)
+	if e.LoginType != "" {
+		loginLabel := e.LoginType
+		if e.LoginProvider != "" {
+			loginLabel += " (" + e.LoginProvider + ")"
+		}
+		fmt.Fprintf(os.Stdout, "  ✓ Login: %s\n", loginLabel)
+	}
 }
 
 func maskedCredential(e config.HostEntry) string {
