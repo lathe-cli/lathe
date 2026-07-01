@@ -206,9 +206,9 @@ Optional GraphQL policy blocks tune the generated CLI contract:
 GraphQL commands execute `POST /graphql` with a baked JSON body template:
 `{"query": "...", "variables": {}}`. Scalar and enum arguments become typed CLI
 flags and merge under `variables`. Input-object arguments expand scalar and enum
-leaf fields into dotted variable flags such as `--input-name`; required fields
-that cannot be faithfully represented as flags fail codegen. Optional complex
-fields remain query-declared and can be supplied with `--set` or `--file`.
+leaf fields into dotted variable flags such as `--input-name`; complex fields
+remain query-declared in the body schema and can be supplied with `--set` or
+`--file`.
 Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
 `pageInfo.endCursor`, `pageInfo.hasNextPage`, and an `after` argument get
 `--all`; subsequent pages write the cursor back under `variables.after`.

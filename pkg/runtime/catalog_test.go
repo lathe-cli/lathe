@@ -170,7 +170,17 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 		OperationID: "Apps_CreateApp",
 		Method:      "POST",
 		PathTpl:     "/graphql",
-		RequestBody: &RequestBody{Required: true, MediaType: "application/json", Template: tmpl, MergePath: "variables"},
+		RequestBody: &RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Schema: &SchemaSpec{
+				Type:       "object",
+				Properties: map[string]*SchemaSpec{"name": {Type: "string"}},
+				Required:   []string{"name"},
+			},
+			Template:  tmpl,
+			MergePath: "variables",
+		},
 	}})
 
 	catalog := BuildCatalog(root, CatalogOptions{CLIName: "myctl"})
@@ -186,7 +196,7 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"template":`, `"merge_path":"variables"`, `createApp(name:$name)`} {
+	for _, want := range []string{`"template":`, `"merge_path":"variables"`, `"required":["name"]`, `createApp(name:$name)`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("catalog JSON missing %q:\n%s", want, raw)
 		}
@@ -198,6 +208,9 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	rt := roundTrip.Commands[0].Body
 	if rt == nil || rt.Template != tmpl || rt.MergePath != "variables" {
 		t.Fatalf("round-trip body envelope = %+v", rt)
+	}
+	if rt.Schema == nil || !reflect.DeepEqual(rt.Schema.Required, []string{"name"}) {
+		t.Fatalf("round-trip body schema = %+v", rt.Schema)
 	}
 }
 

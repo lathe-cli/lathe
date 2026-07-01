@@ -87,10 +87,21 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	var varDefs, argList []string
 	var params []rawir.RawParameter
 	variableDefaults := map[string]any{}
+	variablesSchema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
 	for _, arg := range field.Arguments {
 		varDefs = append(varDefs, "$"+arg.Name+": "+arg.Type.String())
 		argList = append(argList, arg.Name+": $"+arg.Name)
-		argParams, err := g.variableParamsForArg(opType, field.Name, arg, variableDefaults)
+		argSchema, err := g.variableSchema(arg.Type, map[string]bool{})
+		if err != nil {
+			return rawir.RawOperation{}, fmt.Errorf("%s %q: argument %q schema: %w", opType, field.Name, arg.Name, err)
+		}
+		if argSchema != nil {
+			variablesSchema.Properties[arg.Name] = argSchema
+			if arg.Type.NonNull && arg.DefaultValue == nil {
+				variablesSchema.Required = append(variablesSchema.Required, arg.Name)
+			}
+		}
+		argParams, err := g.variableParamsForArg(arg, variableDefaults)
 		if err != nil {
 			return rawir.RawOperation{}, err
 		}
@@ -141,6 +152,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 		RequestBody: &rawir.RawRequestBody{
 			Required:  true,
 			MediaType: "application/json",
+			Schema:    variablesSchema,
 			Template:  string(template),
 			MergePath: "variables",
 		},
@@ -148,7 +160,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	}, nil
 }
 
-func (g *generator) variableParamsForArg(opType string, operationName string, arg *ast.ArgumentDefinition, defaults map[string]any) ([]rawir.RawParameter, error) {
+func (g *generator) variableParamsForArg(arg *ast.ArgumentDefinition, defaults map[string]any) ([]rawir.RawParameter, error) {
 	def := g.schema.Types[arg.Type.Name()]
 	if def != nil && def.IsLeafType() {
 		return []rawir.RawParameter{{
@@ -161,26 +173,17 @@ func (g *generator) variableParamsForArg(opType string, operationName string, ar
 		}}, nil
 	}
 	if def != nil && def.Kind == ast.InputObject && arg.Type.Elem == nil {
-		return g.inputObjectParams(opType, operationName, arg.Name, arg.Type, arg.Type.NonNull && arg.DefaultValue == nil, defaults, map[string]bool{})
-	}
-	if arg.Type.NonNull && arg.DefaultValue == nil {
-		return nil, fmt.Errorf("%s %q: required argument %q of type %q is not a scalar and cannot be expressed as a CLI flag", opType, operationName, arg.Name, arg.Type.String())
+		return g.inputObjectParams(arg.Name, arg.Type, arg.Type.NonNull && arg.DefaultValue == nil, defaults, map[string]bool{})
 	}
 	return nil, nil
 }
 
-func (g *generator) inputObjectParams(opType string, operationName string, prefix string, typ *ast.Type, required bool, defaults map[string]any, onPath map[string]bool) ([]rawir.RawParameter, error) {
+func (g *generator) inputObjectParams(prefix string, typ *ast.Type, required bool, defaults map[string]any, onPath map[string]bool) ([]rawir.RawParameter, error) {
 	def := g.schema.Types[typ.Name()]
 	if def == nil || def.Kind != ast.InputObject || typ.Elem != nil {
-		if required {
-			return nil, fmt.Errorf("%s %q: required input field %q of type %q cannot be expressed as CLI flags", opType, operationName, prefix, typ.String())
-		}
 		return nil, nil
 	}
 	if onPath[def.Name] {
-		if required {
-			return nil, fmt.Errorf("%s %q: required input field %q creates an input object cycle through %q", opType, operationName, prefix, def.Name)
-		}
 		return nil, nil
 	}
 	if required {
@@ -206,18 +209,58 @@ func (g *generator) inputObjectParams(opType string, operationName string, prefi
 			continue
 		}
 		if fieldDef != nil && fieldDef.Kind == ast.InputObject && field.Type.Elem == nil {
-			child, err := g.inputObjectParams(opType, operationName, name, field.Type, fieldRequired, defaults, next)
+			child, err := g.inputObjectParams(name, field.Type, fieldRequired, defaults, next)
 			if err != nil {
 				return nil, err
 			}
 			params = append(params, child...)
 			continue
 		}
-		if fieldRequired {
-			return nil, fmt.Errorf("%s %q: required input field %q of type %q cannot be expressed as CLI flags", opType, operationName, name, field.Type.String())
-		}
 	}
 	return params, nil
+}
+
+func (g *generator) variableSchema(typ *ast.Type, onPath map[string]bool) (*rawir.RawSchema, error) {
+	if typ == nil {
+		return nil, nil
+	}
+	if typ.Elem != nil {
+		item, err := g.variableSchema(typ.Elem, onPath)
+		if err != nil {
+			return nil, err
+		}
+		return &rawir.RawSchema{Type: "array", Items: item}, nil
+	}
+	def := g.schema.Types[typ.Name()]
+	if def == nil {
+		return &rawir.RawSchema{Type: "string"}, nil
+	}
+	if def.IsLeafType() {
+		return &rawir.RawSchema{Type: scalarType(typ)}, nil
+	}
+	if def.Kind != ast.InputObject {
+		return &rawir.RawSchema{Type: "object"}, nil
+	}
+	if onPath[def.Name] {
+		return &rawir.RawSchema{Type: "object"}, nil
+	}
+
+	next := clonePath(onPath)
+	next[def.Name] = true
+	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
+	for _, field := range def.Fields {
+		fieldSchema, err := g.variableSchema(field.Type, next)
+		if err != nil {
+			return nil, err
+		}
+		if fieldSchema != nil {
+			schema.Properties[field.Name] = fieldSchema
+		}
+		if field.Type.NonNull && field.DefaultValue == nil {
+			schema.Required = append(schema.Required, field.Name)
+		}
+	}
+	return schema, nil
 }
 
 func (g *generator) selectionSet(typeName string, depth int, onPath map[string]bool) (string, error) {

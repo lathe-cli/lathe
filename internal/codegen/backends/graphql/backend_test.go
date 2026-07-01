@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -501,20 +502,39 @@ type App { id: ID! }
 	}
 }
 
-func TestParse_FailsClosedOnRequiredUnsupportedInputField(t *testing.T) {
+func TestParse_RequiredComplexInputFieldsUseBodySchema(t *testing.T) {
 	const sdl = `
 input MemberInput { email: String! }
-input CreateAppInput { members: [MemberInput!]! }
+input CreateAppInput { name: String!, members: [MemberInput!]! }
 type Query { ping: String }
 type Mutation { createApp(input: CreateAppInput!): App! }
 type App { id: ID! }
 `
-	_, err := parseSDL(t, sdl, nil, []string{"createApp"})
-	if err == nil {
-		t.Fatal("expected fail-closed error for a required unsupported input field")
+	mod, err := parseSDL(t, sdl, nil, []string{"createApp"})
+	if err != nil {
+		t.Fatalf("required complex input field should use body schema: %v", err)
 	}
-	if !strings.Contains(err.Error(), "createApp") || !strings.Contains(err.Error(), "input.members") {
-		t.Errorf("error = %v, want to name the operation and field", err)
+	create := byID(mod.Operations)["console_createApp"]
+	if len(create.Parameters) != 1 {
+		t.Fatalf("params = %+v, want only scalar leaf flag", create.Parameters)
+	}
+	if p := create.Parameters[0]; p.Name != "input.name" || !p.Required {
+		t.Fatalf("input.name param = %+v", p)
+	}
+	schema := create.RequestBody.Schema
+	if schema == nil || schema.Properties["input"] == nil {
+		t.Fatalf("body schema = %+v, want input object", schema)
+	}
+	input := schema.Properties["input"]
+	if !reflect.DeepEqual(input.Required, []string{"name", "members"}) {
+		t.Fatalf("input required = %#v", input.Required)
+	}
+	members := input.Properties["members"]
+	if members == nil || members.Type != "array" || members.Items == nil {
+		t.Fatalf("members schema = %+v, want array item schema", members)
+	}
+	if !reflect.DeepEqual(members.Items.Required, []string{"email"}) {
+		t.Fatalf("member required = %#v", members.Items.Required)
 	}
 }
 
