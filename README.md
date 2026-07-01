@@ -388,6 +388,7 @@ Lathe runtime commands that should not occupy generated API command names live u
 
 | Command | Effect |
 |---|---|
+| `<cli> __lathe verify --json` | Verify the generated CLI contract without making network calls. |
 | `<cli> __lathe version` | Print version information. |
 | `<cli> __lathe completion <shell>` | Generate shell completion scripts. |
 

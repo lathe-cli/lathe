@@ -71,6 +71,10 @@ type jsonErrorEnvelope struct {
 	Error LatheError `json:"error"`
 }
 
+type silentExitError interface {
+	SilentExitCode() int
+}
+
 func FormatError(err error, format string, w io.Writer) int {
 	le := ClassifyError(err)
 	if le == nil {
@@ -91,6 +95,10 @@ func Execute(cmd *cobra.Command) int {
 	err := cmd.Execute()
 	if err == nil {
 		return ExitOK
+	}
+	var silent silentExitError
+	if errors.As(err, &silent) {
+		return silent.SilentExitCode()
 	}
 	format, _ := cmd.PersistentFlags().GetString("output")
 	return FormatError(err, format, os.Stderr)
