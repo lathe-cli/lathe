@@ -231,14 +231,16 @@ Generated CLIs are designed so an agent does not have to guess.
 | `<cli> commands show <path...> --json` | Inspect the source of truth for one command before execution: flags, body, auth, HTTP method/path, and output hints. |
 | `<cli> commands schema --json` | Check the catalog schema version before durable machine parsing. |
 | `<cli> auth status --hostname <host>` | Confirm credentials before running a command whose detail says `auth.required=true`. |
+| `<cli> <command> --dry-run` | Print the resolved request JSON, including URL, redacted headers, redacted body, auth, and output hints, without sending the request. |
 
 Recommended agent loop:
 
 1. Use `search "<intent>" --json` to find candidates.
 2. Use `commands show <path...> --json` for the selected command.
 3. If `auth.required=true`, run `auth status --hostname <host>` and stop if the user is not logged in.
-4. Execute only after flags, body requirements, auth, HTTP path, and output hints are clear.
-5. Prefer `-o json` for machine-readable command output unless the user asked for a human-readable table.
+4. Run the command with `--dry-run` when the resolved URL, headers, or body need confirmation.
+5. Execute only after flags, body requirements, auth, HTTP path, and output hints are clear.
+6. Prefer `-o json` for machine-readable command output unless the user asked for a human-readable table.
 
 ## Generated Skill Directory
 

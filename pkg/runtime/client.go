@@ -79,18 +79,13 @@ type RawResult struct {
 }
 
 func DoRawFull(ctx context.Context, hostname, method, path string, body any, opts ClientOptions) (*RawResult, error) {
-	base, err := BaseURL(hostname)
+	req, bodyBytes, contentType, err := resolveRequest(ctx, hostname, method, path, body, opts)
 	if err != nil {
 		return nil, err
 	}
-	u := base + path
+	u := req.URL.String()
 
-	bodyBytes, contentType, err := encodeRequestBody(body)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := doRawFullOnce(ctx, method, u, bodyBytes, contentType, opts)
+	result, err := doRawFullOnce(req, opts)
 	if err == nil {
 		return result, nil
 	}
@@ -104,7 +99,11 @@ func DoRawFull(ctx context.Context, hostname, method, path string, body any, opt
 	}
 	opts.Auth = auth
 	opts.RefreshAuth = nil
-	return doRawFullOnce(ctx, method, u, bodyBytes, contentType, opts)
+	req, err = newRequest(ctx, method, u, bodyBytes, contentType, opts)
+	if err != nil {
+		return nil, err
+	}
+	return doRawFullOnce(req, opts)
 }
 
 func encodeRequestBody(body any) ([]byte, string, error) {
@@ -125,7 +124,23 @@ func encodeRequestBody(body any) ([]byte, string, error) {
 	return nil, "", nil
 }
 
-func doRawFullOnce(ctx context.Context, method, u string, body []byte, contentType string, opts ClientOptions) (*RawResult, error) {
+func resolveRequest(ctx context.Context, hostname, method, path string, body any, opts ClientOptions) (*http.Request, []byte, string, error) {
+	base, err := BaseURL(hostname)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	bodyBytes, contentType, err := encodeRequestBody(body)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	req, err := newRequest(ctx, method, base+path, bodyBytes, contentType, opts)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return req, bodyBytes, contentType, nil
+}
+
+func newRequest(ctx context.Context, method, u string, body []byte, contentType string, opts ClientOptions) (*http.Request, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -153,7 +168,12 @@ func doRawFullOnce(ctx context.Context, method, u string, body []byte, contentTy
 	for k, v := range opts.Headers {
 		req.Header.Set(k, v)
 	}
+	return req, nil
+}
 
+func doRawFullOnce(req *http.Request, opts ClientOptions) (*RawResult, error) {
+	method := req.Method
+	u := req.URL.String()
 	resp, err := HTTPClient(opts).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, u, err)

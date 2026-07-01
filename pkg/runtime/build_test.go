@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -306,6 +307,115 @@ func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "requires --file") {
 			t.Fatalf("Execute error = %v, want requires --file", err)
 		}
+	}
+}
+
+func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		t.Fatalf("dry-run sent request: %s %s", r.Method, r.URL.String())
+	}))
+	defer srv.Close()
+
+	root := newRootWithModuleGroup()
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(io.Discard)
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	Build(root, "demo", []CommandSpec{{
+		Group:   "Users",
+		Use:     "create-user",
+		Method:  "POST",
+		PathTpl: "/users/{id}",
+		Params: []ParamSpec{
+			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
+			{Name: "limit", Flag: "limit", In: InQuery, GoType: "int64"},
+			{Name: "Authorization", Flag: "authorization", In: InHeader, GoType: "string"},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+		Output: OutputHints{
+			ListPath:          "data.items",
+			DefaultColumns:    []string{"id", "name"},
+			ResponseMediaType: "application/vnd.demo+json",
+		},
+		Security: &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{
+		"demo", "users", "create-user",
+		"--hostname", srv.URL,
+		"--id", "u 1",
+		"--limit", "5",
+		"--authorization", "Bearer secret",
+		"--set", "name=alice",
+		"--set", "password=hunter2",
+		"--set", "envVars[0].key=MANUAL_DRY_RUN",
+		"--set", "envVars[0].value=some-secret",
+		"--dry-run",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("dry-run sent %d requests", hits)
+	}
+
+	var out struct {
+		Method  string            `json:"method"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+		Body    map[string]any    `json:"body"`
+		Auth    struct {
+			Required bool `json:"required"`
+			Public   bool `json:"public"`
+		} `json:"auth"`
+		Output struct {
+			ListPath          string   `json:"list_path"`
+			DefaultColumns    []string `json:"default_columns"`
+			ResponseMediaType string   `json:"response_media_type"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("dry-run JSON: %v\n%s", err, stdout.String())
+	}
+	if out.Method != "POST" {
+		t.Fatalf("method = %q, want POST", out.Method)
+	}
+	if out.URL != srv.URL+"/users/u%201?limit=5" {
+		t.Fatalf("url = %q", out.URL)
+	}
+	if out.Headers["Authorization"] != "***" {
+		t.Fatalf("authorization header = %q", out.Headers["Authorization"])
+	}
+	if out.Headers["Content-Type"] != "application/json" {
+		t.Fatalf("content-type = %q", out.Headers["Content-Type"])
+	}
+	if out.Headers["Accept"] != "application/vnd.demo+json" {
+		t.Fatalf("accept = %q", out.Headers["Accept"])
+	}
+	if out.Body["name"] != "alice" || out.Body["password"] != "***" {
+		t.Fatalf("body = %#v", out.Body)
+	}
+	envVars, ok := out.Body["envVars"].([]any)
+	if !ok || len(envVars) != 1 {
+		t.Fatalf("envVars = %#v", out.Body["envVars"])
+	}
+	envVar, ok := envVars[0].(map[string]any)
+	if !ok {
+		t.Fatalf("envVar = %#v", envVars[0])
+	}
+	if envVar["key"] != "MANUAL_DRY_RUN" || envVar["value"] != "***" {
+		t.Fatalf("envVar = %#v", envVar)
+	}
+	if out.Auth.Required || !out.Auth.Public {
+		t.Fatalf("auth = %+v", out.Auth)
+	}
+	if out.Output.ListPath != "data.items" || out.Output.ResponseMediaType != "application/vnd.demo+json" || !reflect.DeepEqual(out.Output.DefaultColumns, []string{"id", "name"}) {
+		t.Fatalf("output = %+v", out.Output)
 	}
 }
 

@@ -91,6 +91,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	var paginateAll bool
 	var maxPages int
 	var waitPoll bool
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:     s.Use,
@@ -109,10 +110,11 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			var hostname string
 			var clientOpts ClientOptions
 			var err error
+			refreshAuth := !dryRun
 			if s.Security != nil && s.Security.Public {
-				hostname, clientOpts, err = tryLoadHostOptions(cmd, s.DefaultHostname)
+				hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
 			} else {
-				hostname, clientOpts, err = loadHostOptions(cmd, s.DefaultHostname)
+				hostname, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
 			}
 			if err != nil {
 				return err
@@ -267,6 +269,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			if s.Output.ResponseMediaType != "" {
 				clientOpts.Accept = s.Output.ResponseMediaType
 			}
+			if dryRun {
+				return writeDryRun(cmd, s, hostname, path, body, clientOpts)
+			}
 			var data []byte
 			if paginateAll && s.Output.Pagination != nil {
 				data, err = PaginateAll(cmd.Context(), hostname, s.Method, path, body, clientOpts, *s.Output.Pagination, s.Output.ListPath, maxPages)
@@ -388,6 +393,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	if s.Method == "POST" || s.Method == "PUT" || s.Method == "DELETE" || s.Method == "PATCH" {
 		cmd.Flags().BoolVar(&waitPoll, "wait", false, "poll until long-running operation completes")
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print resolved request JSON without sending it")
 	cmd.Hidden = s.Hidden
 	if s.Deprecated {
 		cmd.Deprecated = "this command is deprecated"
@@ -396,6 +402,77 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+type dryRunRequest struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	Body    any               `json:"body"`
+	Auth    dryRunAuth        `json:"auth"`
+	Output  CatalogOutput     `json:"output"`
+}
+
+type dryRunAuth struct {
+	Required bool     `json:"required"`
+	Public   bool     `json:"public"`
+	Scopes   []string `json:"scopes,omitempty"`
+}
+
+func writeDryRun(cmd *cobra.Command, s CommandSpec, hostname, path string, body any, opts ClientOptions) error {
+	req, bodyBytes, _, err := resolveRequest(cmd.Context(), hostname, s.Method, path, body, opts)
+	if err != nil {
+		return err
+	}
+	out := dryRunRequest{
+		Method:  req.Method,
+		URL:     req.URL.String(),
+		Headers: redactedDryRunHeaders(req.Header),
+		Body:    redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
+		Auth:    dryRunAuthForSpec(s),
+		Output: CatalogOutput{
+			ListPath:          s.Output.ListPath,
+			DefaultColumns:    append([]string(nil), s.Output.DefaultColumns...),
+			ResponseMediaType: s.Output.ResponseMediaType,
+			Pagination:        catalogPagination(s.Output.Pagination),
+			Streaming:         catalogStreaming(s.Output.Streaming),
+		},
+	}
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+func redactedDryRunHeaders(headers map[string][]string) map[string]string {
+	out := make(map[string]string, len(headers))
+	for k, vs := range headers {
+		out[k] = redactDebugHeader(k, strings.Join(vs, ", "))
+	}
+	return out
+}
+
+func redactedDryRunBody(contentType string, body []byte) any {
+	if len(body) == 0 {
+		return nil
+	}
+	redacted := redactDebugBody(contentType, body)
+	if strings.HasPrefix(contentType, "application/json") {
+		var v any
+		if err := json.Unmarshal(redacted, &v); err == nil {
+			return v
+		}
+	}
+	return string(redacted)
+}
+
+func dryRunAuthForSpec(s CommandSpec) dryRunAuth {
+	out := dryRunAuth{Required: true}
+	if s.Security != nil {
+		out.Required = !s.Security.Public
+		out.Public = s.Security.Public
+		out.Scopes = append([]string(nil), s.Security.Scopes...)
+	}
+	return out
 }
 
 func supportsJSONBodyBuilder(mediaType string) bool {
