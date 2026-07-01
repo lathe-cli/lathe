@@ -116,16 +116,29 @@ func redactDebugBody(contentType string, body []byte) []byte {
 }
 
 func redactDebugJSON(v any) bool {
+	return redactDebugJSONAt(v, nil)
+}
+
+func redactDebugJSONAt(v any, path []string) bool {
 	switch tv := v.(type) {
 	case map[string]any:
 		changed := false
+		envVarPair := isDebugEnvVarPair(path, tv)
 		for k, child := range tv {
+			if envVarPair && strings.EqualFold(k, "value") {
+				tv[k] = "***"
+				changed = true
+				continue
+			}
+			if envVarPair && strings.EqualFold(k, "key") {
+				continue
+			}
 			if isSensitiveDebugName(k) {
 				tv[k] = "***"
 				changed = true
 				continue
 			}
-			if redactDebugJSON(child) {
+			if redactDebugJSONAt(child, append(path, k)) {
 				changed = true
 			}
 		}
@@ -133,7 +146,7 @@ func redactDebugJSON(v any) bool {
 	case []any:
 		changed := false
 		for _, child := range tv {
-			if redactDebugJSON(child) {
+			if redactDebugJSONAt(child, path) {
 				changed = true
 			}
 		}
@@ -141,6 +154,20 @@ func redactDebugJSON(v any) bool {
 	default:
 		return false
 	}
+}
+
+func isDebugEnvVarPair(path []string, v map[string]any) bool {
+	if len(path) == 0 || !isDebugEnvVarContainer(path[len(path)-1]) {
+		return false
+	}
+	_, hasKey := v["key"]
+	_, hasValue := v["value"]
+	return hasKey && hasValue
+}
+
+func isDebugEnvVarContainer(name string) bool {
+	n := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(name))
+	return n == "env" || n == "envvars" || n == "environmentvariables"
 }
 
 func redactDebugText(s string) string {

@@ -329,6 +329,7 @@ bin/acmectl search "create user" --json
 bin/acmectl commands show users users create --json
 bin/acmectl commands schema --json
 bin/acmectl auth status --hostname api.acme.com
+bin/acmectl users users create --set email=alice@example.com --dry-run
 bin/acmectl users users create --set email=alice@example.com -o json
 ```
 
@@ -338,6 +339,7 @@ Rules:
 - Inspect exact command details with `commands show` before execution.
 - Use `examples` from command detail when overlays provide runnable command metadata.
 - Run `auth status --hostname <host>` before authenticated commands.
+- Use `--dry-run` to inspect the resolved request JSON before sending it.
 - Prefer `-o json` for agent-readable output.
 - Use `--file`, `--set`, or `--set-str` according to the command detail body
   contract.
