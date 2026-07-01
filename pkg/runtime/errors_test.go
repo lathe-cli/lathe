@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestClassifyError_Nil(t *testing.T) {
@@ -100,5 +102,27 @@ func TestLatheError_Unwrap(t *testing.T) {
 	le := NewLatheError(CodeGeneral, ExitGeneral, cause)
 	if !errors.Is(le, cause) {
 		t.Error("expected Unwrap to expose cause")
+	}
+}
+
+type testSilentExitError struct{}
+
+func (testSilentExitError) Error() string {
+	return "hidden"
+}
+
+func (testSilentExitError) SilentExitCode() int {
+	return ExitUsage
+}
+
+func TestExecuteSilentExitError(t *testing.T) {
+	cmd := &cobra.Command{
+		Use: "demo",
+		RunE: func(*cobra.Command, []string) error {
+			return testSilentExitError{}
+		},
+	}
+	if code := Execute(cmd); code != ExitUsage {
+		t.Fatalf("exit = %d, want %d", code, ExitUsage)
 	}
 }

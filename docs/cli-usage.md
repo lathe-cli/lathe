@@ -325,6 +325,7 @@ go build -o bin/acmectl ./cmd/acmectl
 Generated CLIs expose machine-readable contracts. Agents should use this loop:
 
 ```sh
+bin/acmectl __lathe verify --json
 bin/acmectl search "create user" --json
 bin/acmectl commands show users users create --json
 bin/acmectl commands schema --json
@@ -336,6 +337,8 @@ bin/acmectl users users create --set email=alice@example.com -o json
 Rules:
 
 - Treat `search` output as candidates only.
+- Run `__lathe verify --json` after building a generated CLI to check the local
+  command contract before live calls.
 - Inspect exact command details with `commands show` before execution.
 - Use `examples` from command detail when overlays provide runnable command metadata.
 - Run `auth status --hostname <host>` before authenticated commands.

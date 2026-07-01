@@ -54,19 +54,20 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	if m.Update.GitHub != nil {
 		cmd.AddCommand(updateCmd(m))
 	}
-	cmd.AddCommand(metaCmd(m.CLI.Name))
+	cmd.AddCommand(metaCmd(m))
 	return cmd
 }
 
-func metaCmd(cliName string) *cobra.Command {
+func metaCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    metaCommandName,
 		Short:  "Lathe control commands",
 		Hidden: true,
 	}
 	cmd.AddCommand(versionCmd())
+	cmd.AddCommand(verifyCmd(m))
 	cmd.InitDefaultCompletionCmd()
-	rewriteCompletionHelp(cmd, cliName)
+	rewriteCompletionHelp(cmd, m.CLI.Name)
 	return cmd
 }
 
