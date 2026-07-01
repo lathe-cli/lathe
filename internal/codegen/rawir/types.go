@@ -69,6 +69,7 @@ type RawSchema struct {
 	Ref        string
 	Type       string
 	Properties map[string]*RawSchema
+	Required   []string `json:",omitempty"`
 	Items      *RawSchema
 }
 

@@ -459,6 +459,9 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 			out.Properties[k] = runtimeSchema(v, defs, visited)
 		}
 	}
+	if len(s.Required) > 0 {
+		out.Required = append([]string(nil), s.Required...)
+	}
 	if s.Items != nil {
 		out.Items = runtimeSchema(s.Items, defs, visited)
 	}

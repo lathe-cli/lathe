@@ -125,6 +125,13 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 		RequestBody: &runtime.RequestBody{
 			Required:  true,
 			MediaType: "application/json",
+			Schema: &runtime.SchemaSpec{
+				Type: "object",
+				Properties: map[string]*runtime.SchemaSpec{
+					"input": {Type: "object", Required: []string{"name"}},
+				},
+				Required: []string{"input"},
+			},
 			Template:  `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`,
 			MergePath: "variables",
 		},
@@ -139,6 +146,9 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 		`Template:`,
 		`createApp(name:$name)`,
 		`MergePath: "variables"`,
+		`Required: []string{`,
+		`"input"`,
+		`"name"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q", want)

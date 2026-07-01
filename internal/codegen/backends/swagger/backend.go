@@ -68,6 +68,7 @@ type schemaNode struct {
 	Ref        string                 `json:"$ref,omitempty"`
 	Type       string                 `json:"type,omitempty"`
 	Properties map[string]*schemaNode `json:"properties,omitempty"`
+	Required   []string               `json:"required,omitempty"`
 	Items      *schemaNode            `json:"items,omitempty"`
 }
 
@@ -225,6 +226,9 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		for k, v := range s.Properties {
 			out.Properties[k] = convertSchema(v)
 		}
+	}
+	if len(s.Required) > 0 {
+		out.Required = append([]string(nil), s.Required...)
 	}
 	if s.Items != nil {
 		out.Items = convertSchema(s.Items)

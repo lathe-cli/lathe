@@ -2,7 +2,7 @@ package runtime
 
 import "encoding/json"
 
-const SchemaVersion = 7
+const SchemaVersion = 8
 
 type CommandSpec struct {
 	Group           string
@@ -80,6 +80,7 @@ type SchemaSpec struct {
 	Ref        string                 `json:"ref,omitempty"`
 	Type       string                 `json:"type,omitempty"`
 	Properties map[string]*SchemaSpec `json:"properties,omitempty"`
+	Required   []string               `json:"required,omitempty"`
 	Items      *SchemaSpec            `json:"items,omitempty"`
 }
 

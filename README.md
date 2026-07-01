@@ -303,9 +303,8 @@ Grouping rules:
 GraphQL commands execute `POST /graphql` with a baked `{query, variables}`
 request envelope. Scalar and enum arguments become typed flags that merge under
 `variables`. Input-object arguments expand scalar and enum leaf fields into
-dotted variable flags such as `--input-name`; required fields that cannot be
-represented as flags fail codegen instead of publishing an incomplete command.
-Optional complex fields can still be supplied with `--set` or `--file`.
+dotted variable flags such as `--input-name`; complex fields remain in the
+request body schema and are supplied with `--set` or `--file`.
 Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
 `pageInfo.endCursor`, `pageInfo.hasNextPage`, and an `after` argument get
 `--all`; subsequent pages write the cursor back under `variables.after`.

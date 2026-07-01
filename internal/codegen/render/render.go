@@ -473,6 +473,13 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 		}
 		b.WriteString("},")
 	}
+	if len(s.Required) > 0 {
+		b.WriteString("Required: []string{")
+		for _, name := range s.Required {
+			fmt.Fprintf(b, "%q,", name)
+		}
+		b.WriteString("},")
+	}
 	if s.Items != nil {
 		b.WriteString("Items: ")
 		writeSchemaLiteral(b, s.Items)
