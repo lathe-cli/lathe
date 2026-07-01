@@ -116,6 +116,11 @@ cli:
   short: "Command-line tool for Acme services"
 
 auth:
+  login:
+    type: oauth_device
+    start_path: /auth/device/start
+    token_path: /auth/device/token
+    refresh_path: /auth/device/refresh
   validate:
     method: GET
     path: /api/v1/whoami
@@ -272,6 +277,7 @@ Defines CLI identity and optional auth validation behavior.
 |---|---|
 | `cli.name` | Binary and command name, for example `acmectl`. |
 | `cli.short` | Root command summary. |
+| `auth.login` | Optional OAuth device login endpoints used by `auth login --device-auth`. |
 | `auth.validate` | Optional endpoint used by `auth status` to display the logged-in user. |
 
 ### `specs/sources.yaml`
