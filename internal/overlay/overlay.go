@@ -11,6 +11,7 @@ import (
 
 type Override struct {
 	Use           string                   `yaml:"use"`
+	Match         OperationMatch           `yaml:"match"`
 	Aliases       []string                 `yaml:"aliases"`
 	Shortcuts     []Shortcut               `yaml:"shortcuts"`
 	Short         string                   `yaml:"short"`
@@ -24,6 +25,11 @@ type Override struct {
 	Notes         []string                 `yaml:"notes"`
 	Prerequisites []string                 `yaml:"prerequisites"`
 	KnownErrors   []KnownError             `yaml:"known_errors"`
+}
+
+type OperationMatch struct {
+	Method string `yaml:"method"`
+	Path   string `yaml:"path"`
 }
 
 type Example struct {

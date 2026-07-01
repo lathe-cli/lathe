@@ -97,6 +97,9 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
       pageSize: "20"
 commands:
   create-user:
+    match:
+      method: POST
+      path: /users
     group: "Identity"
     hidden: true
     notes:
@@ -137,6 +140,9 @@ commands:
 	cu := mod.Commands["create-user"]
 	if cu.Group != "Identity" {
 		t.Errorf("group = %q, want Identity", cu.Group)
+	}
+	if cu.Match.Method != "POST" || cu.Match.Path != "/users" {
+		t.Errorf("match = %#v", cu.Match)
 	}
 	if cu.Hidden == nil || !*cu.Hidden {
 		t.Errorf("hidden = %v, want true", cu.Hidden)

@@ -133,7 +133,7 @@ func validateCommandPaths(specs []runtime.CommandSpec) error {
 		}
 		cmdPath := group + " " + use
 		if prev, ok := seen[cmdPath]; ok {
-			return fmt.Errorf("command path %q conflicts between %q and %q", cmdPath, commandIdentity(prev), commandIdentity(spec))
+			return fmt.Errorf("command path %q conflicts between %s and %s", cmdPath, commandDebugIdentity(prev), commandDebugIdentity(spec))
 		}
 		seen[cmdPath] = spec
 	}
@@ -156,6 +156,23 @@ func commandIdentity(spec runtime.CommandSpec) string {
 		return strings.TrimSpace(spec.Group + " " + spec.Use)
 	}
 	return spec.PathTpl
+}
+
+func commandDebugIdentity(spec runtime.CommandSpec) string {
+	var parts []string
+	if spec.OperationID != "" {
+		parts = append(parts, fmt.Sprintf("operationId=%q", spec.OperationID))
+	}
+	if spec.Method != "" || spec.PathTpl != "" {
+		parts = append(parts, fmt.Sprintf("http=%q", strings.TrimSpace(spec.Method+" "+spec.PathTpl)))
+	}
+	if spec.Group != "" || spec.Use != "" {
+		parts = append(parts, fmt.Sprintf("command=%q", strings.TrimSpace(spec.Group+" "+spec.Use)))
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("%q", commandIdentity(spec))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func rootCommandName(use string) string {
@@ -183,6 +200,9 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 	var merged []runtime.CommandSpec
 	for _, s := range specs {
 		o, ok := mod.Commands[s.Use]
+		if ok && !overrideMatches(s, o) {
+			ok = false
+		}
 		if ok && o.Ignore {
 			continue
 		}
@@ -196,6 +216,16 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 		merged = append(merged, cs)
 	}
 	return merged
+}
+
+func overrideMatches(spec runtime.CommandSpec, override overlay.Override) bool {
+	if override.Match.Method != "" && !strings.EqualFold(override.Match.Method, spec.Method) {
+		return false
+	}
+	if override.Match.Path != "" && override.Match.Path != spec.PathTpl {
+		return false
+	}
+	return true
 }
 
 func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {

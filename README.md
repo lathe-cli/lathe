@@ -355,6 +355,8 @@ Command `ignore: true` removes a generated command. Command `hidden: true`
 keeps it generated but hidden from normal help and catalog output unless
 `--include-hidden` is used. Parameter `hidden: true` is a legacy alias for
 `deprecated: true`; prefer `deprecated: true` for parameter overlays.
+Use `match.method` and `match.path` to scope an override when duplicate upstream
+operation IDs generate the same command name.
 Bulk pagination defaults fill matching command params that have no spec default.
 Explicit `commands.<use>.params.<name>.default` still wins when a command needs a
 different value. Parameter `required: true` marks an existing generated flag as

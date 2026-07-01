@@ -293,6 +293,27 @@ func TestMergeOverlay_UseRename(t *testing.T) {
 	}
 }
 
+func TestMergeOverlay_PathScopedRename(t *testing.T) {
+	specs := []runtime.CommandSpec{
+		{Group: "GatewayService", Use: "create-service", OperationID: "GatewayService_CreateService", Method: "POST", PathTpl: "/apis/v1alpha1/services"},
+		{Group: "GatewayService", Use: "create-service", OperationID: "GatewayService_CreateService", Method: "POST", PathTpl: "/apis/v1alpha2/services"},
+	}
+	_, err := ResolveFlatCommandPath("namespaced", 1, specs)
+	if err == nil || !strings.Contains(err.Error(), "/apis/v1alpha1/services") || !strings.Contains(err.Error(), "/apis/v1alpha2/services") {
+		t.Fatalf("conflict error = %v", err)
+	}
+
+	merged := MergeOverlay(specs, map[string]overlay.Override{
+		"create-service": {Match: overlay.OperationMatch{Method: "POST", Path: "/apis/v1alpha2/services"}, Use: "create-service-v1alpha2"},
+	})
+	if merged[0].Use != "create-service" || merged[1].Use != "create-service-v1alpha2" {
+		t.Fatalf("uses = %q, %q", merged[0].Use, merged[1].Use)
+	}
+	if _, err := ResolveFlatCommandPath("namespaced", 1, merged); err != nil {
+		t.Fatalf("renamed command should not conflict: %v", err)
+	}
+}
+
 func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
 	specs := []runtime.CommandSpec{
 		{
