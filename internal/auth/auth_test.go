@@ -94,3 +94,64 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 		t.Fatalf("entry = %+v", entry)
 	}
 }
+
+func TestOAuthDeviceLoginAcceptsAuthorizationPendingError(t *testing.T) {
+	var tokenCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code":      "device-1",
+				"verification_uri": "https://example.com/device",
+				"expires_in":       60,
+				"interval":         1,
+			})
+		case "/token":
+			tokenCalls++
+			if tokenCalls == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "access-1"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	m := &config.Manifest{
+		CLI: config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		Auth: config.AuthInfo{Login: &config.AuthLogin{
+			Type:      config.AuthLoginOAuthDevice,
+			StartPath: "/start",
+			TokenPath: "/token",
+		}},
+	}
+	config.Bind(m)
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+
+	root := &cobra.Command{Use: "demo"}
+	root.PersistentFlags().String("hostname", srv.URL, "")
+	root.PersistentFlags().Bool("insecure", false, "")
+	root.AddCommand(NewCommand(m))
+	root.SetArgs([]string{"auth", "login", "--device-auth"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if tokenCalls != 2 {
+		t.Fatalf("tokenCalls = %d, want 2", tokenCalls)
+	}
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatalf("LoadHosts: %v", err)
+	}
+	entry, ok := hosts.Get(srv.URL)
+	if !ok {
+		t.Fatal("host not saved")
+	}
+	if entry.AuthType != "bearer" || entry.OAuthToken != "access-1" {
+		t.Fatalf("entry = %+v", entry)
+	}
+}

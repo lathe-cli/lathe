@@ -60,6 +60,11 @@ cli:
   short: "Command-line tool for Acme services"
 
 auth:
+  login:
+    type: oauth_device
+    start_path: /auth/device/start
+    token_path: /auth/device/token
+    refresh_path: /auth/device/refresh
   validate:
     method: GET
     path: /api/v1/whoami
@@ -74,6 +79,13 @@ The `cli.name` value becomes the generated binary name and root command name.
 and multiple modules use `<cli> <module> <group> <operation>`. Set it to
 `namespaced` to always keep the module segment, or `flat` to require the single
 module flat path and fail codegen on root command conflicts.
+
+`auth.login.type: oauth_device` enables `auth login --device-auth` and
+`auth login --auth-type oauth`. The service must provide `start_path` and
+`token_path` endpoints using OAuth 2.0 device-flow fields (`device_code`,
+`verification_uri`, optional `user_code`, `interval`, `expires_in`, and later
+`access_token`). `refresh_path` is optional; when present, generated commands
+refresh expired bearer tokens before execution.
 
 To customize generated Skill output, add an optional top-level `skill` block:
 

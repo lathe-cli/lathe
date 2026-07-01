@@ -43,6 +43,7 @@ type oauthDeviceStartResponse struct {
 
 type oauthDeviceTokenResponse struct {
 	Status       string            `json:"status"`
+	Error        string            `json:"error"`
 	AccessToken  string            `json:"access_token"`
 	RefreshToken string            `json:"refresh_token"`
 	ExpiresIn    int64             `json:"expires_in"`
@@ -132,18 +133,31 @@ func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, tokenPath string,
 		data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", tokenPath, map[string]string{
 			"device_code": start.DeviceCode,
 		}, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
-		if err != nil {
-			return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
-		}
 		var token oauthDeviceTokenResponse
-		if err := json.Unmarshal(data, &token); err != nil {
-			return oauthDeviceTokenResponse{}, fmt.Errorf("decode oauth token response: %w", err)
+		if len(data) > 0 {
+			if decodeErr := json.Unmarshal(data, &token); decodeErr != nil {
+				if err != nil {
+					return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
+				}
+				return oauthDeviceTokenResponse{}, fmt.Errorf("decode oauth token response: %w", decodeErr)
+			}
+		} else if err != nil {
+			return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
+		} else {
+			return oauthDeviceTokenResponse{}, errors.New("decode oauth token response: empty response")
 		}
 		if token.AccessToken != "" {
 			return token, nil
 		}
-		switch token.Status {
-		case "pending", "":
+		state := token.Status
+		if state == "" {
+			state = token.Error
+		}
+		switch state {
+		case "pending", "authorization_pending", "":
+			if err != nil && state == "" {
+				return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
+			}
 			timer := time.NewTimer(time.Duration(interval) * time.Second)
 			select {
 			case <-cmd.Context().Done():
@@ -151,12 +165,24 @@ func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, tokenPath string,
 				return oauthDeviceTokenResponse{}, cmd.Context().Err()
 			case <-timer.C:
 			}
-		case "denied":
+		case "slow_down":
+			interval += 5
+			timer := time.NewTimer(time.Duration(interval) * time.Second)
+			select {
+			case <-cmd.Context().Done():
+				timer.Stop()
+				return oauthDeviceTokenResponse{}, cmd.Context().Err()
+			case <-timer.C:
+			}
+		case "denied", "access_denied":
 			return oauthDeviceTokenResponse{}, errors.New("oauth login denied")
-		case "expired":
+		case "expired", "expired_token":
 			return oauthDeviceTokenResponse{}, errors.New("oauth login expired")
 		default:
-			return oauthDeviceTokenResponse{}, fmt.Errorf("oauth login failed with status %q", token.Status)
+			if err != nil {
+				return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
+			}
+			return oauthDeviceTokenResponse{}, fmt.Errorf("oauth login failed with status %q", state)
 		}
 	}
 }
@@ -166,6 +192,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 		authType     string
 		provider     string
 		withToken    bool
+		deviceAuth   bool
 		skipValidate bool
 	)
 	cmd := &cobra.Command{
@@ -186,6 +213,13 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				return errors.New("hostname is required (use --hostname)")
 			}
 			hostname = config.NormalizeHostname(hostname)
+			authType = strings.ToLower(strings.TrimSpace(authType))
+			if deviceAuth {
+				if authType != "" && authType != "oauth" {
+					return fmt.Errorf("--device-auth cannot be used with --auth-type %s", authType)
+				}
+				authType = "oauth"
+			}
 
 			entry := config.HostEntry{AuthType: authType, Insecure: insecure}
 			switch authType {
@@ -280,6 +314,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 	cmd.Flags().StringVar(&authType, "auth-type", "", "Authentication type: bearer (default), apikey, basic, oauth")
 	cmd.Flags().StringVar(&provider, "provider", "", "OAuth provider hint passed to the service")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read token/key from stdin")
+	cmd.Flags().BoolVar(&deviceAuth, "device-auth", false, "Use OAuth device login")
 	cmd.Flags().BoolVar(&skipValidate, "skip-validate", false, "Do not validate credentials against the server")
 	return cmd
 }
