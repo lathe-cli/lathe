@@ -30,18 +30,19 @@ func AssertSchema(generated int) error {
 // Build mounts a service command tree under root, driven entirely by specs.
 // Replaces the previous per-operation function approach: every operation is
 // data, the execution path is a single function.
-func Build(root *cobra.Command, service string, specs []CommandSpec) {
+func Build(root *cobra.Command, service string, specs []CommandSpec) error {
+	if findChildCommand(root, service) != nil {
+		return fmt.Errorf("module command %q conflicts with an existing root command", service)
+	}
 	svc := &cobra.Command{Use: service, Short: service + " API", GroupID: ModuleGroupID}
 	for _, group := range buildGroups(service, specs) {
 		svc.AddCommand(group)
 	}
 	if err := ValidateShortcuts(specs, rootCommandNames(root, svc)); err != nil {
-		panic(err)
+		return err
 	}
 	root.AddCommand(svc)
-	if err := mountShortcuts(root, specs); err != nil {
-		panic(err)
-	}
+	return mountShortcuts(root, specs)
 }
 
 func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {

@@ -9,7 +9,7 @@ import (
 
 func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{
+	mustBuild(t, root, "demo", []CommandSpec{
 		{
 			Group:   "Users",
 			Use:     "get-user",
@@ -138,7 +138,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 
 func TestBuildCatalog_ProjectsLegacyExample(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{{
+	mustBuild(t, root, "demo", []CommandSpec{{
 		Group:   "Users",
 		Use:     "get-user",
 		Short:   "Get a user",
@@ -163,7 +163,7 @@ func TestBuildCatalog_ProjectsLegacyExample(t *testing.T) {
 func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	root := newRootWithModuleGroup()
 	const tmpl = `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`
-	Build(root, "demo", []CommandSpec{{
+	mustBuild(t, root, "demo", []CommandSpec{{
 		Group:       "Apps",
 		Use:         "create-app",
 		Short:       "Create an app",
@@ -216,7 +216,7 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 
 func TestBuildCatalog_SensitiveFlagInputModes(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{{
+	mustBuild(t, root, "demo", []CommandSpec{{
 		Group:       "Credentials",
 		Use:         "create-credential",
 		Short:       "Create credential",
@@ -244,7 +244,7 @@ func TestBuildCatalog_SensitiveFlagInputModes(t *testing.T) {
 
 func TestBuildCatalog_HiddenCommands(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{
+	mustBuild(t, root, "demo", []CommandSpec{
 		{Group: "Users", Use: "get-user", Short: "Get a user", Method: "GET", PathTpl: "/users/{id}"},
 		{Group: "Users", Use: "delete-user", Short: "Delete a user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
 	})
@@ -261,7 +261,7 @@ func TestBuildCatalog_HiddenCommands(t *testing.T) {
 
 func TestFindAndSearchCatalog(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{
+	mustBuild(t, root, "demo", []CommandSpec{
 		{
 			Group:       "Users",
 			Use:         "get-user",
@@ -309,7 +309,7 @@ func TestFindAndSearchCatalog(t *testing.T) {
 
 func TestSearchCatalog_SoftMatchesNoisyIntent(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{
+	mustBuild(t, root, "demo", []CommandSpec{
 		{
 			Group:       "Users",
 			Use:         "get-user",
@@ -347,7 +347,7 @@ func TestSearchCatalog_SoftMatchesNoisyIntent(t *testing.T) {
 
 func TestBuildCatalog_DefaultAuthRequired(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", []CommandSpec{{
+	mustBuild(t, root, "demo", []CommandSpec{{
 		Group:   "Users",
 		Use:     "get-user",
 		Short:   "Get a user",

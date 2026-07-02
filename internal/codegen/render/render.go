@@ -188,8 +188,25 @@ var reservedRootCommands = map[string]bool{
 	"auth":     true,
 	"commands": true,
 	"help":     true,
+	"login":    true,
 	"search":   true,
 	"update":   true,
+}
+
+// ValidateModuleNames rejects namespaced module mount names that would shadow
+// a reserved root command or another module on the generated root command.
+func ValidateModuleNames(names []string) error {
+	seen := map[string]bool{}
+	for _, name := range names {
+		if reservedRootCommands[name] {
+			return fmt.Errorf("module name %q conflicts with a reserved root command", name)
+		}
+		if seen[name] {
+			return fmt.Errorf("module name %q is mounted more than once", name)
+		}
+		seen[name] = true
+	}
+	return nil
 }
 
 func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
@@ -537,8 +554,7 @@ func Mount(root *cobra.Command) error {
 	if err := runtime.AssertSchema(generatedSchemaVersion); err != nil {
 		return err
 	}
-	runtime.Build(root, {{printf "%q" .CLIName}}, Specs)
-	return nil
+	return runtime.Build(root, {{printf "%q" .CLIName}}, Specs)
 }
 
 func MountFlat(root *cobra.Command) error {

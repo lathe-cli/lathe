@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lathe-cli/lathe/internal/codegen/app"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/graphql"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/openapi3"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/proto"
@@ -163,6 +164,24 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		return err
 	}
 
+	generated, err := buildGeneratedApp(cfg, overlays, syncRoot, manifest, skillDir, skillInclude)
+	if err != nil {
+		return err
+	}
+	if err := generated.Validate(); err != nil {
+		return err
+	}
+	return generated.Write()
+}
+
+// buildGeneratedApp parses and normalizes every configured source into the
+// generated app model without writing any output.
+func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Module, syncRoot string, manifest *config.Manifest, skillDir string, skillInclude render.SkillInclude) (*app.App, error) {
+	generated := &app.App{Manifest: manifest}
+	if skillDir != "" {
+		generated.Skill = &app.Skill{Dir: skillDir, Include: skillInclude}
+	}
+
 	ordered := cfg.Ordered()
 	moduleNames := make([]string, 0, len(ordered))
 	for _, src := range ordered {
@@ -172,22 +191,20 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		}
 		moduleNames = append(moduleNames, name)
 	}
-	var mounts []render.ModuleMount
-	var skillModules []render.SkillModule
 	var shortcutRootNames []string
 	for i, src := range ordered {
 		syncDir := filepath.Join(syncRoot, src.Name)
 		if err := specsync.VerifyState(syncDir, src); err != nil {
-			return err
+			return nil, err
 		}
 		state, err := specsync.LoadState(syncDir)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		mod, err := parseSource(src, syncDir)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		specs := normalize.Normalize(mod)
@@ -200,11 +217,11 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		cliName := moduleNames[i]
 		flat, err := render.ResolveFlatCommandPath(manifest.CLI.CommandPath, len(ordered), specs)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		validateRootNames := append(append([]string(nil), moduleNames...), shortcutRootNames...)
 		if err := render.ValidateShortcuts(validateRootNames, specs, flat); err != nil {
-			return err
+			return nil, err
 		}
 		for _, spec := range specs {
 			for _, shortcut := range spec.Shortcuts {
@@ -212,23 +229,12 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 			}
 		}
 		specs = render.RewriteCommandExamples(manifest.CLI.Name, cliName, specs, flat)
-		if err := render.RenderModule(src.Name, cliName, specs, nil); err != nil {
-			return err
-		}
-		mounts = append(mounts, render.ModuleMount{Name: src.Name, Flat: flat})
-		if skillDir != "" {
-			skillModules = append(skillModules, render.SkillModule{Source: src, State: state, Specs: specs})
+		generated.Modules = append(generated.Modules, app.Module{Source: src.Name, CLIName: cliName, Flat: flat, Specs: specs})
+		if generated.Skill != nil {
+			generated.Skill.Modules = append(generated.Skill.Modules, render.SkillModule{Source: src, State: state, Specs: specs})
 		}
 	}
-	if err := render.RenderModulesGen(mounts); err != nil {
-		return err
-	}
-	if skillDir != "" {
-		if err := render.RenderSkillDirectoryWithInclude(skillDir, manifest, skillModules, skillInclude); err != nil {
-			return err
-		}
-	}
-	return nil
+	return generated, nil
 }
 
 func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Manifest, string, render.SkillInclude, error) {

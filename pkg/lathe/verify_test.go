@@ -16,7 +16,7 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 	code := run(RunOptions{
 		Manifest: []byte("cli:\n  name: myctl\n  short: test cli\n"),
 		Mount: func(root *cobra.Command) error {
-			runtime.Build(root, "demo", []runtime.CommandSpec{
+			if err := runtime.Build(root, "demo", []runtime.CommandSpec{
 				{
 					Group:   "Users",
 					Use:     "get-user",
@@ -39,7 +39,9 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 					PathTpl:     "/users",
 					RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json"},
 				},
-			})
+			}); err != nil {
+				return err
+			}
 			skills := &cobra.Command{Use: "skills"}
 			pkg := &cobra.Command{Use: "package"}
 			pkg.Flags().String("file", "", "")

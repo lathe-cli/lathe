@@ -12,6 +12,13 @@ import (
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
+func mustBuild(t *testing.T, root *cobra.Command, service string, specs []runtime.CommandSpec) {
+	t.Helper()
+	if err := runtime.Build(root, service, specs); err != nil {
+		t.Fatalf("Build(%q): %v", service, err)
+	}
+}
+
 func TestCommandsJSON_EmptyCatalog(t *testing.T) {
 	root := NewApp(testManifest())
 	out, err := execute(root, "commands", "--json")
@@ -32,7 +39,7 @@ func TestCommandsJSON_EmptyCatalog(t *testing.T) {
 
 func TestCommandsShowAndSearchJSON(t *testing.T) {
 	root := NewApp(testManifest())
-	runtime.Build(root, "demo", []runtime.CommandSpec{{
+	mustBuild(t, root, "demo", []runtime.CommandSpec{{
 		Group: "Users",
 		Use:   "get-user",
 		Short: "Get a user",
@@ -96,7 +103,7 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 func TestCommandsShow_EnvelopeBody(t *testing.T) {
 	root := NewApp(testManifest())
 	const tmpl = `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`
-	runtime.Build(root, "demo", []runtime.CommandSpec{{
+	mustBuild(t, root, "demo", []runtime.CommandSpec{{
 		Group:       "Apps",
 		Use:         "create-app",
 		Short:       "Create an app",
@@ -130,7 +137,7 @@ func TestCommandsShow_EnvelopeBody(t *testing.T) {
 func TestCommandsShow_EnvelopeVariableFlag(t *testing.T) {
 	root := NewApp(testManifest())
 	const tmpl = `{"query":"mutation createApp($name: String!){createApp(name:$name){id}}","variables":{}}`
-	runtime.Build(root, "demo", []runtime.CommandSpec{{
+	mustBuild(t, root, "demo", []runtime.CommandSpec{{
 		Group:       "Apps",
 		Use:         "create-app",
 		Short:       "Create an app",
@@ -184,7 +191,7 @@ func TestCommandsSchemaJSON(t *testing.T) {
 
 func TestSearchExcludesHiddenCommands(t *testing.T) {
 	root := NewApp(testManifest())
-	runtime.Build(root, "demo", []runtime.CommandSpec{{
+	mustBuild(t, root, "demo", []runtime.CommandSpec{{
 		Group:   "Users",
 		Use:     "delete-user",
 		Short:   "Delete a user",

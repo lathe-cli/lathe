@@ -479,6 +479,45 @@ paths:
 	}
 }
 
+func TestRunCodegen_RejectsReservedModuleNameBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeCodegenFile(t, "go.mod", "module example.com/fake\n\ngo 1.25\n")
+	writeCodegenFile(t, "cli.yaml", "cli:\n  name: acmectl\n  short: Acme CLI\n  command_path: namespaced\n")
+	writeCodegenFile(t, "specs/sources.yaml", `sources:
+  auth:
+    repo_url: https://example.com/acme.git
+    pinned_tag: v1.0.0
+    backend: openapi3
+    openapi3:
+      files: [openapi.yaml]
+`)
+	writeCodegenFile(t, ".cache/specs-sync/auth/sync-state.yaml", `source: auth
+backend: openapi3
+synced_from: v1.0.0
+resolved_sha: "0000000000000000000000000000000000000000"
+`)
+	writeCodegenFile(t, ".cache/specs-sync/auth/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /users:
+    get:
+      operationId: Users_List
+      tags: [Users]
+      summary: List users
+      responses:
+        "200":
+          description: OK
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "reserved root command") {
+		t.Fatalf("expected reserved module name error, got %v", err)
+	}
+	if _, err := os.Stat("internal/generated"); !os.IsNotExist(err) {
+		t.Fatalf("codegen should fail before writing generated code, stat err = %v", err)
+	}
+}
+
 func TestRunCodegen_MissingManifestFailsWhenSkillEnabled(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
