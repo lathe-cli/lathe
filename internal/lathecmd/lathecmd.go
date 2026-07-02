@@ -168,6 +168,9 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	if err != nil {
 		return err
 	}
+	if err := generated.Validate(); err != nil {
+		return err
+	}
 	return generated.Write()
 }
 

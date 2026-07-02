@@ -102,6 +102,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`func Mount(root *cobra.Command) error`,
 		`if err := runtime.AssertSchema(generatedSchemaVersion); err != nil`,
 		`return err`,
+		`return runtime.Build(root, "demo", Specs)`,
 		`Schema:`,
 		`&runtime.SchemaSpec{`,
 		`Properties: map[string]*runtime.SchemaSpec`,
@@ -593,5 +594,21 @@ func TestRewriteCommandExamples_NormalizesMultiWordGroupPaths(t *testing.T) {
 	}
 	if got[0].Examples[0].Command != "acmectl billing payment list-payments --file payment.json -o json" {
 		t.Fatalf("namespaced structured example = %q", got[0].Examples[0].Command)
+	}
+}
+
+func TestValidateModuleNames(t *testing.T) {
+	if err := ValidateModuleNames([]string{"pets", "billing"}); err != nil {
+		t.Fatalf("distinct module names should pass: %v", err)
+	}
+	for _, reserved := range []string{"__lathe", "auth", "commands", "help", "login", "search", "update"} {
+		err := ValidateModuleNames([]string{"pets", reserved})
+		if err == nil || !strings.Contains(err.Error(), "reserved root command") {
+			t.Fatalf("module name %q should be rejected, got %v", reserved, err)
+		}
+	}
+	err := ValidateModuleNames([]string{"pets", "pets"})
+	if err == nil || !strings.Contains(err.Error(), "mounted more than once") {
+		t.Fatalf("duplicate module names should be rejected, got %v", err)
 	}
 }

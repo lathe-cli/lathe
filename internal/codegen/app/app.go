@@ -32,6 +32,20 @@ type Skill struct {
 	Modules []render.SkillModule
 }
 
+// Validate rejects app compositions that would produce a conflicting root
+// command tree. Flat modules are skipped: their module name is never mounted,
+// and flat root conflicts are rejected by ResolveFlatCommandPath.
+func (a *App) Validate() error {
+	names := make([]string, 0, len(a.Modules))
+	for _, m := range a.Modules {
+		if m.Flat {
+			continue
+		}
+		names = append(names, m.CLIName)
+	}
+	return render.ValidateModuleNames(names)
+}
+
 // Write renders every collected output.
 func (a *App) Write() error {
 	mounts := make([]render.ModuleMount, 0, len(a.Modules))

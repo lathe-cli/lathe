@@ -20,6 +20,26 @@ func newRootWithModuleGroup() *cobra.Command {
 	return root
 }
 
+func mustBuild(t *testing.T, root *cobra.Command, service string, specs []CommandSpec) {
+	t.Helper()
+	if err := Build(root, service, specs); err != nil {
+		t.Fatalf("Build(%q): %v", service, err)
+	}
+}
+
+func TestBuild_RejectsExistingRootCommandConflict(t *testing.T) {
+	root := newRootWithModuleGroup()
+	root.AddCommand(&cobra.Command{Use: "auth"})
+
+	err := Build(root, "auth", nil)
+	if err == nil || !strings.Contains(err.Error(), `module command "auth" conflicts`) {
+		t.Fatalf("expected root conflict error, got %v", err)
+	}
+	if len(root.Commands()) != 1 {
+		t.Fatalf("conflicting module must not be mounted; root commands = %v", cmdNames(root.Commands()))
+	}
+}
+
 func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	specs := []CommandSpec{
 		{
@@ -46,7 +66,7 @@ func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	}
 
 	root := newRootWithModuleGroup()
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 
 	svc := mustFindChild(t, root, "demo")
 	usersGroup := mustFindChild(t, svc, "users")
@@ -97,7 +117,7 @@ func TestAssertSchema_Mismatch(t *testing.T) {
 
 func TestBuild_EmptySpecsMountsEmptyService(t *testing.T) {
 	root := newRootWithModuleGroup()
-	Build(root, "demo", nil)
+	mustBuild(t, root, "demo", nil)
 
 	svc := mustFindChild(t, root, "demo")
 	if len(svc.Commands()) != 0 {
@@ -170,7 +190,7 @@ func TestBuild_BodyFlagsAttachedWhenHasBody(t *testing.T) {
 	}}
 
 	root := newRootWithModuleGroup()
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 
 	svc := mustFindChild(t, root, "demo")
 	users := mustFindChild(t, svc, "users")
@@ -211,7 +231,7 @@ func TestBuild_SetStrSendsStringBodyFields(t *testing.T) {
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 	root.SetArgs([]string{
 		"--hostname", srv.URL,
 		"demo", "users", "create-user",
@@ -264,7 +284,7 @@ func TestBuild_FileSendsRequestBodyMediaType(t *testing.T) {
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", []CommandSpec{{
+	mustBuild(t, root, "demo", []CommandSpec{{
 		Group:       "Exports",
 		Use:         "create-export",
 		Method:      "POST",
@@ -293,7 +313,7 @@ func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
 		root := newRootWithModuleGroup()
 		root.PersistentFlags().String("hostname", "", "")
 		root.PersistentFlags().StringP("output", "o", "raw", "")
-		Build(root, "demo", []CommandSpec{{
+		mustBuild(t, root, "demo", []CommandSpec{{
 			Group:       "Exports",
 			Use:         "create-export",
 			Method:      "POST",
@@ -327,7 +347,7 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 	root.SetErr(io.Discard)
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", []CommandSpec{{
+	mustBuild(t, root, "demo", []CommandSpec{{
 		Group:   "Users",
 		Use:     "create-user",
 		Method:  "POST",
@@ -598,7 +618,7 @@ func newRecordingGraphQLRoot(t *testing.T, spec CommandSpec) (*cobra.Command, st
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", []CommandSpec{spec})
+	mustBuild(t, root, "demo", []CommandSpec{spec})
 	return root, srv.URL, func() ([]byte, bool) { return rawBody, called }
 }
 
@@ -634,7 +654,7 @@ func TestBuild_FloatVariableSentAsJSONNumber(t *testing.T) {
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "set-weight", "--weight", "1.5"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -682,7 +702,7 @@ func TestBuild_IntListVariableSentAsJSONNumbers(t *testing.T) {
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "set-ids", "--ids", "1", "--ids", "2"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -725,7 +745,7 @@ func TestBuild_RequiredQueryParamBlocksBeforeRequest(t *testing.T) {
 	root := newRootWithModuleGroup()
 	root.PersistentFlags().String("hostname", "", "")
 	root.PersistentFlags().StringP("output", "o", "raw", "")
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 	root.SetArgs([]string{"--hostname", srv.URL, "demo", "receivers", "get-receiver"})
 
 	err := root.Execute()
@@ -752,7 +772,7 @@ func TestBuild_PaginationFlagsAttached(t *testing.T) {
 	}}
 
 	root := newRootWithModuleGroup()
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 
 	svc := mustFindChild(t, root, "demo")
 	items := mustFindChild(t, svc, "items")
@@ -772,7 +792,7 @@ func TestBuild_WaitFlagOnMutating(t *testing.T) {
 	}
 
 	root := newRootWithModuleGroup()
-	Build(root, "demo", specs)
+	mustBuild(t, root, "demo", specs)
 
 	svc := mustFindChild(t, root, "demo")
 	resources := mustFindChild(t, svc, "resources")

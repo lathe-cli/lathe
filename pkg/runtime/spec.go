@@ -2,7 +2,7 @@ package runtime
 
 import "encoding/json"
 
-const SchemaVersion = 8
+const SchemaVersion = 9
 
 type CommandSpec struct {
 	Group           string
