@@ -1,11 +1,13 @@
 package lathe
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -16,8 +18,9 @@ import (
 )
 
 type verifyReport struct {
-	OK     bool          `json:"ok"`
-	Checks []verifyCheck `json:"checks"`
+	Version int           `json:"version"`
+	OK      bool          `json:"ok"`
+	Checks  []verifyCheck `json:"checks"`
 }
 
 type verifyCheck struct {
@@ -27,6 +30,8 @@ type verifyCheck struct {
 }
 
 type verifyFailedError struct{}
+
+const verifyReportVersion = 1
 
 func (verifyFailedError) Error() string {
 	return "generated CLI verify failed"
@@ -56,7 +61,7 @@ func verifyCmd(m *config.Manifest) *cobra.Command {
 }
 
 func verifyGenerated(root *cobra.Command, m *config.Manifest) verifyReport {
-	report := verifyReport{OK: true}
+	report := verifyReport{Version: verifyReportVersion, OK: true}
 	catalog := runtime.BuildCatalog(root, catalogOptions(m, false))
 
 	report.add("root_help", verifyRootHelp(root, m.CLI.Name))
@@ -67,6 +72,9 @@ func verifyGenerated(root *cobra.Command, m *config.Manifest) verifyReport {
 		report.add("commands_show:"+strings.Join(entry.Path, " "), verifyCatalogEntry(root, m, entry))
 	}
 	report.add("auth_status_unauthenticated", verifyAuthStatusUnauthenticated(m))
+	if runtime.HasCapability(root, runtime.CapabilitySkillBundle) {
+		report.add("skill_install", verifySkillInstall(root, m))
+	}
 
 	return report
 }
@@ -226,6 +234,74 @@ func verifyAuthStatusUnauthenticated(m *config.Manifest) error {
 		return fmt.Errorf("auth status error = %v, want not authenticated", err)
 	}
 	return nil
+}
+
+func verifySkillInstall(root *cobra.Command, m *config.Manifest) error {
+	if findCommand(root, []string{"skill", "install"}) == nil {
+		return errors.New("missing skill install command")
+	}
+	tempHome, err := os.MkdirTemp("", m.CLI.Name+"-skill-verify-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.RemoveAll(tempHome)
+	}()
+
+	oldHome, hadHome := os.LookupEnv("HOME")
+	if err := os.Setenv("HOME", tempHome); err != nil {
+		return err
+	}
+	defer func() {
+		if hadHome {
+			_ = os.Setenv("HOME", oldHome)
+		} else {
+			_ = os.Unsetenv("HOME")
+		}
+	}()
+
+	var out bytes.Buffer
+	oldOut := root.OutOrStdout()
+	oldErr := root.ErrOrStderr()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	defer func() {
+		root.SetOut(oldOut)
+		root.SetErr(oldErr)
+	}()
+	root.SetArgs([]string{"skill", "install", "--scope", "user", "--agent", "codex", "--yes"})
+	if err := root.Execute(); err != nil {
+		return fmt.Errorf("skill install: %w", err)
+	}
+	target := filepath.Join(tempHome, ".agents", "skills", skillName(m.CLI.Name))
+	for _, name := range []string{"SKILL.md", ".kitup.json"} {
+		if _, err := os.Stat(filepath.Join(target, name)); err != nil {
+			return fmt.Errorf("skill install missing %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func skillName(name string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == ' ' || r == '.':
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "cli"
+	}
+	return out
 }
 
 func findCommand(root *cobra.Command, path []string) *cobra.Command {

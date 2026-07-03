@@ -10,15 +10,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 9
+const CatalogSchemaVersion = 10
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
+const catalogCapabilitiesAnnotation = "lathe.catalog.capabilities"
+const CapabilitySkillBundle = "skill.bundle"
 
 type CatalogOptions struct {
 	CLIName       string
 	CLIVersion    string
 	IncludeHidden bool
+	Capabilities  []string
 }
 
 type SearchOptions struct {
@@ -34,8 +37,9 @@ type Catalog struct {
 }
 
 type CatalogCLI struct {
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 type CatalogOutputFormats struct {
@@ -136,10 +140,36 @@ func AttachCatalogCommand(cmd *cobra.Command, service string, spec CommandSpec) 
 	cmd.Annotations[catalogCommandAnnotation] = string(raw)
 }
 
+func AttachCapability(root *cobra.Command, capability string) {
+	if root == nil || capability == "" {
+		return
+	}
+	values := append(capabilitiesFromAnnotation(root), capability)
+	values = normalizeCapabilities(values)
+	if root.Annotations == nil {
+		root.Annotations = map[string]string{}
+	}
+	root.Annotations[catalogCapabilitiesAnnotation] = strings.Join(values, ",")
+}
+
+func HasCapability(root *cobra.Command, capability string) bool {
+	for _, value := range Capabilities(root) {
+		if value == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func Capabilities(root *cobra.Command) []string {
+	return normalizeCapabilities(capabilitiesFromAnnotation(root))
+}
+
 func BuildCatalog(root *cobra.Command, opts CatalogOptions) Catalog {
 	if opts.CLIName == "" {
 		opts.CLIName = root.Use
 	}
+	capabilities := normalizeCapabilities(append(append([]string(nil), opts.Capabilities...), Capabilities(root)...))
 	commands := make([]CatalogCommand, 0)
 	walkCatalog(root, nil, opts, &commands)
 	sort.Slice(commands, func(i, j int) bool {
@@ -147,10 +177,36 @@ func BuildCatalog(root *cobra.Command, opts CatalogOptions) Catalog {
 	})
 	return Catalog{
 		CatalogSchemaVersion: CatalogSchemaVersion,
-		CLI:                  CatalogCLI{Name: opts.CLIName, Version: opts.CLIVersion},
+		CLI:                  CatalogCLI{Name: opts.CLIName, Version: opts.CLIVersion, Capabilities: capabilities},
 		Output:               CatalogOutputFormats{DefaultFormat: "table", Formats: FormatterNames()},
 		Commands:             commands,
 	}
+}
+
+func capabilitiesFromAnnotation(root *cobra.Command) []string {
+	if root == nil || root.Annotations == nil {
+		return nil
+	}
+	raw := root.Annotations[catalogCapabilitiesAnnotation]
+	if raw == "" {
+		return nil
+	}
+	return strings.Split(raw, ",")
+}
+
+func normalizeCapabilities(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func FindCatalogCommand(root *cobra.Command, path []string, opts CatalogOptions) (CatalogCommand, bool) {

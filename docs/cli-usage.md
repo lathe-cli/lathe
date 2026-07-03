@@ -93,13 +93,15 @@ To customize generated Skill output, add an optional top-level `skill` block:
 skill:
   root: skills
   include: internal/skill-include
+  bundle: true
 ```
 
 The optional `skill.root` value controls where generated Skill files are written;
 set it to `""` to disable Skill generation. The optional `skill.include` value
 points at repo-local Skill resources merged into generated Skill files. The
-include path must stay outside `skill.root`. For per-file policy, use object
-form:
+include path must stay outside `skill.root`. Set `skill.bundle: true` to compile
+the generated Skill into the CLI and expose `<cli> skill install`; this requires
+Skill generation to remain enabled. For per-file policy, use object form:
 
 ```yaml
 skill:
@@ -277,7 +279,12 @@ internal/generated/
 contains the generated agent Skill guide and module references when Skill
 generation is enabled. These outputs are reproducible from `cli.yaml`,
 `specs/sources.yaml`, synced specs, and overlays. Skill output also includes any
-resources declared by `skill.include`.
+resources declared by `skill.include`. When `skill.bundle` is true, codegen also
+mirrors the Skill tree under `internal/generated/skillbundle/` and pins:
+
+```sh
+go get github.com/lathe-cli/kitup/go@v0.1.3 github.com/lathe-cli/kitup/go-cobra@v0.1.3
+```
 
 ## Wire the Generated CLI
 
@@ -301,7 +308,7 @@ var manifestBytes []byte
 func main() {
 	os.Exit(lathe.Run(lathe.RunOptions{
 		Manifest: manifestBytes,
-		Mount:    generated.MountModules,
+		Mount:    generated.Mount,
 	}))
 }
 ```

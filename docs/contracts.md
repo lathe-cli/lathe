@@ -29,9 +29,11 @@ file; when this page and the code disagree, trust the code and fix this page.
 - This is the agent-facing discovery contract and the source of truth for
   generated operation details: HTTP method and path template, auth
   requirements, flags, body schema, output and pagination hints.
+- `catalog.cli.capabilities` lists compiled first-party capabilities such as
+  `skill.bundle`. Capability commands are not catalog operations.
 - Only generated API operation commands carry catalog entries. Framework
-  commands (`auth`, `commands`, `search`, `update`, `__lathe`) are discovered
-  through `--help`, not the catalog.
+  commands (`auth`, `commands`, `search`, `skill`, `update`, `__lathe`) are
+  discovered through `--help`, not the catalog.
 - Consumers: agents following the documented loop (search, then
   `commands show`, then `auth status`, then execute), generated Skill files
   (guidance and indexes only, never execution authority), and external
@@ -41,13 +43,13 @@ file; when this page and the code disagree, trust the code and fix this page.
 
 - Emitted by `<cli> __lathe verify --json`; implemented in
   `pkg/lathe/verify.go`.
-- Shape: `{"ok": bool, "checks": [{"name": string, "ok": bool, "error":
-  string}]}`. The process exits non-zero when any check fails.
+- Version field: `version`, currently `1`.
+- Shape: `{"version": number, "ok": bool, "checks": [{"name": string, "ok":
+  bool, "error": string}]}`. The process exits non-zero when any check fails.
 - This is the generated CLI's self-evidence: root help contract, catalog
   schema and JSON round-trip, per-command flag consistency, and an isolated
-  unauthenticated `auth status` probe.
-- The report is not independently versioned today; treat any change to its
-  shape or check names as a contract change and document it here.
+  unauthenticated `auth status` probe. When `skill.bundle` is compiled in, the
+  `skill_install` check runs a temp-`HOME` install with an explicit Codex target.
 
 ## Structured errors and exit codes
 
@@ -62,6 +64,7 @@ file; when this page and the code disagree, trust the code and fix this page.
 
 - `cli.yaml`, parsed by `pkg/config.Load`, plus codegen-only keys
   (`skill.root`, `skill.include`) parsed in `internal/lathecmd`.
+  `skill.bundle` is a first-party capability switch in the same domain block.
 - `specs/sources.yaml`, parsed by `internal/sourceconfig`, pinning upstream
   spec refs per module.
 - Optional overlay files, parsed by `internal/overlay`, merged at codegen time

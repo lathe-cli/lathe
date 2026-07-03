@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -186,6 +187,65 @@ skill:
 	}
 	if _, err := os.Stat("skills"); !os.IsNotExist(err) {
 		t.Fatalf("default skills directory should not be used, stat err = %v", err)
+	}
+}
+
+func TestRunCodegen_SkillBundleGeneratesEmbedAndPinsDeps(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+skill:
+  bundle: true
+`)
+	logPath := filepath.Join(dir, "go-args.txt")
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goScript := filepath.Join(bin, "go")
+	if err := os.WriteFile(goScript, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > "+strconv.Quote(logPath)+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	if err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &out); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, path := range []string{
+		"internal/generated/skillbundle/skillbundle_gen.go",
+		"internal/generated/skillbundle/acmectl/SKILL.md",
+		"internal/generated/skillbundle/acmectl/agents/openai.yaml",
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat("internal/generated/skillbundle/acmectl/.lathe-skill"); !os.IsNotExist(err) {
+		t.Fatalf("bundle should not include skill owner file, stat err = %v", err)
+	}
+	modulesGen := readCodegenFile(t, "internal/generated/modules_gen.go")
+	for _, want := range []string{
+		`func Mount(root *cobra.Command) error`,
+		`lathekitup.FSBundle(lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root)`,
+		`latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)`,
+		`lathekitupcobra.NewSkillCommand`,
+	} {
+		if !strings.Contains(modulesGen, want) {
+			t.Fatalf("modules_gen.go missing %q:\n%s", want, modulesGen)
+		}
+	}
+	args := readCodegenFile(t, logPath)
+	wantArgs := "get " + kitupGoDependency + " " + kitupGoCobraDependency + "\n"
+	if args != wantArgs {
+		t.Fatalf("go args = %q, want %q", args, wantArgs)
+	}
+	if !strings.Contains(out.String(), "go "+strings.TrimSpace(wantArgs)) {
+		t.Fatalf("output missing go get command:\n%s", out.String())
 	}
 }
 
