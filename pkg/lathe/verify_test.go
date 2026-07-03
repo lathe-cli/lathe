@@ -150,6 +150,41 @@ func TestVerifyGeneratedSkillInstall(t *testing.T) {
 	}
 }
 
+func TestVerifyGeneratedHiddenWorkflowContract(t *testing.T) {
+	root := NewApp(testManifest())
+	if err := runtime.Build(root, "demo", []runtime.CommandSpec{{
+		Group:   "Users",
+		Use:     "get-user",
+		Method:  "GET",
+		PathTpl: "/users/{id}",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.BuildWorkflows(root, []runtime.WorkflowSpec{{
+		Use:    "doctor",
+		Hidden: true,
+		Steps: []runtime.WorkflowStepSpec{{
+			ID: "health",
+			Operation: runtime.CommandSpec{
+				OperationID: "Health_Check",
+				Method:      "GET",
+				PathTpl:     "/health",
+				Security:    &runtime.SecurityHint{Public: true},
+			},
+		}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	report := verifyGenerated(root, testManifest())
+	if !report.OK {
+		t.Fatalf("report = %+v", report)
+	}
+	if !verifyReportHasCheck(report, "workflow_contract") {
+		t.Fatalf("report missing workflow_contract: %+v", report.Checks)
+	}
+}
+
 func TestRunVerifyGeneratedFailureReturnsJSONOnly(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(RunOptions{

@@ -142,6 +142,132 @@ func TestRun_CodegenSubcommandGeneratesSkillDirectoryByDefault(t *testing.T) {
 	}
 }
 
+func TestRunCodegen_GeneratesWorkflowCommands(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+workflow:
+  commands:
+    - use: doctor
+      short: Check API health
+      steps:
+        - id: users
+          uses: acme.Users_List
+      output:
+        from: ${steps.users}
+`)
+
+	if err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	workflows := readCodegenFile(t, "internal/generated/workflows/workflows_gen.go")
+	for _, want := range []string{`Use: "doctor"`, `ID: "users"`, `OperationID: "Users_List"`} {
+		if !strings.Contains(workflows, want) {
+			t.Fatalf("workflows_gen missing %q:\n%s", want, workflows)
+		}
+	}
+	modulesGen := readCodegenFile(t, "internal/generated/modules_gen.go")
+	if !strings.Contains(modulesGen, "lathegeneratedworkflows.Mount(root)") {
+		t.Fatalf("modules_gen should mount workflows:\n%s", modulesGen)
+	}
+}
+
+func TestRunCodegen_WorkflowRejectsUnknownStepParam(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+workflow:
+  commands:
+    - use: doctor
+      steps:
+        - id: users
+          uses: acme.Users_List
+          params:
+            missing: value
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `param "missing"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunCodegen_WorkflowRejectsMalformedReference(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+workflow:
+  commands:
+    - use: doctor
+      inputs:
+        - name: tenant_id
+      steps:
+        - id: users
+          uses: acme.Users_List
+      output:
+        from: ${input.tenant_id
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `unterminated reference`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunCodegen_WorkflowRejectsAliasRootConflict(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+workflow:
+  commands:
+    - use: doctor
+      aliases: [users]
+      steps:
+        - id: users
+          uses: acme.Users_List
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `alias "users"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunCodegen_WorkflowRejectsReservedAlias(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+workflow:
+  commands:
+    - use: doctor
+      aliases: [auth]
+      steps:
+        - id: users
+          uses: acme.Users_List
+`)
+
+	err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), `reserved root command`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRunCodegen_CommandPathFlatRewritesGeneratedExamples(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

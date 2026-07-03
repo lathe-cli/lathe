@@ -75,6 +75,9 @@ func verifyGenerated(root *cobra.Command, m *config.Manifest) verifyReport {
 	if runtime.HasCapability(root, runtime.CapabilitySkillBundle) {
 		report.add("skill_install", verifySkillInstall(root, m))
 	}
+	if runtime.HasCapability(root, runtime.CapabilityWorkflowDSL) {
+		report.add("workflow_contract", verifyWorkflowContract(runtime.BuildCatalog(root, catalogOptions(m, true))))
+	}
 
 	return report
 }
@@ -172,6 +175,37 @@ func verifyCatalogEntry(root *cobra.Command, m *config.Manifest, entry runtime.C
 				return fmt.Errorf("%q required body missing --file flag", path)
 			}
 		}
+	}
+	return nil
+}
+
+func verifyWorkflowContract(catalog runtime.Catalog) error {
+	count := 0
+	for _, entry := range catalog.Commands {
+		if entry.Kind != "workflow" {
+			continue
+		}
+		count++
+		if entry.Workflow == nil {
+			return fmt.Errorf("workflow command %q missing workflow metadata", strings.Join(entry.Path, " "))
+		}
+		if entry.Workflow.DSL != "lathe.workflow.v1" {
+			return fmt.Errorf("workflow command %q DSL = %q", strings.Join(entry.Path, " "), entry.Workflow.DSL)
+		}
+		if len(entry.Workflow.Steps) == 0 {
+			return fmt.Errorf("workflow command %q has no steps", strings.Join(entry.Path, " "))
+		}
+		for _, step := range entry.Workflow.Steps {
+			if step.ID == "" {
+				return fmt.Errorf("workflow command %q has a step with empty id", strings.Join(entry.Path, " "))
+			}
+			if step.HTTP.Method == "" || step.HTTP.PathTemplate == "" {
+				return fmt.Errorf("workflow command %q step %q missing operation HTTP metadata", strings.Join(entry.Path, " "), step.ID)
+			}
+		}
+	}
+	if count == 0 {
+		return errors.New("workflow capability is present but no workflow commands are cataloged")
 	}
 	return nil
 }

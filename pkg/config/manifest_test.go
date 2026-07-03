@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestLoad_FullSpec(t *testing.T) {
 	data := []byte(`
@@ -154,6 +157,57 @@ cli:
 `))
 	if err == nil {
 		t.Fatal("expected invalid command_path error")
+	}
+}
+
+func TestLoad_WorkflowRejectsDuplicateInputs(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "name",
+			want: "input name",
+			yaml: `
+cli:
+  name: demo
+workflow:
+  commands:
+    - use: doctor
+      inputs:
+        - name: app_id
+        - name: app_id
+      steps:
+        - id: health
+          uses: acme.getHealth
+`,
+		},
+		{
+			name: "flag",
+			want: "input flag",
+			yaml: `
+cli:
+  name: demo
+workflow:
+  commands:
+    - use: doctor
+      inputs:
+        - name: app_id
+        - name: app.id
+      steps:
+        - id: health
+          uses: acme.getHealth
+`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load([]byte(tc.yaml))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

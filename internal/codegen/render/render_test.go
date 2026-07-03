@@ -45,6 +45,15 @@ func generatedModules(t *testing.T) string {
 	return string(out)
 }
 
+func generatedWorkflows(t *testing.T) string {
+	t.Helper()
+	out, err := os.ReadFile("internal/generated/workflows/workflows_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func TestRenderModule_AppliesOverlay(t *testing.T) {
 	chdirWithGoMod(t)
 
@@ -115,6 +124,60 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	}
 	if strings.Contains(got, `"raw short"`) {
 		t.Errorf("overlay did not replace Short; raw value leaked into output")
+	}
+}
+
+func TestRenderWorkflows_EmitsPointerFieldLiterals(t *testing.T) {
+	chdirWithGeneratedRoot(t)
+
+	specs := []runtime.WorkflowSpec{{
+		Use: "doctor",
+		Steps: []runtime.WorkflowStepSpec{{
+			ID: "create",
+			Operation: runtime.CommandSpec{
+				Group:       "Apps",
+				Use:         "create-app",
+				Short:       "Create an app.",
+				Method:      "POST",
+				PathTpl:     "/apps",
+				OperationID: "Apps_Create",
+				RequestBody: &runtime.RequestBody{
+					Required:  true,
+					MediaType: "application/json",
+					Schema: &runtime.SchemaSpec{
+						Type:     "object",
+						Required: []string{"name"},
+					},
+				},
+				Output: runtime.OutputHints{
+					Pagination: &runtime.PaginationHint{
+						Strategy:   "token",
+						TokenParam: "page_token",
+					},
+				},
+				Security: &runtime.SecurityHint{Scopes: []string{"apps:write"}},
+			},
+		}},
+	}}
+
+	if err := RenderWorkflows(specs); err != nil {
+		t.Fatalf("RenderWorkflows: %v", err)
+	}
+	got := generatedWorkflows(t)
+	for _, want := range []string{
+		`RequestBody: &runtime.RequestBody{`,
+		`Schema: &runtime.SchemaSpec{`,
+		`Pagination: &runtime.PaginationHint{`,
+		`Security: &runtime.SecurityHint{`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+	for _, bad := range []string{"(*runtime.RequestBody)", "(*runtime.SecurityHint)", "(*runtime.PaginationHint)", "(0x"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("workflow literal contains pointer address %q:\n%s", bad, got)
+		}
 	}
 }
 

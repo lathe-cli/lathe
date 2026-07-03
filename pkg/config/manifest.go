@@ -9,10 +9,11 @@ import (
 )
 
 type Manifest struct {
-	CLI    CLIInfo    `yaml:"cli"`
-	Auth   AuthInfo   `yaml:"auth"`
-	Update UpdateInfo `yaml:"update,omitempty"`
-	Skill  SkillInfo  `yaml:"skill,omitempty"`
+	CLI      CLIInfo      `yaml:"cli"`
+	Auth     AuthInfo     `yaml:"auth"`
+	Update   UpdateInfo   `yaml:"update,omitempty"`
+	Skill    SkillInfo    `yaml:"skill,omitempty"`
+	Workflow WorkflowInfo `yaml:"workflow,omitempty"`
 }
 
 type CLIInfo struct {
@@ -35,6 +36,51 @@ type UpdateInfo struct {
 
 type SkillInfo struct {
 	Bundle bool `yaml:"bundle,omitempty"`
+}
+
+type WorkflowInfo struct {
+	Version  int               `yaml:"version,omitempty"`
+	Commands []WorkflowCommand `yaml:"commands,omitempty"`
+}
+
+type WorkflowCommand struct {
+	Use        string          `yaml:"use"`
+	Aliases    []string        `yaml:"aliases,omitempty"`
+	Short      string          `yaml:"short,omitempty"`
+	Long       string          `yaml:"long,omitempty"`
+	Example    string          `yaml:"example,omitempty"`
+	Hidden     bool            `yaml:"hidden,omitempty"`
+	Deprecated bool            `yaml:"deprecated,omitempty"`
+	Inputs     []WorkflowInput `yaml:"inputs,omitempty"`
+	Steps      []WorkflowStep  `yaml:"steps,omitempty"`
+	Output     WorkflowOutput  `yaml:"output,omitempty"`
+}
+
+type WorkflowInput struct {
+	Name       string   `yaml:"name"`
+	Flag       string   `yaml:"flag,omitempty"`
+	Type       string   `yaml:"type,omitempty"`
+	Help       string   `yaml:"help,omitempty"`
+	Required   bool     `yaml:"required,omitempty"`
+	Default    string   `yaml:"default,omitempty"`
+	Enum       []string `yaml:"enum,omitempty"`
+	Format     string   `yaml:"format,omitempty"`
+	Deprecated bool     `yaml:"deprecated,omitempty"`
+}
+
+type WorkflowStep struct {
+	ID     string            `yaml:"id"`
+	Uses   string            `yaml:"uses"`
+	Params map[string]string `yaml:"params,omitempty"`
+	Set    map[string]string `yaml:"set,omitempty"`
+	SetStr map[string]string `yaml:"set_str,omitempty"`
+}
+
+type WorkflowOutput struct {
+	From              string   `yaml:"from,omitempty"`
+	ListPath          string   `yaml:"list_path,omitempty"`
+	DefaultColumns    []string `yaml:"default_columns,omitempty"`
+	ResponseMediaType string   `yaml:"response_media_type,omitempty"`
 }
 
 type AuthLogin struct {
@@ -84,6 +130,9 @@ func Load(bytes []byte) (*Manifest, error) {
 	if m.CLI.Name == "" {
 		return nil, fmt.Errorf("cli.name is required")
 	}
+	if err := normalizeWorkflow(&m.Workflow); err != nil {
+		return nil, err
+	}
 	if m.Update.GitHub != nil {
 		m.Update.GitHub.Owner = strings.TrimSpace(m.Update.GitHub.Owner)
 		m.Update.GitHub.Repo = strings.TrimSpace(m.Update.GitHub.Repo)
@@ -130,6 +179,97 @@ func Load(bytes []byte) (*Manifest, error) {
 		m.CLI.HostEnv = upper + "_HOST"
 	}
 	return &m, nil
+}
+
+func normalizeWorkflow(workflow *WorkflowInfo) error {
+	if len(workflow.Commands) == 0 {
+		workflow.Version = 0
+		return nil
+	}
+	if workflow.Version == 0 {
+		workflow.Version = 1
+	}
+	if workflow.Version != 1 {
+		return fmt.Errorf("workflow.version must be 1")
+	}
+	seen := map[string]bool{}
+	for i := range workflow.Commands {
+		cmd := &workflow.Commands[i]
+		cmd.Use = strings.TrimSpace(cmd.Use)
+		if cmd.Use == "" || len(strings.Fields(cmd.Use)) != 1 {
+			return fmt.Errorf("workflow.commands[%d].use must be a single command name", i)
+		}
+		if seen[cmd.Use] {
+			return fmt.Errorf("workflow command %q is declared more than once", cmd.Use)
+		}
+		seen[cmd.Use] = true
+		inputNames := map[string]bool{}
+		inputFlags := map[string]bool{}
+		for j := range cmd.Inputs {
+			input := &cmd.Inputs[j]
+			input.Name = strings.TrimSpace(input.Name)
+			input.Flag = strings.TrimSpace(input.Flag)
+			input.Type = strings.TrimSpace(input.Type)
+			if input.Name == "" {
+				return fmt.Errorf("workflow command %q input %d name is required", cmd.Use, j)
+			}
+			if input.Flag == "" {
+				input.Flag = workflowInputFlag(input.Name)
+			}
+			if input.Type == "" {
+				input.Type = "string"
+			}
+			if !validWorkflowInputType(input.Type) {
+				return fmt.Errorf("workflow command %q input %q type %q is not supported", cmd.Use, input.Name, input.Type)
+			}
+			if inputNames[input.Name] {
+				return fmt.Errorf("workflow command %q input name %q is declared more than once", cmd.Use, input.Name)
+			}
+			if inputFlags[input.Flag] {
+				return fmt.Errorf("workflow command %q input flag %q is declared more than once", cmd.Use, input.Flag)
+			}
+			inputNames[input.Name] = true
+			inputFlags[input.Flag] = true
+		}
+		if len(cmd.Steps) == 0 {
+			return fmt.Errorf("workflow command %q must have at least one step", cmd.Use)
+		}
+		stepIDs := map[string]bool{}
+		for j := range cmd.Steps {
+			step := &cmd.Steps[j]
+			step.ID = strings.TrimSpace(step.ID)
+			step.Uses = strings.TrimSpace(step.Uses)
+			if step.ID == "" {
+				return fmt.Errorf("workflow command %q steps[%d].id is required", cmd.Use, j)
+			}
+			if strings.Contains(step.ID, ".") {
+				return fmt.Errorf("workflow command %q step id %q must not contain dots", cmd.Use, step.ID)
+			}
+			if stepIDs[step.ID] {
+				return fmt.Errorf("workflow command %q step %q is declared more than once", cmd.Use, step.ID)
+			}
+			stepIDs[step.ID] = true
+			if step.Uses == "" {
+				return fmt.Errorf("workflow command %q step %q uses is required", cmd.Use, step.ID)
+			}
+		}
+	}
+	return nil
+}
+
+func workflowInputFlag(name string) string {
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, ".", "-")
+	return name
+}
+
+func validWorkflowInputType(value string) bool {
+	switch value {
+	case "string", "int64", "float64", "bool", "[]string", "[]int64", "[]float64", "[]bool":
+		return true
+	default:
+		return false
+	}
 }
 
 var (

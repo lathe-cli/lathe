@@ -20,6 +20,7 @@ const (
 	GeneratedRoot  = "internal/generated"
 	ModulesGenFile = "internal/generated/modules_gen.go"
 	SkillBundleDir = "internal/generated/skillbundle"
+	WorkflowsDir   = "internal/generated/workflows"
 )
 
 type moduleCtx struct {
@@ -37,10 +38,16 @@ type ModuleMount struct {
 
 type ModulesGenOptions struct {
 	SkillBundle *SkillBundleMount
+	Workflows   bool
 }
 
 type SkillBundleMount struct {
 	Root string
+}
+
+type workflowCtx struct {
+	RuntimePkg string
+	Specs      []runtime.WorkflowSpec
 }
 
 // RuntimePkg is the import path downstream-generated modules use to reach
@@ -471,7 +478,8 @@ func RenderModulesGenWithOptions(modules []ModuleMount, opts ModulesGenOptions) 
 		Prefix      string
 		Modules     []ModuleMount
 		SkillBundle *SkillBundleMount
-	}{Prefix: mp + "/internal/generated/", Modules: modules, SkillBundle: opts.SkillBundle}); err != nil {
+		Workflows   bool
+	}{Prefix: mp + "/internal/generated/", Modules: modules, SkillBundle: opts.SkillBundle, Workflows: opts.Workflows}); err != nil {
 		return err
 	}
 	formatted, err := format.Source([]byte(buf.String()))
@@ -484,6 +492,31 @@ func RenderModulesGenWithOptions(modules []ModuleMount, opts ModulesGenOptions) 
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", ModulesGenFile, len(modules))
 	return nil
+}
+
+func RenderWorkflows(specs []runtime.WorkflowSpec) error {
+	var buf strings.Builder
+	if err := workflowsTmpl.Execute(&buf, workflowCtx{RuntimePkg: RuntimePkg, Specs: specs}); err != nil {
+		return err
+	}
+	outPath := filepath.Join(WorkflowsDir, "workflows_gen.go")
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+	formatted, err := format.Source([]byte(buf.String()))
+	if err != nil {
+		_ = os.WriteFile(outPath+".unformatted", []byte(buf.String()), 0o644)
+		return err
+	}
+	if err := os.WriteFile(outPath, formatted, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s: %d workflows\n", outPath, len(specs))
+	return nil
+}
+
+func RemoveWorkflowsPackage() error {
+	return os.RemoveAll(WorkflowsDir)
 }
 
 func RenderSkillBundlePackage(skillDir string, cliName string) error {
@@ -580,6 +613,273 @@ func stringMapLiteral(values map[string]string) string {
 	}
 	b.WriteByte('}')
 	return b.String()
+}
+
+func workflowSpecLiteral(spec runtime.WorkflowSpec) string {
+	var b strings.Builder
+	b.WriteString("runtime.WorkflowSpec{")
+	writeStringField(&b, "Use", spec.Use)
+	writeStringSliceField(&b, "Aliases", spec.Aliases)
+	writeStringField(&b, "Short", spec.Short)
+	writeStringField(&b, "Long", spec.Long)
+	writeStringField(&b, "Example", spec.Example)
+	writeBoolField(&b, "Hidden", spec.Hidden)
+	writeBoolField(&b, "Deprecated", spec.Deprecated)
+	if len(spec.Params) > 0 {
+		fmt.Fprintf(&b, "Params: %s,", paramSpecsLiteral(spec.Params))
+	}
+	if len(spec.Steps) > 0 {
+		fmt.Fprintf(&b, "Steps: %s,", workflowStepSpecsLiteral(spec.Steps))
+	}
+	writeStringField(&b, "OutputFrom", spec.OutputFrom)
+	if outputHintsSet(spec.Output) {
+		fmt.Fprintf(&b, "Output: %s,", outputHintsLiteral(spec.Output))
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func commandSpecLiteral(spec runtime.CommandSpec) string {
+	var b strings.Builder
+	b.WriteString("runtime.CommandSpec{")
+	writeStringField(&b, "Group", spec.Group)
+	writeStringField(&b, "Use", spec.Use)
+	writeStringSliceField(&b, "Aliases", spec.Aliases)
+	if len(spec.Shortcuts) > 0 {
+		fmt.Fprintf(&b, "Shortcuts: %s,", commandShortcutsLiteral(spec.Shortcuts))
+	}
+	writeStringField(&b, "Short", spec.Short)
+	writeStringField(&b, "Long", spec.Long)
+	writeStringField(&b, "Example", spec.Example)
+	if len(spec.Examples) > 0 {
+		fmt.Fprintf(&b, "Examples: %s,", commandExamplesLiteral(spec.Examples))
+	}
+	writeStringField(&b, "OperationID", spec.OperationID)
+	writeBoolField(&b, "Hidden", spec.Hidden)
+	writeBoolField(&b, "Deprecated", spec.Deprecated)
+	writeStringField(&b, "Method", spec.Method)
+	writeStringField(&b, "PathTpl", spec.PathTpl)
+	writeStringField(&b, "DefaultHostname", spec.DefaultHostname)
+	if len(spec.Params) > 0 {
+		fmt.Fprintf(&b, "Params: %s,", paramSpecsLiteral(spec.Params))
+	}
+	if spec.RequestBody != nil {
+		fmt.Fprintf(&b, "RequestBody: %s,", requestBodyLiteral(spec.RequestBody))
+	}
+	if outputHintsSet(spec.Output) {
+		fmt.Fprintf(&b, "Output: %s,", outputHintsLiteral(spec.Output))
+	}
+	if spec.Security != nil {
+		fmt.Fprintf(&b, "Security: %s,", securityHintLiteral(spec.Security))
+	}
+	writeStringSliceField(&b, "Notes", spec.Notes)
+	writeStringSliceField(&b, "Prerequisites", spec.Prerequisites)
+	if len(spec.KnownErrors) > 0 {
+		fmt.Fprintf(&b, "KnownErrors: %s,", knownErrorsLiteral(spec.KnownErrors))
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func workflowStepSpecsLiteral(steps []runtime.WorkflowStepSpec) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.WorkflowStepSpec{")
+	for _, step := range steps {
+		b.WriteString("runtime.WorkflowStepSpec{")
+		writeStringField(&b, "ID", step.ID)
+		fmt.Fprintf(&b, "Operation: %s,", commandSpecLiteral(step.Operation))
+		if len(step.Params) > 0 {
+			fmt.Fprintf(&b, "Params: %s,", stringMapLiteral(step.Params))
+		}
+		if len(step.BodySets) > 0 {
+			fmt.Fprintf(&b, "BodySets: %s,", workflowValuesLiteral(step.BodySets))
+		}
+		if len(step.BodyStringSets) > 0 {
+			fmt.Fprintf(&b, "BodyStringSets: %s,", workflowValuesLiteral(step.BodyStringSets))
+		}
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func workflowValuesLiteral(values []runtime.WorkflowValue) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.WorkflowValue{")
+	for _, value := range values {
+		b.WriteString("runtime.WorkflowValue{")
+		writeStringField(&b, "Name", value.Name)
+		writeStringField(&b, "Value", value.Value)
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func paramSpecsLiteral(params []runtime.ParamSpec) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.ParamSpec{")
+	for _, param := range params {
+		b.WriteString("runtime.ParamSpec{")
+		writeStringField(&b, "Name", param.Name)
+		writeStringField(&b, "Flag", param.Flag)
+		writeStringField(&b, "In", param.In)
+		writeStringField(&b, "GoType", param.GoType)
+		writeStringField(&b, "Help", param.Help)
+		writeBoolField(&b, "Required", param.Required)
+		writeStringField(&b, "Default", param.Default)
+		writeStringSliceField(&b, "Enum", param.Enum)
+		writeStringField(&b, "Format", param.Format)
+		writeBoolField(&b, "Deprecated", param.Deprecated)
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func commandShortcutsLiteral(shortcuts []runtime.CommandShortcut) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.CommandShortcut{")
+	for _, shortcut := range shortcuts {
+		b.WriteString("runtime.CommandShortcut{")
+		writeStringField(&b, "Use", shortcut.Use)
+		if len(shortcut.Params) > 0 {
+			fmt.Fprintf(&b, "Params: %s,", stringMapLiteral(shortcut.Params))
+		}
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func commandExamplesLiteral(examples []runtime.CommandExample) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.CommandExample{")
+	for _, example := range examples {
+		b.WriteString("runtime.CommandExample{")
+		writeStringField(&b, "Summary", example.Summary)
+		writeStringField(&b, "Command", example.Command)
+		if len(example.BodyShape) > 0 {
+			fmt.Fprintf(&b, "BodyShape: []byte(%q),", string(example.BodyShape))
+		}
+		if example.OutputHints != nil {
+			fmt.Fprintf(&b, "OutputHints: %s,", exampleOutputHintsLiteral(example.OutputHints))
+		}
+		writeStringSliceField(&b, "FollowUpCommands", example.FollowUpCommands)
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func exampleOutputHintsLiteral(hints *runtime.ExampleOutputHints) string {
+	var b strings.Builder
+	b.WriteString("&runtime.ExampleOutputHints{")
+	writeStringField(&b, "IDPath", hints.IDPath)
+	writeStringField(&b, "ListPath", hints.ListPath)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func requestBodyLiteral(body *runtime.RequestBody) string {
+	var b strings.Builder
+	b.WriteString("&runtime.RequestBody{")
+	writeBoolField(&b, "Required", body.Required)
+	writeStringField(&b, "MediaType", body.MediaType)
+	if body.Schema != nil {
+		fmt.Fprintf(&b, "Schema: %s,", schemaLiteral(body.Schema))
+	}
+	writeStringField(&b, "Template", body.Template)
+	writeStringField(&b, "MergePath", body.MergePath)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func outputHintsLiteral(hints runtime.OutputHints) string {
+	var b strings.Builder
+	b.WriteString("runtime.OutputHints{")
+	writeStringField(&b, "ListPath", hints.ListPath)
+	writeStringSliceField(&b, "DefaultColumns", hints.DefaultColumns)
+	writeStringField(&b, "ResponseMediaType", hints.ResponseMediaType)
+	if hints.Pagination != nil {
+		fmt.Fprintf(&b, "Pagination: %s,", paginationHintLiteral(hints.Pagination))
+	}
+	if hints.Streaming != nil {
+		fmt.Fprintf(&b, "Streaming: %s,", streamingHintLiteral(hints.Streaming))
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func paginationHintLiteral(hint *runtime.PaginationHint) string {
+	var b strings.Builder
+	b.WriteString("&runtime.PaginationHint{")
+	writeStringField(&b, "Strategy", hint.Strategy)
+	writeStringField(&b, "TokenParam", hint.TokenParam)
+	writeStringField(&b, "TokenField", hint.TokenField)
+	writeStringField(&b, "LimitParam", hint.LimitParam)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func streamingHintLiteral(hint *runtime.StreamingHint) string {
+	var b strings.Builder
+	b.WriteString("&runtime.StreamingHint{")
+	writeStringField(&b, "Strategy", hint.Strategy)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func securityHintLiteral(hint *runtime.SecurityHint) string {
+	var b strings.Builder
+	b.WriteString("&runtime.SecurityHint{")
+	writeBoolField(&b, "Public", hint.Public)
+	writeStringSliceField(&b, "Scopes", hint.Scopes)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func knownErrorsLiteral(errors []runtime.KnownError) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.KnownError{")
+	for _, known := range errors {
+		b.WriteString("runtime.KnownError{")
+		if known.Status != 0 {
+			fmt.Fprintf(&b, "Status: %d,", known.Status)
+		}
+		writeStringField(&b, "Cause", known.Cause)
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func outputHintsSet(hints runtime.OutputHints) bool {
+	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
+}
+
+func writeStringField(b *strings.Builder, name, value string) {
+	if value != "" {
+		fmt.Fprintf(b, "%s: %q,", name, value)
+	}
+}
+
+func writeBoolField(b *strings.Builder, name string, value bool) {
+	if value {
+		fmt.Fprintf(b, "%s: true,", name)
+	}
+}
+
+func writeStringSliceField(b *strings.Builder, name string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "%s: ", name)
+	b.WriteString("[]string{")
+	for _, value := range values {
+		fmt.Fprintf(b, "%q,", value)
+	}
+	b.WriteString("},")
 }
 
 func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
@@ -793,6 +1093,9 @@ import (
 {{- range .Modules}}
 	{{.Name}} "{{$.Prefix}}{{.Name}}"
 {{- end}}
+{{- if .Workflows}}
+	lathegeneratedworkflows "{{$.Prefix}}workflows"
+{{- end}}
 {{- if .SkillBundle}}
 	lathegeneratedskillbundle "{{$.Prefix}}skillbundle"
 {{- end}}
@@ -813,6 +1116,11 @@ func MountModules(root *cobra.Command) error {
 		return err
 	}
 {{- end}}
+{{- if .Workflows}}
+	if err := lathegeneratedworkflows.Mount(root); err != nil {
+		return err
+	}
+{{- end}}
 {{- if .SkillBundle}}
 	latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)
 	root.AddCommand(lathekitupcobra.NewSkillCommand(lathekitupcobra.Options{
@@ -821,6 +1129,29 @@ func MountModules(root *cobra.Command) error {
 	}))
 {{- end}}
 	return nil
+}
+`))
+
+var workflowsTmpl = template.Must(template.New("workflows").Funcs(template.FuncMap{
+	"workflowSpecLiteral": workflowSpecLiteral,
+}).Parse(`// Code generated by lathe codegen. DO NOT EDIT.
+
+package workflows
+
+import (
+	"github.com/spf13/cobra"
+
+	"{{.RuntimePkg}}"
+)
+
+func Mount(root *cobra.Command) error {
+	return runtime.BuildWorkflows(root, Specs)
+}
+
+var Specs = []runtime.WorkflowSpec{
+{{- range .Specs}}
+	{{workflowSpecLiteral .}},
+{{- end}}
 }
 `))
 
