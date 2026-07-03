@@ -47,6 +47,16 @@ func TestAPIKeyAuth_CustomHeader(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAuth_CustomLowercaseHeader(t *testing.T) {
+	req, _ := http.NewRequest("GET", "http://x", nil)
+	if err := (APIKeyAuth{Key: "k3", Header: "x-api-key"}).Apply(req); err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("x-api-key"); got != "k3" {
+		t.Errorf("want k3, got %q", got)
+	}
+}
+
 func TestAPIKeyAuth_Empty(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
 	if err := (APIKeyAuth{}).Apply(req); err != nil {
@@ -126,6 +136,19 @@ func TestNewAuthFromHost(t *testing.T) {
 				}
 				if ak.Header != "X-Custom" {
 					t.Errorf("want X-Custom, got %q", ak.Header)
+				}
+			},
+		},
+		{
+			name:  "apikey lower-case header",
+			entry: config.HostEntry{AuthType: "apikey", APIKey: "k2", APIKeyHeader: "x-api-key"},
+			check: func(t *testing.T, a Authenticator) {
+				ak, ok := a.(APIKeyAuth)
+				if !ok {
+					t.Fatalf("want APIKeyAuth, got %T", a)
+				}
+				if ak.Header != "x-api-key" {
+					t.Errorf("want x-api-key, got %q", ak.Header)
 				}
 			},
 		},
