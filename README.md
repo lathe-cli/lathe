@@ -73,7 +73,7 @@ built, and which output format to prefer.
 | Multi-backend generation | Swagger 2.0, OpenAPI 3, protobuf services with `google.api.http` annotations, and curated GraphQL schemas become Cobra command trees. |
 | Single runtime shape | Generated modules share one runtime for auth, request building, output formatting, pagination, streaming, and error handling. |
 | Agentic-friendly discovery | `search`, `commands --json`, `commands show`, and `commands schema` expose the CLI as structured data. |
-| Generated Skills | Codegen writes `skills/<cli-name>/` so agents can load the CLI's operating guide and module references. |
+| Generated Skills | Codegen writes `skills/<cli-name>/` and can bundle it into the CLI with `skill.bundle`, exposing `<cli> skill install`. |
 | Reproducible inputs | Git specs are pinned by tag and resolved to commit SHA; local sources are staged from checked-in configuration. |
 | Real CLI UX | Hostname-keyed auth, --file, --set, --set-str, -o table\|json\|yaml\|raw, enum validation, pagination, and streaming. |
 | Overlay polish | Improve summaries, aliases, parameter help, grouping, and examples without editing generated code. |

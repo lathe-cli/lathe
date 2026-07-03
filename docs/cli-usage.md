@@ -327,6 +327,29 @@ go mod tidy
 go build -o bin/acmectl ./cmd/acmectl
 ```
 
+## Bundle Skill Installation
+
+Set `skill.bundle: true` when you want the generated CLI binary to carry its
+own Skill installer:
+
+```yaml
+skill:
+  bundle: true
+```
+
+After codegen, wire the downstream CLI with `generated.Mount` as shown above.
+Lathe mirrors the generated Skill into `internal/generated/skillbundle/`, pins
+the required kitup Go modules, and mounts `<cli> skill install` for you. You do
+not need a downstream `go:embed` bridge or handwritten kitup command wiring for
+the standard bundled Skill installer.
+
+Verify the compiled installer after building:
+
+```sh
+bin/acmectl __lathe verify --json
+bin/acmectl skill install --scope user --agent codex --yes
+```
+
 ## Agent Operation Loop
 
 Generated CLIs expose machine-readable contracts. Agents should use this loop:

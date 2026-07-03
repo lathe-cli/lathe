@@ -659,7 +659,7 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 			b.WriteString("\n")
 		}
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
 func writeShortcuts(b *strings.Builder, cli string, spec runtime.CommandSpec) {
