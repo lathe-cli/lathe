@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -121,257 +120,48 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return err
 			}
 
-			for _, p := range s.Params {
-				if len(p.Enum) == 0 || !flagChangedOrDefault(cmd, p) {
-					continue
+			hasFile := s.RequestBody != nil && cmd.Flags().Changed("file")
+			var fileBody []byte
+			if hasFile {
+				fileBody, err = ReadBody(bodyFile)
+				if err != nil {
+					return err
 				}
-				raw := flagStringValue(vals[p.Name])
-				valid := false
-				for _, e := range p.Enum {
-					if raw == e {
-						valid = true
-						break
-					}
-				}
-				if !valid {
-					return fmt.Errorf("invalid value %q for --%s: must be one of %s",
-						raw, p.Flag, strings.Join(p.Enum, ", "))
-				}
-			}
-
-			path := s.PathTpl
-			q := url.Values{}
-			hdrs := map[string]string{}
-			form := url.Values{}
-			vars := map[string]any{}
-			for _, p := range s.Params {
-				switch p.In {
-				case InPath:
-					v := vals[p.Name].(*string)
-					path = strings.Replace(path, "{"+p.Name+"}", url.PathEscape(*v), 1)
-					continue
-				case InHeader:
-					if !flagChangedOrDefault(cmd, p) {
-						continue
-					}
-					hdrs[p.Name] = *vals[p.Name].(*string)
-					continue
-				case InVariable:
-					if !flagChangedOrDefault(cmd, p) {
-						continue
-					}
-					switch v := vals[p.Name].(type) {
-					case *int64:
-						vars[p.Name] = *v
-					case *float64:
-						vars[p.Name] = *v
-					case *bool:
-						vars[p.Name] = *v
-					case *[]int64:
-						vars[p.Name] = *v
-					case *[]float64:
-						vars[p.Name] = *v
-					case *[]bool:
-						vars[p.Name] = *v
-					case *[]string:
-						vars[p.Name] = *v
-					case *string:
-						vars[p.Name] = *v
-					}
-					continue
-				case InFormData:
-					if !flagChangedOrDefault(cmd, p) {
-						continue
-					}
-					switch v := vals[p.Name].(type) {
-					case *int64:
-						form.Set(p.Name, strconv.FormatInt(*v, 10))
-					case *bool:
-						form.Set(p.Name, strconv.FormatBool(*v))
-					case *string:
-						form.Set(p.Name, *v)
-					}
-					continue
-				}
-				if !flagChangedOrDefault(cmd, p) {
-					continue
-				}
-				switch v := vals[p.Name].(type) {
-				case *int64:
-					q.Set(p.Name, strconv.FormatInt(*v, 10))
-				case *bool:
-					q.Set(p.Name, strconv.FormatBool(*v))
-				case *[]string:
-					for _, vv := range *v {
-						q.Add(p.Name, vv)
-					}
-				case *string:
-					q.Set(p.Name, *v)
-				}
-			}
-			if enc := q.Encode(); enc != "" {
-				path = path + "?" + enc
-			}
-
-			var body any
-			if len(form) > 0 {
-				body = form
-			} else if s.RequestBody != nil && s.RequestBody.Template != "" {
-				hasFile := cmd.Flags().Changed("file")
-				var fileData []byte
-				if hasFile {
-					fd, rerr := ReadBody(bodyFile)
-					if rerr != nil {
-						return rerr
-					}
-					fileData = fd
-				}
-				raw, berr := buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, vars, bodySets, bodyStringSets, fileData, hasFile)
-				if berr != nil {
-					return berr
-				}
-				body = raw
-			} else if s.RequestBody != nil {
-				switch {
-				case cmd.Flags().Changed("set") || cmd.Flags().Changed("set-str"):
-					if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
-						return fmt.Errorf("request body media type %s requires --file; --set and --set-str only support JSON request bodies", s.RequestBody.MediaType)
-					}
-					raw, berr := buildBodyFromSet(bodySets, bodyStringSets)
-					if berr != nil {
-						return berr
-					}
-					body = raw
-				case cmd.Flags().Changed("file"):
-					raw, rerr := ReadBody(bodyFile)
-					if rerr != nil {
-						return rerr
-					}
-					body = raw
-				case s.RequestBody.Required:
-					if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
-						return fmt.Errorf("request body media type %s requires --file", s.RequestBody.MediaType)
-					}
-					return fmt.Errorf("request body required: pass --file, --set, or --set-str")
-				}
-			}
-			if err := validateRequiredVariableParams(s, body); err != nil {
-				return err
-			}
-			if body != nil && s.RequestBody != nil && s.RequestBody.MediaType != "" {
-				hdrs["Content-Type"] = s.RequestBody.MediaType
 			}
 
 			if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
 				clientOpts.Debug = true
 			}
 			clientOpts.UserAgent = cmd.Root().Use
-			clientOpts.Headers = hdrs
-			if s.Output.ResponseMediaType != "" {
-				clientOpts.Accept = s.Output.ResponseMediaType
+
+			result, err := InvokeOperation(cmd.Context(), s, OperationInput{
+				Values:         vals,
+				Changed:        operationChangedFlags(cmd, s.Params),
+				FileBody:       fileBody,
+				HasFile:        hasFile,
+				BodySets:       bodySets,
+				BodyStringSets: bodyStringSets,
+			}, OperationOptions{
+				Hostname:    hostname,
+				Client:      clientOpts,
+				DryRun:      dryRun,
+				PaginateAll: paginateAll,
+				MaxPages:    maxPages,
+				Wait:        waitPoll,
+			})
+			if err != nil {
+				return err
 			}
-			if dryRun {
-				return writeDryRun(cmd, s, hostname, path, body, clientOpts)
-			}
-			var data []byte
-			if paginateAll && s.Output.Pagination != nil {
-				data, err = PaginateAll(cmd.Context(), hostname, s.Method, path, body, clientOpts, *s.Output.Pagination, s.Output.ListPath, maxPages)
-				if err != nil {
-					return err
-				}
-			} else if waitPoll {
-				r, rerr := DoRawFull(cmd.Context(), hostname, s.Method, path, body, clientOpts)
-				if rerr != nil {
-					return rerr
-				}
-				if r.StatusCode == 202 {
-					if loc := r.Header.Get("Location"); loc != "" {
-						data, err = PollUntilDone(cmd.Context(), hostname, loc, clientOpts, DefaultPollTimeout)
-						if err != nil {
-							return err
-						}
-					} else {
-						data = r.Body
-					}
-				} else {
-					data = r.Body
-				}
-			} else {
-				data, err = DoRaw(cmd.Context(), hostname, s.Method, path, body, clientOpts)
-				if err != nil {
-					return err
-				}
+			if result.DryRun != nil {
+				return writeDryRun(*result.DryRun, cmd.OutOrStdout())
 			}
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
-			return FormatOutput(data, format, os.Stdout, s.Output)
+			return FormatOutput(result.Data, format, os.Stdout, s.Output)
 		},
 	}
 
 	for i := range s.Params {
-		p := s.Params[i]
-		if p.In == InPath {
-			v := new(string)
-			vals[p.Name] = v
-			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
-			addSafeInputFlags(cmd, p)
-			if p.Default == "" && !isSensitiveStringParam(p) {
-				_ = cmd.MarkFlagRequired(p.Flag)
-			}
-			if p.Deprecated {
-				_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
-			}
-			continue
-		}
-		switch p.GoType {
-		case "int64":
-			v := new(int64)
-			vals[p.Name] = v
-			var def int64
-			if p.Default != "" {
-				def, _ = strconv.ParseInt(p.Default, 10, 64)
-			}
-			cmd.Flags().Int64Var(v, p.Flag, def, p.Help)
-		case "float64":
-			v := new(float64)
-			vals[p.Name] = v
-			var def float64
-			if p.Default != "" {
-				def, _ = strconv.ParseFloat(p.Default, 64)
-			}
-			cmd.Flags().Float64Var(v, p.Flag, def, p.Help)
-		case "bool":
-			v := new(bool)
-			vals[p.Name] = v
-			def := p.Default == "true"
-			cmd.Flags().BoolVar(v, p.Flag, def, p.Help)
-		case "[]int64":
-			v := new([]int64)
-			vals[p.Name] = v
-			cmd.Flags().Int64SliceVar(v, p.Flag, nil, p.Help)
-		case "[]float64":
-			v := new([]float64)
-			vals[p.Name] = v
-			cmd.Flags().Float64SliceVar(v, p.Flag, nil, p.Help)
-		case "[]bool":
-			v := new([]bool)
-			vals[p.Name] = v
-			cmd.Flags().BoolSliceVar(v, p.Flag, nil, p.Help)
-		case "[]string":
-			v := new([]string)
-			vals[p.Name] = v
-			cmd.Flags().StringSliceVar(v, p.Flag, nil, p.Help)
-		default:
-			v := new(string)
-			vals[p.Name] = v
-			cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
-			addSafeInputFlags(cmd, p)
-		}
-		if p.Required && p.Default == "" && (p.In != InVariable || s.RequestBody == nil) && !isSensitiveStringParam(p) {
-			_ = cmd.MarkFlagRequired(p.Flag)
-		}
-		if p.Deprecated {
-			_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
-		}
+		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
 	}
 	if s.RequestBody != nil {
 		fileHelp := "path to JSON body file, or '-' for stdin"
@@ -405,43 +195,70 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	return cmd
 }
 
-type dryRunRequest struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Body    any               `json:"body"`
-	Auth    dryRunAuth        `json:"auth"`
-	Output  CatalogOutput     `json:"output"`
-}
-
-type dryRunAuth struct {
-	Required bool     `json:"required"`
-	Public   bool     `json:"public"`
-	Scopes   []string `json:"scopes,omitempty"`
-}
-
-func writeDryRun(cmd *cobra.Command, s CommandSpec, hostname, path string, body any, opts ClientOptions) error {
-	req, bodyBytes, _, err := resolveRequest(cmd.Context(), hostname, s.Method, path, body, opts)
-	if err != nil {
-		return err
+func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequestBody bool) {
+	if p.In == InPath {
+		v := new(string)
+		vals[p.Name] = v
+		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
+		addSafeInputFlags(cmd, p)
+		if p.Default == "" && !isSensitiveStringParam(p) {
+			_ = cmd.MarkFlagRequired(p.Flag)
+		}
+		if p.Deprecated {
+			_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
+		}
+		return
 	}
-	out := dryRunRequest{
-		Method:  req.Method,
-		URL:     req.URL.String(),
-		Headers: redactedDryRunHeaders(req.Header),
-		Body:    redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
-		Auth:    dryRunAuthForSpec(s),
-		Output: CatalogOutput{
-			ListPath:          s.Output.ListPath,
-			DefaultColumns:    append([]string(nil), s.Output.DefaultColumns...),
-			ResponseMediaType: s.Output.ResponseMediaType,
-			Pagination:        catalogPagination(s.Output.Pagination),
-			Streaming:         catalogStreaming(s.Output.Streaming),
-		},
+	switch p.GoType {
+	case "int64":
+		v := new(int64)
+		vals[p.Name] = v
+		var def int64
+		if p.Default != "" {
+			def, _ = strconv.ParseInt(p.Default, 10, 64)
+		}
+		cmd.Flags().Int64Var(v, p.Flag, def, p.Help)
+	case "float64":
+		v := new(float64)
+		vals[p.Name] = v
+		var def float64
+		if p.Default != "" {
+			def, _ = strconv.ParseFloat(p.Default, 64)
+		}
+		cmd.Flags().Float64Var(v, p.Flag, def, p.Help)
+	case "bool":
+		v := new(bool)
+		vals[p.Name] = v
+		def := p.Default == "true"
+		cmd.Flags().BoolVar(v, p.Flag, def, p.Help)
+	case "[]int64":
+		v := new([]int64)
+		vals[p.Name] = v
+		cmd.Flags().Int64SliceVar(v, p.Flag, nil, p.Help)
+	case "[]float64":
+		v := new([]float64)
+		vals[p.Name] = v
+		cmd.Flags().Float64SliceVar(v, p.Flag, nil, p.Help)
+	case "[]bool":
+		v := new([]bool)
+		vals[p.Name] = v
+		cmd.Flags().BoolSliceVar(v, p.Flag, nil, p.Help)
+	case "[]string":
+		v := new([]string)
+		vals[p.Name] = v
+		cmd.Flags().StringSliceVar(v, p.Flag, nil, p.Help)
+	default:
+		v := new(string)
+		vals[p.Name] = v
+		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
+		addSafeInputFlags(cmd, p)
 	}
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	if p.Required && p.Default == "" && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
+		_ = cmd.MarkFlagRequired(p.Flag)
+	}
+	if p.Deprecated {
+		_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
+	}
 }
 
 func redactedDryRunHeaders(headers map[string][]string) map[string]string {
@@ -466,8 +283,8 @@ func redactedDryRunBody(contentType string, body []byte) any {
 	return string(redacted)
 }
 
-func dryRunAuthForSpec(s CommandSpec) dryRunAuth {
-	out := dryRunAuth{Required: true}
+func dryRunAuthForSpec(s CommandSpec) DryRunAuth {
+	out := DryRunAuth{Required: true}
 	if s.Security != nil {
 		out.Required = !s.Security.Public
 		out.Public = s.Security.Public
@@ -726,6 +543,17 @@ func flagChangedOrDefault(cmd *cobra.Command, p ParamSpec) bool {
 	return cmd.Flags().Changed(p.Flag+"-env") || cmd.Flags().Changed(p.Flag+"-file") || cmd.Flags().Changed(p.Flag+"-stdin")
 }
 
+func operationChangedFlags(cmd *cobra.Command, params []ParamSpec) map[string]bool {
+	changed := make(map[string]bool, len(params)*2)
+	for _, p := range params {
+		if flagChangedOrDefault(cmd, p) {
+			changed[p.Name] = true
+			changed[p.Flag] = true
+		}
+	}
+	return changed
+}
+
 func isSensitiveStringParam(p ParamSpec) bool {
 	if p.GoType != "string" {
 		return false
@@ -750,38 +578,4 @@ func sensitiveNameKey(s string) string {
 		}
 	}
 	return b.String()
-}
-
-func flagStringValue(v any) string {
-	switch tv := v.(type) {
-	case *string:
-		return *tv
-	case *int64:
-		return strconv.FormatInt(*tv, 10)
-	case *float64:
-		return strconv.FormatFloat(*tv, 'f', -1, 64)
-	case *bool:
-		return strconv.FormatBool(*tv)
-	case *[]int64:
-		if len(*tv) > 0 {
-			return strconv.FormatInt((*tv)[0], 10)
-		}
-		return ""
-	case *[]float64:
-		if len(*tv) > 0 {
-			return strconv.FormatFloat((*tv)[0], 'f', -1, 64)
-		}
-		return ""
-	case *[]bool:
-		if len(*tv) > 0 {
-			return strconv.FormatBool((*tv)[0])
-		}
-		return ""
-	case *[]string:
-		if len(*tv) > 0 {
-			return (*tv)[0]
-		}
-		return ""
-	}
-	return ""
 }

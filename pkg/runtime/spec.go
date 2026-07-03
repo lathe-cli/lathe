@@ -65,6 +65,7 @@ const (
 	InHeader   = "header"
 	InFormData = "formData"
 	InVariable = "variable"
+	InInput    = "input"
 )
 
 type RequestBody struct {
@@ -111,4 +112,31 @@ type SecurityHint struct {
 type KnownError struct {
 	Status int    `json:"status,omitempty"`
 	Cause  string `json:"cause,omitempty"`
+}
+
+type WorkflowSpec struct {
+	Use        string
+	Aliases    []string
+	Short      string
+	Long       string
+	Example    string
+	Hidden     bool
+	Deprecated bool
+	Params     []ParamSpec
+	Steps      []WorkflowStepSpec
+	OutputFrom string
+	Output     OutputHints
+}
+
+type WorkflowStepSpec struct {
+	ID             string
+	Operation      CommandSpec
+	Params         map[string]string
+	BodySets       []WorkflowValue
+	BodyStringSets []WorkflowValue
+}
+
+type WorkflowValue struct {
+	Name  string
+	Value string
 }

@@ -59,6 +59,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 
 	cmd := catalog.Commands[0]
+	if cmd.Kind != "operation" {
+		t.Fatalf("kind = %q", cmd.Kind)
+	}
 	if !reflect.DeepEqual(cmd.Path, []string{"demo", "users", "get-user"}) {
 		t.Fatalf("path = %#v", cmd.Path)
 	}
@@ -133,6 +136,66 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if len(roundTrip.Commands[0].Examples) != 1 || roundTrip.Commands[0].Examples[0].OutputHints.IDPath != "data.user.id" {
 		t.Fatalf("round-trip examples = %#v", roundTrip.Commands[0].Examples)
+	}
+}
+
+func TestBuildCatalog_WorkflowCommand(t *testing.T) {
+	root := newRootWithModuleGroup()
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:   "doctor",
+		Short: "Check API health",
+		Params: []ParamSpec{
+			{Name: "tenant", Flag: "tenant", In: InInput, GoType: "string", Required: true},
+		},
+		Steps: []WorkflowStepSpec{
+			{
+				ID: "health",
+				Operation: CommandSpec{
+					OperationID: "getHealth",
+					Method:      "GET",
+					PathTpl:     "/health",
+					Security:    &SecurityHint{Public: true},
+				},
+			},
+			{
+				ID: "tenant",
+				Operation: CommandSpec{
+					OperationID: "checkTenant",
+					Method:      "GET",
+					PathTpl:     "/tenants/{tenant}",
+					Params: []ParamSpec{
+						{Name: "tenant", Flag: "tenant", In: InPath, GoType: "string", Required: true},
+					},
+				},
+			},
+		},
+		OutputFrom: "${steps.tenant}",
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+
+	catalog := BuildCatalog(root, CatalogOptions{CLIName: "myctl"})
+	if len(catalog.Commands) != 1 {
+		t.Fatalf("commands = %d", len(catalog.Commands))
+	}
+	cmd := catalog.Commands[0]
+	if cmd.Kind != "workflow" {
+		t.Fatalf("kind = %q", cmd.Kind)
+	}
+	if !reflect.DeepEqual(cmd.Path, []string{"doctor"}) {
+		t.Fatalf("path = %#v", cmd.Path)
+	}
+	if cmd.Workflow == nil || cmd.Workflow.DSL != "lathe.workflow.v1" || cmd.Workflow.OutputFrom != "${steps.tenant}" {
+		t.Fatalf("workflow = %+v", cmd.Workflow)
+	}
+	if len(cmd.Workflow.Steps) != 2 || cmd.Workflow.Steps[1].OperationID != "checkTenant" {
+		t.Fatalf("steps = %+v", cmd.Workflow.Steps)
+	}
+	if len(cmd.Flags) != 1 || cmd.Flags[0].Location != InInput {
+		t.Fatalf("flags = %+v", cmd.Flags)
+	}
+	if !cmd.Auth.Required {
+		t.Fatalf("auth = %+v", cmd.Auth)
 	}
 }
 

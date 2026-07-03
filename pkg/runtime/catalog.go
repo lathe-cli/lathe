@@ -10,12 +10,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 10
+const CatalogSchemaVersion = 11
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
 const catalogCapabilitiesAnnotation = "lathe.catalog.capabilities"
 const CapabilitySkillBundle = "skill.bundle"
+const CapabilityWorkflowDSL = "workflow.dsl"
 
 type CatalogOptions struct {
 	CLIName       string
@@ -48,6 +49,7 @@ type CatalogOutputFormats struct {
 }
 
 type CatalogCommand struct {
+	Kind          string            `json:"kind"`
 	Path          []string          `json:"path"`
 	Service       string            `json:"service"`
 	Group         string            `json:"group"`
@@ -60,6 +62,7 @@ type CatalogCommand struct {
 	Examples      []CommandExample  `json:"examples,omitempty"`
 	OperationID   string            `json:"operation_id,omitempty"`
 	HTTP          CatalogHTTP       `json:"http"`
+	Workflow      *CatalogWorkflow  `json:"workflow,omitempty"`
 	Auth          CatalogAuth       `json:"auth"`
 	Body          *CatalogBody      `json:"body,omitempty"`
 	Flags         []CatalogFlag     `json:"flags"`
@@ -69,6 +72,18 @@ type CatalogCommand struct {
 	Notes         []string          `json:"notes,omitempty"`
 	Prerequisites []string          `json:"prerequisites,omitempty"`
 	KnownErrors   []KnownError      `json:"known_errors,omitempty"`
+}
+
+type CatalogWorkflow struct {
+	DSL        string                `json:"dsl"`
+	OutputFrom string                `json:"output_from,omitempty"`
+	Steps      []CatalogWorkflowStep `json:"steps"`
+}
+
+type CatalogWorkflowStep struct {
+	ID          string      `json:"id"`
+	OperationID string      `json:"operation_id,omitempty"`
+	HTTP        CatalogHTTP `json:"http"`
 }
 
 type CatalogHTTP struct {
@@ -130,6 +145,18 @@ type SearchResult struct {
 
 func AttachCatalogCommand(cmd *cobra.Command, service string, spec CommandSpec) {
 	entry := catalogCommand(service, spec, nil)
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		panic(err)
+	}
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[catalogCommandAnnotation] = string(raw)
+}
+
+func AttachCatalogWorkflowCommand(cmd *cobra.Command, spec WorkflowSpec) {
+	entry := catalogWorkflowCommand(spec, nil)
 	raw, err := json.Marshal(entry)
 	if err != nil {
 		panic(err)
@@ -339,6 +366,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		examples = []CommandExample{{Command: spec.Example}}
 	}
 	cmd := CatalogCommand{
+		Kind:        "operation",
 		Path:        append([]string(nil), path...),
 		Service:     service,
 		Group:       spec.Group,
@@ -376,6 +404,76 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		}
 	}
 	return cmd
+}
+
+func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
+	flags := make([]CatalogFlag, 0, len(spec.Params))
+	for _, p := range spec.Params {
+		var inputModes []string
+		if isSensitiveStringParam(p) {
+			inputModes = []string{"flag", "env", "file", "stdin"}
+		}
+		flags = append(flags, CatalogFlag{
+			Name:       p.Name,
+			Flag:       p.Flag,
+			Location:   p.In,
+			Type:       p.GoType,
+			Required:   p.Required,
+			Default:    p.Default,
+			Enum:       append([]string(nil), p.Enum...),
+			Format:     p.Format,
+			InputModes: inputModes,
+			Deprecated: p.Deprecated,
+			Help:       p.Help,
+		})
+	}
+	steps := make([]CatalogWorkflowStep, 0, len(spec.Steps))
+	auth := CatalogAuth{Required: false}
+	for _, step := range spec.Steps {
+		steps = append(steps, CatalogWorkflowStep{
+			ID:          step.ID,
+			OperationID: step.Operation.OperationID,
+			HTTP: CatalogHTTP{
+				Method:          step.Operation.Method,
+				PathTemplate:    step.Operation.PathTpl,
+				DefaultHostname: step.Operation.DefaultHostname,
+			},
+		})
+		stepAuth := catalogAuth(step.Operation.Security)
+		if stepAuth.Required {
+			auth.Required = true
+		}
+		auth.Scopes = append(auth.Scopes, stepAuth.Scopes...)
+	}
+	auth.Scopes = normalizeCapabilities(auth.Scopes)
+	return CatalogCommand{
+		Kind:        "workflow",
+		Path:        append([]string(nil), path...),
+		Service:     "workflow",
+		Group:       "workflow",
+		Use:         spec.Use,
+		Aliases:     append([]string(nil), spec.Aliases...),
+		Summary:     spec.Short,
+		Description: spec.Long,
+		Example:     spec.Example,
+		HTTP:        CatalogHTTP{},
+		Workflow: &CatalogWorkflow{
+			DSL:        "lathe.workflow.v1",
+			OutputFrom: spec.OutputFrom,
+			Steps:      steps,
+		},
+		Auth:  auth,
+		Flags: flags,
+		Output: CatalogOutput{
+			ListPath:          spec.Output.ListPath,
+			DefaultColumns:    append([]string(nil), spec.Output.DefaultColumns...),
+			ResponseMediaType: spec.Output.ResponseMediaType,
+			Pagination:        catalogPagination(spec.Output.Pagination),
+			Streaming:         catalogStreaming(spec.Output.Streaming),
+		},
+		Hidden:     spec.Hidden,
+		Deprecated: spec.Deprecated,
+	}
 }
 
 func cloneShortcuts(shortcuts []CommandShortcut) []CommandShortcut {

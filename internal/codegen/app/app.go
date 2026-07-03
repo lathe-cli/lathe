@@ -12,9 +12,10 @@ import (
 
 // App is the complete set of generated outputs for one codegen run.
 type App struct {
-	Manifest *config.Manifest
-	Modules  []Module
-	Skill    *Skill
+	Manifest  *config.Manifest
+	Modules   []Module
+	Workflows []runtime.WorkflowSpec
+	Skill     *Skill
 }
 
 // Module is one generated command module and how it mounts on the root command.
@@ -44,6 +45,10 @@ func (a *App) Validate() error {
 		}
 		names = append(names, m.CLIName)
 	}
+	for _, workflow := range a.Workflows {
+		names = append(names, workflow.Use)
+		names = append(names, workflow.Aliases...)
+	}
 	return render.ValidateModuleNames(names)
 }
 
@@ -59,6 +64,14 @@ func (a *App) Write() error {
 	opts := render.ModulesGenOptions{}
 	if a.Skill != nil && a.Skill.Bundle {
 		opts.SkillBundle = &render.SkillBundleMount{Root: render.SkillDirName(a.Manifest.CLI.Name)}
+	}
+	if len(a.Workflows) > 0 {
+		opts.Workflows = true
+		if err := render.RenderWorkflows(a.Workflows); err != nil {
+			return err
+		}
+	} else if err := render.RemoveWorkflowsPackage(); err != nil {
+		return err
 	}
 	if err := render.RenderModulesGenWithOptions(mounts, opts); err != nil {
 		return err

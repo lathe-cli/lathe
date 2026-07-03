@@ -250,6 +250,11 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 			generated.Skill.Modules = append(generated.Skill.Modules, render.SkillModule{Source: src, State: state, Specs: specs})
 		}
 	}
+	workflows, err := buildWorkflowSpecs(manifest, generated.Modules, shortcutRootNames)
+	if err != nil {
+		return nil, err
+	}
+	generated.Workflows = workflows
 	return generated, nil
 }
 
