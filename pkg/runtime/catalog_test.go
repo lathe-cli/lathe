@@ -259,6 +259,17 @@ func TestBuildCatalog_HiddenCommands(t *testing.T) {
 	}
 }
 
+func TestBuildCatalog_Capabilities(t *testing.T) {
+	root := newRootWithModuleGroup()
+	AttachCapability(root, CapabilitySkillBundle)
+	AttachCapability(root, CapabilitySkillBundle)
+
+	catalog := BuildCatalog(root, CatalogOptions{Capabilities: []string{"trace"}})
+	if !reflect.DeepEqual(catalog.CLI.Capabilities, []string{"skill.bundle", "trace"}) {
+		t.Fatalf("capabilities = %#v", catalog.CLI.Capabilities)
+	}
+}
+
 func TestFindAndSearchCatalog(t *testing.T) {
 	root := newRootWithModuleGroup()
 	mustBuild(t, root, "demo", []CommandSpec{

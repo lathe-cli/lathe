@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/app"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/graphql"
@@ -29,6 +31,11 @@ type skillFlagOptions struct {
 	Include    string
 	IncludeSet bool
 }
+
+const (
+	kitupGoDependency      = "github.com/lathe-cli/kitup/go@v0.1.3"
+	kitupGoCobraDependency = "github.com/lathe-cli/kitup/go-cobra@v0.1.3"
+)
 
 func Run(args []string) error {
 	return runWithOutputs(args, os.Stdout, os.Stderr)
@@ -98,7 +105,7 @@ func RunCodegen(args []string, output io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	return runCodegen(*sourcesPath, *manifestPath, *cacheRoot, *overlayDir, skillFlagsFrom(fs, skillRoot, skillInclude))
+	return runCodegen(*sourcesPath, *manifestPath, *cacheRoot, *overlayDir, skillFlagsFrom(fs, skillRoot, skillInclude), output)
 }
 
 func RunBootstrap(args []string, output io.Writer) error {
@@ -125,7 +132,7 @@ func RunBootstrap(args []string, output io.Writer) error {
 	if err := specsync.Sync(cfg, specsync.Options{CacheRoot: absRoot}); err != nil {
 		return err
 	}
-	return runCodegen(*sourcesPath, *manifestPath, absRoot, *overlayDir, skillFlagsFrom(fs, skillRoot, skillInclude))
+	return runCodegen(*sourcesPath, *manifestPath, absRoot, *overlayDir, skillFlagsFrom(fs, skillRoot, skillInclude), output)
 }
 
 func printRootUsage(output io.Writer) {
@@ -142,7 +149,7 @@ Run "lathe <command> -h" for command-specific flags.
 `)
 }
 
-func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillFlags skillFlagOptions) error {
+func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillFlags skillFlagOptions, output io.Writer) error {
 	cfg, err := sourceconfig.Load(sourcesPath)
 	if err != nil {
 		return err
@@ -171,7 +178,13 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	if err := generated.Validate(); err != nil {
 		return err
 	}
-	return generated.Write()
+	if err := generated.Write(); err != nil {
+		return err
+	}
+	if generated.Manifest.Skill.Bundle {
+		return pinSkillBundleDependencies(output)
+	}
+	return nil
 }
 
 // buildGeneratedApp parses and normalizes every configured source into the
@@ -179,7 +192,10 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Module, syncRoot string, manifest *config.Manifest, skillDir string, skillInclude render.SkillInclude) (*app.App, error) {
 	generated := &app.App{Manifest: manifest}
 	if skillDir != "" {
-		generated.Skill = &app.Skill{Dir: skillDir, Include: skillInclude}
+		generated.Skill = &app.Skill{Dir: skillDir, Include: skillInclude, Bundle: manifest.Skill.Bundle}
+	}
+	if manifest.Skill.Bundle && generated.Skill == nil {
+		return nil, fmt.Errorf("skill.bundle requires skill generation")
 	}
 
 	ordered := cfg.Ordered()
@@ -247,6 +263,9 @@ func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Ma
 	}
 
 	if flags.RootSet && flags.Root == "" {
+		if manifest.Skill.Bundle {
+			return nil, "", render.SkillInclude{}, fmt.Errorf("skill.bundle requires skill generation")
+		}
 		if skillIncludeConfigured(include) || flags.IncludeSet && flags.Include != "" {
 			return nil, "", render.SkillInclude{}, fmt.Errorf("skill include requires skill generation")
 		}
@@ -266,6 +285,9 @@ func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Ma
 	}
 
 	if root == "" {
+		if manifest.Skill.Bundle {
+			return nil, "", render.SkillInclude{}, fmt.Errorf("skill.bundle requires skill generation")
+		}
 		if skillIncludeConfigured(include) {
 			return nil, "", render.SkillInclude{}, fmt.Errorf("skill include requires skill generation")
 		}
@@ -280,6 +302,18 @@ func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Ma
 		return nil, "", render.SkillInclude{}, err
 	}
 	return manifest, skillDir, include, nil
+}
+
+func pinSkillBundleDependencies(output io.Writer) error {
+	args := []string{"get", kitupGoDependency, kitupGoCobraDependency}
+	fmt.Fprintf(output, "go %s\n", strings.Join(args, " "))
+	cmd := exec.Command("go", args...)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pin skill bundle dependencies: %w", err)
+	}
+	return nil
 }
 
 func skillIncludeConfigured(include render.SkillInclude) bool {

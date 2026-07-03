@@ -3,6 +3,9 @@ package lathe
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,6 +83,9 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 	if !report.OK {
 		t.Fatalf("report = %+v", report)
 	}
+	if report.Version != verifyReportVersion {
+		t.Fatalf("version = %d, want %d", report.Version, verifyReportVersion)
+	}
 	for _, want := range []string{
 		"root_help",
 		"commands_schema",
@@ -93,6 +99,54 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 		if !verifyReportHasCheck(report, want) {
 			t.Fatalf("report missing %q: %+v", want, report.Checks)
 		}
+	}
+}
+
+func TestVerifyGeneratedSkillInstall(t *testing.T) {
+	root := NewApp(testManifest())
+	if err := runtime.Build(root, "demo", []runtime.CommandSpec{{
+		Group:   "Users",
+		Use:     "get-user",
+		Method:  "GET",
+		PathTpl: "/users/{id}",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime.AttachCapability(root, runtime.CapabilitySkillBundle)
+	skill := &cobra.Command{Use: "skill"}
+	hookRan := false
+	install := &cobra.Command{
+		Use: "install",
+		PreRunE: func(_ *cobra.Command, _ []string) error {
+			hookRan = true
+			return nil
+		},
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if !hookRan {
+				return errors.New("pre-run hook did not run")
+			}
+			target := filepath.Join(os.Getenv("HOME"), ".agents", "skills", "myctl")
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("skill"), 0o644); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(target, ".kitup.json"), []byte("{}"), 0o644)
+		},
+	}
+	install.Flags().String("scope", "", "")
+	install.Flags().String("agent", "", "")
+	install.Flags().Bool("yes", false, "")
+	skill.AddCommand(install)
+	root.AddCommand(skill)
+
+	report := verifyGenerated(root, testManifest())
+	if !verifyReportHasCheck(report, "skill_install") {
+		t.Fatalf("report missing skill_install: %+v", report.Checks)
+	}
+	if !hookRan {
+		t.Fatal("skill install hook did not run")
 	}
 }
 

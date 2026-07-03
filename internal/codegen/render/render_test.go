@@ -472,6 +472,75 @@ func TestRenderModulesGen_UsesFlatMount(t *testing.T) {
 	}
 }
 
+func TestRenderModulesGen_WithSkillBundle(t *testing.T) {
+	chdirWithGeneratedRoot(t)
+
+	if err := RenderModulesGenWithOptions([]ModuleMount{{Name: "alpha"}}, ModulesGenOptions{
+		SkillBundle: &SkillBundleMount{Root: "acmectl"},
+	}); err != nil {
+		t.Fatalf("RenderModulesGenWithOptions: %v", err)
+	}
+	got := generatedModules(t)
+	for _, want := range []string{
+		`func Mount(root *cobra.Command) error`,
+		`return MountModules(root)`,
+		`lathekitup "github.com/lathe-cli/kitup/go"`,
+		`lathekitupcobra "github.com/lathe-cli/kitup/go-cobra"`,
+		`latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)`,
+		`lathegeneratedskillbundle "example.com/fake/internal/generated/skillbundle"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderSkillBundlePackage(t *testing.T) {
+	chdirWithGeneratedRoot(t)
+	if err := os.MkdirAll("skills/acmectl/agents", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("skills/acmectl/SKILL.md", []byte("---\nname: acmectl\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("skills/acmectl/.lathe-skill", []byte("owner"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("skills/acmectl/agents/openai.yaml", []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("internal/generated/skillbundle/otherctl", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("internal/generated/skillbundle/otherctl/SKILL.md", []byte("other"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RenderSkillBundlePackage("skills/acmectl", "acmectl"); err != nil {
+		t.Fatalf("RenderSkillBundlePackage: %v", err)
+	}
+	for _, path := range []string{
+		"internal/generated/skillbundle/skillbundle_gen.go",
+		"internal/generated/skillbundle/acmectl/SKILL.md",
+		"internal/generated/skillbundle/acmectl/agents/openai.yaml",
+		"internal/generated/skillbundle/otherctl/SKILL.md",
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat("internal/generated/skillbundle/acmectl/.lathe-skill"); !os.IsNotExist(err) {
+		t.Fatalf("dotfile should be skipped, stat err = %v", err)
+	}
+	got, err := os.ReadFile("internal/generated/skillbundle/skillbundle_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `//go:embed acmectl/**`) {
+		t.Fatalf("embed bridge missing root:\n%s", got)
+	}
+}
+
 func TestResolveFlatCommandPath(t *testing.T) {
 	specs := []runtime.CommandSpec{{Group: "Users", Use: "list-users"}}
 	flat, err := ResolveFlatCommandPath("auto", 1, specs)
@@ -517,6 +586,14 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		t.Fatal("auto should keep Cobra-normalized root command conflicts namespaced")
 	}
 
+	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{{Group: "Skill", Use: "install-skill"}})
+	if err != nil {
+		t.Fatalf("ResolveFlatCommandPath: %v", err)
+	}
+	if flat {
+		t.Fatal("auto should keep skill root command conflicts namespaced")
+	}
+
 	flat, err = ResolveFlatCommandPath("auto", 1, []runtime.CommandSpec{
 		{Group: "Users", Use: "list-users"},
 		{Group: "Users API", Use: "get-user"},
@@ -536,6 +613,11 @@ func TestResolveFlatCommandPath(t *testing.T) {
 	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}})
 	if err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("expected Cobra-normalized flat conflict error, got %v", err)
+	}
+
+	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{{Group: "Skill", Use: "install-skill"}})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected skill flat conflict error, got %v", err)
 	}
 
 	_, err = ResolveFlatCommandPath("flat", 1, []runtime.CommandSpec{
@@ -601,14 +683,22 @@ func TestValidateModuleNames(t *testing.T) {
 	if err := ValidateModuleNames([]string{"pets", "billing"}); err != nil {
 		t.Fatalf("distinct module names should pass: %v", err)
 	}
-	for _, reserved := range []string{"__lathe", "auth", "commands", "help", "login", "search", "update"} {
+	for _, reserved := range []string{"__lathe", "auth", "commands", "help", "login", "search", "skill", "update"} {
 		err := ValidateModuleNames([]string{"pets", reserved})
 		if err == nil || !strings.Contains(err.Error(), "reserved root command") {
 			t.Fatalf("module name %q should be rejected, got %v", reserved, err)
 		}
 	}
-	err := ValidateModuleNames([]string{"pets", "pets"})
+	err := ValidateModuleNames([]string{"pets", "Skill API"})
+	if err == nil || !strings.Contains(err.Error(), "reserved root command") {
+		t.Fatalf("Cobra-normalized module name should be rejected, got %v", err)
+	}
+	err = ValidateModuleNames([]string{"pets", "pets"})
 	if err == nil || !strings.Contains(err.Error(), "mounted more than once") {
 		t.Fatalf("duplicate module names should be rejected, got %v", err)
+	}
+	err = ValidateModuleNames([]string{"pets", "Pets API"})
+	if err == nil || !strings.Contains(err.Error(), "mounted more than once") {
+		t.Fatalf("Cobra-normalized duplicate module names should be rejected, got %v", err)
 	}
 }

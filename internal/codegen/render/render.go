@@ -19,6 +19,7 @@ import (
 const (
 	GeneratedRoot  = "internal/generated"
 	ModulesGenFile = "internal/generated/modules_gen.go"
+	SkillBundleDir = "internal/generated/skillbundle"
 )
 
 type moduleCtx struct {
@@ -32,6 +33,14 @@ type moduleCtx struct {
 type ModuleMount struct {
 	Name string
 	Flat bool
+}
+
+type ModulesGenOptions struct {
+	SkillBundle *SkillBundleMount
+}
+
+type SkillBundleMount struct {
+	Root string
 }
 
 // RuntimePkg is the import path downstream-generated modules use to reach
@@ -190,6 +199,7 @@ var reservedRootCommands = map[string]bool{
 	"help":     true,
 	"login":    true,
 	"search":   true,
+	"skill":    true,
 	"update":   true,
 }
 
@@ -197,12 +207,16 @@ var reservedRootCommands = map[string]bool{
 // a reserved root command or another module on the generated root command.
 func ValidateModuleNames(names []string) error {
 	seen := map[string]bool{}
-	for _, name := range names {
+	for _, raw := range names {
+		name := rootCommandName(raw)
+		if name == "" {
+			return fmt.Errorf("module name %q has empty generated root command", raw)
+		}
 		if reservedRootCommands[name] {
-			return fmt.Errorf("module name %q conflicts with a reserved root command", name)
+			return fmt.Errorf("module name %q conflicts with a reserved root command", raw)
 		}
 		if seen[name] {
-			return fmt.Errorf("module name %q is mounted more than once", name)
+			return fmt.Errorf("module name %q is mounted more than once", raw)
 		}
 		seen[name] = true
 	}
@@ -444,15 +458,20 @@ func renderModuleSpecs(name, cliName string, specs []runtime.CommandSpec) error 
 }
 
 func RenderModulesGen(modules []ModuleMount) error {
+	return RenderModulesGenWithOptions(modules, ModulesGenOptions{})
+}
+
+func RenderModulesGenWithOptions(modules []ModuleMount, opts ModulesGenOptions) error {
 	mp, err := modulePath()
 	if err != nil {
 		return err
 	}
 	var buf strings.Builder
 	if err := modulesTmpl.Execute(&buf, struct {
-		Prefix  string
-		Modules []ModuleMount
-	}{Prefix: mp + "/internal/generated/", Modules: modules}); err != nil {
+		Prefix      string
+		Modules     []ModuleMount
+		SkillBundle *SkillBundleMount
+	}{Prefix: mp + "/internal/generated/", Modules: modules, SkillBundle: opts.SkillBundle}); err != nil {
 		return err
 	}
 	formatted, err := format.Source([]byte(buf.String()))
@@ -465,6 +484,75 @@ func RenderModulesGen(modules []ModuleMount) error {
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", ModulesGenFile, len(modules))
 	return nil
+}
+
+func RenderSkillBundlePackage(skillDir string, cliName string) error {
+	root := SkillDirName(cliName)
+	dst := filepath.Join(SkillBundleDir, root)
+	if err := os.MkdirAll(SkillBundleDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	if err := copySkillBundleFiles(skillDir, dst); err != nil {
+		return err
+	}
+	var buf strings.Builder
+	if err := skillBundleTmpl.Execute(&buf, struct{ Root string }{Root: root}); err != nil {
+		return err
+	}
+	formatted, err := format.Source([]byte(buf.String()))
+	if err != nil {
+		_ = os.WriteFile(filepath.Join(SkillBundleDir, "skillbundle_gen.go.unformatted"), []byte(buf.String()), 0o644)
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(SkillBundleDir, "skillbundle_gen.go"), formatted, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s\n", SkillBundleDir)
+	return nil
+}
+
+func RemoveSkillBundlePackage() error {
+	return os.RemoveAll(SkillBundleDir)
+}
+
+func copySkillBundleFiles(src string, dst string) error {
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(entry.Name(), ".") {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if rel == "." {
+			return os.MkdirAll(dst, 0o755)
+		}
+		target := filepath.Join(dst, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm())
+	})
 }
 
 func schemaLiteral(s *runtime.SchemaSpec) string {
@@ -695,14 +783,27 @@ var modulesTmpl = template.Must(template.New("modules").Parse(`// Code generated
 package generated
 
 import (
+{{- if .SkillBundle}}
+	lathekitup "github.com/lathe-cli/kitup/go"
+	lathekitupcobra "github.com/lathe-cli/kitup/go-cobra"
+	latheruntime "github.com/lathe-cli/lathe/pkg/runtime"
+{{- end}}
 	"github.com/spf13/cobra"
 
 {{- range .Modules}}
 	{{.Name}} "{{$.Prefix}}{{.Name}}"
 {{- end}}
+{{- if .SkillBundle}}
+	lathegeneratedskillbundle "{{$.Prefix}}skillbundle"
+{{- end}}
 )
 
-// MountModules mounts every module declared in sources.yaml under root.
+// Mount mounts every generated command and capability declared by codegen.
+func Mount(root *cobra.Command) error {
+	return MountModules(root)
+}
+
+// MountModules mounts every module and generated capability under root.
 // The import list above is the single source of truth for which modules
 // are compiled into this binary. main.go wires this call after
 // app.NewApp() so the framework package never imports downstream code.
@@ -712,8 +813,27 @@ func MountModules(root *cobra.Command) error {
 		return err
 	}
 {{- end}}
+{{- if .SkillBundle}}
+	latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)
+	root.AddCommand(lathekitupcobra.NewSkillCommand(lathekitupcobra.Options{
+		AppID:  root.Name(),
+		Bundle: lathekitup.FSBundle(lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root),
+	}))
+{{- end}}
 	return nil
 }
+`))
+
+var skillBundleTmpl = template.Must(template.New("skillbundle").Parse(`// Code generated by lathe codegen. DO NOT EDIT.
+
+package skillbundle
+
+import "embed"
+
+const Root = {{printf "%q" .Root}}
+
+//go:embed {{.Root}}/**
+var FS embed.FS
 `))
 
 // modulePath reads the `module` directive from go.mod in the current working

@@ -12,6 +12,7 @@ type Manifest struct {
 	CLI    CLIInfo    `yaml:"cli"`
 	Auth   AuthInfo   `yaml:"auth"`
 	Update UpdateInfo `yaml:"update,omitempty"`
+	Skill  SkillInfo  `yaml:"skill,omitempty"`
 }
 
 type CLIInfo struct {
@@ -30,6 +31,10 @@ type AuthInfo struct {
 
 type UpdateInfo struct {
 	GitHub *GitHubUpdate `yaml:"github,omitempty"`
+}
+
+type SkillInfo struct {
+	Bundle bool `yaml:"bundle,omitempty"`
 }
 
 type AuthLogin struct {

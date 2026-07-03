@@ -30,6 +30,7 @@ type Skill struct {
 	Dir     string
 	Include render.SkillInclude
 	Modules []render.SkillModule
+	Bundle  bool
 }
 
 // Validate rejects app compositions that would produce a conflicting root
@@ -55,11 +56,21 @@ func (a *App) Write() error {
 		}
 		mounts = append(mounts, render.ModuleMount{Name: m.Source, Flat: m.Flat})
 	}
-	if err := render.RenderModulesGen(mounts); err != nil {
+	opts := render.ModulesGenOptions{}
+	if a.Skill != nil && a.Skill.Bundle {
+		opts.SkillBundle = &render.SkillBundleMount{Root: render.SkillDirName(a.Manifest.CLI.Name)}
+	}
+	if err := render.RenderModulesGenWithOptions(mounts, opts); err != nil {
 		return err
 	}
 	if a.Skill == nil {
-		return nil
+		return render.RemoveSkillBundlePackage()
 	}
-	return render.RenderSkillDirectoryWithInclude(a.Skill.Dir, a.Manifest, a.Skill.Modules, a.Skill.Include)
+	if err := render.RenderSkillDirectoryWithInclude(a.Skill.Dir, a.Manifest, a.Skill.Modules, a.Skill.Include); err != nil {
+		return err
+	}
+	if !a.Skill.Bundle {
+		return render.RemoveSkillBundlePackage()
+	}
+	return render.RenderSkillBundlePackage(a.Skill.Dir, a.Manifest.CLI.Name)
 }
