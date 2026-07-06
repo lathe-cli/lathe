@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/vektah/gqlparser/v2 v2.5.35
+	github.com/vektah/gqlparser/v2 v2.5.36
 	golang.org/x/term v0.44.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260420184626-e10c466a9529
 	google.golang.org/protobuf v1.36.11
