@@ -61,6 +61,10 @@ func runWithOutputs(args []string, stdout io.Writer, stderr io.Writer) error {
 		return RunCodegen(args[1:], stderr)
 	case "bootstrap":
 		return RunBootstrap(args[1:], stderr)
+	case "init":
+		return RunInit(args[1:], stdout, stderr)
+	case "skill":
+		return RunSkill(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintf(stdout, "lathe %s (%s, %s)\n", lathe.Version, lathe.Commit, lathe.Date)
 		return nil
@@ -140,6 +144,8 @@ func printRootUsage(output io.Writer) {
   lathe <command> [flags]
 
 Commands:
+  lathe init        Create a CLI-first application repository
+  lathe skill       Manage the bundled Lathe Agent Skill
   lathe specsync   Sync pinned upstream API specs into the local cache
   lathe codegen    Generate runtime command specs and optional Skill files
   lathe bootstrap  Sync specs and generate code in one pass

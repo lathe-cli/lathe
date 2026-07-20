@@ -3,6 +3,7 @@ module github.com/lathe-cli/lathe
 go 1.25.7
 
 require (
+	github.com/lathe-cli/kitup/go v0.1.3
 	github.com/spf13/cobra v1.10.2
 	github.com/vektah/gqlparser/v2 v2.5.36
 	golang.org/x/term v0.45.0
