@@ -3,6 +3,12 @@
 Status: implemented; cross-repository gate automation pending
 Scope: v1 behavior merged in [PR #96](https://github.com/lathe-cli/lathe/pull/96)
 
+| `lathe init` CLI | Agent-driven application build |
+| :---: | :---: |
+| [![Run lathe init](images/lathe-init-cli.jpg)](https://ai-native-app-development.pages.dev/videos/output-2.mp4) | [![Build an application with an agent](images/lathe-init-agent.jpg)](https://ai-native-app-development.pages.dev/videos/output-3.mp4) |
+
+Click any preview to play the video.
+
 ## 1. Decision
 
 Add one root command:
