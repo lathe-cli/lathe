@@ -90,6 +90,27 @@ built, and which output format to prefer.
 
 ## Quick Start
 
+Start a CLI-first application repository from the latest starter `main`:
+
+```sh
+lathe init ./my-app \
+  --language node \
+  --app-name "My App" \
+  --cli-name my-appctl \
+  --go-module example.com/my-app
+```
+
+Use `--language node|go|python|rust`. Override the starter with
+`--template '<git-url>#<ref>'`; the optional ref may be a branch or tag. The
+result is a new local Git repository with generated CLI files, no commit, no
+staged files, and no remote.
+
+Install Lathe's Agent Skill with:
+
+```sh
+lathe skill install --scope user --agent codex --yes
+```
+
 Create a repository from [github.com/lathe-cli/lathe](https://github.com/lathe-cli/lathe),
 then configure two files.
 
@@ -101,6 +122,8 @@ subcommands:
 - `lathe specsync`: sync declared API specs into the local cache.
 - `lathe codegen`: generate runtime command specs and optional Skill files.
 - `lathe bootstrap`: run `specsync` and `codegen` in one pass.
+- `lathe init`: create a CLI-first application repository from a starter.
+- `lathe skill install`: install Lathe's bundled Agent Skill.
 
 Download the archive for your platform from the [latest release](https://github.com/lathe-cli/lathe/releases/latest), unpack it, and put `lathe` on your `PATH`.
 

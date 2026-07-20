@@ -82,6 +82,26 @@ Lathe 的判断很简单：API 规格才是事实来源，CLI 应该从规格生
 
 ## 快速开始
 
+从 starter 最新的 `main` 创建一个 CLI-first 应用仓库：
+
+```sh
+lathe init ./my-app \
+  --language node \
+  --app-name "My App" \
+  --cli-name my-appctl \
+  --go-module example.com/my-app
+```
+
+`--language` 支持 `node|go|python|rust`。可以用
+`--template '<git-url>#<ref>'` 覆盖默认模板，可选 ref 可以是 branch 或 tag。
+生成结果是一个本地 Git 仓库：CLI 生成物已就绪，没有 commit、staged 文件和 remote。
+
+安装 Lathe 自身的 Agent Skill：
+
+```sh
+lathe skill install --scope user --agent codex --yes
+```
+
 基于 [github.com/lathe-cli/lathe](https://github.com/lathe-cli/lathe) 创建仓库，
 然后配置两个文件。
 
@@ -92,6 +112,8 @@ Lathe release archive 包含一个命令行工具 `lathe`，生成流程通过�
 - `lathe specsync`：把锁定版本的上游 API 规格同步到本地 cache。
 - `lathe codegen`：生成 runtime command specs 和可选 Skill 文件。
 - `lathe bootstrap`：一次性执行 `specsync` 和 `codegen`。
+- `lathe init`：从 starter 创建 CLI-first 应用仓库。
+- `lathe skill install`：安装 Lathe 内嵌的 Agent Skill。
 
 从 [latest release](https://github.com/lathe-cli/lathe/releases/latest) 下载对应平台的 archive，解压后把 `lathe` 放进 `PATH`。
 
