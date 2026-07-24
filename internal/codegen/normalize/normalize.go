@@ -3,6 +3,7 @@ package normalize
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -72,7 +73,34 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		}
 		return specs[i].OperationID < specs[j].OperationID
 	})
+	disambiguateUse(specs)
 	return specs
+}
+
+// disambiguateUse makes each command's Group+Use unique. Distinct operations can
+// normalize to the same command name (e.g. GET /groups and GET /Groups, or
+// create_x and get_x whose ids both reduce to "x"); without this, codegen aborts
+// on the collision instead of exposing both endpoints. Runs after the sort so
+// the suffix assignment is deterministic.
+func disambiguateUse(specs []runtime.CommandSpec) {
+	used := map[string]bool{}
+	for i := range specs {
+		key := specs[i].Group + "\x00" + specs[i].Use
+		if !used[key] {
+			used[key] = true
+			continue
+		}
+		base := specs[i].Use
+		for n := 2; ; n++ {
+			cand := base + "-" + strconv.Itoa(n)
+			ck := specs[i].Group + "\x00" + cand
+			if !used[ck] {
+				specs[i].Use = cand
+				used[ck] = true
+				break
+			}
+		}
+	}
 }
 
 func applyRawOutputHints(spec *runtime.CommandSpec, hints *rawir.RawOutputHints) {
