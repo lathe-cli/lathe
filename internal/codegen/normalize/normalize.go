@@ -3,6 +3,7 @@ package normalize
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -13,10 +14,17 @@ import (
 func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 	var specs []runtime.CommandSpec
 	for _, op := range mod.Operations {
-		if op.OperationID == "" {
+		// Fall back to a method+path-derived id when the spec omits operationId
+		// (common with swaggo/springfox and framework-extracted drafts); without
+		// this the operation is silently dropped and the CLI is empty.
+		opID := op.OperationID
+		if opID == "" {
+			opID = synthOperationID(op.Method, op.Path)
+		}
+		if opID == "" {
 			continue
 		}
-		useName := camelToKebab(opNameFromID(op.OperationID))
+		useName := camelToKebab(opNameFromID(opID))
 		if useName == "" {
 			continue
 		}
@@ -24,7 +32,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			Group:       group(op),
 			Use:         useName,
 			Short:       pickShort(op),
-			OperationID: op.OperationID,
+			OperationID: opID,
 			Method:      op.Method,
 			PathTpl:     op.Path,
 		}
@@ -72,7 +80,58 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		}
 		return specs[i].OperationID < specs[j].OperationID
 	})
+	disambiguateUse(specs)
 	return specs
+}
+
+// synthOperationID builds a camelCase id like "getUsersId" from a method and
+// path, for specs that omit operationId. It contains no underscore, so
+// opNameFromID returns it whole and camelToKebab yields the command name.
+func synthOperationID(method, path string) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(method))
+	for _, seg := range strings.Split(path, "/") {
+		seg = strings.Trim(seg, "{}")
+		var s strings.Builder
+		for _, r := range seg {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+				s.WriteRune(r)
+			}
+		}
+		if s.Len() == 0 {
+			continue
+		}
+		w := s.String()
+		b.WriteString(strings.ToUpper(w[:1]))
+		b.WriteString(w[1:])
+	}
+	return b.String()
+}
+
+// disambiguateUse makes each command's Group+Use unique. Distinct operations can
+// normalize to the same command name (e.g. GET /groups and GET /Groups, or
+// create_x and get_x whose ids both reduce to "x"); without this, codegen aborts
+// on the collision instead of exposing both endpoints. Runs after the sort so
+// the suffix assignment is deterministic.
+func disambiguateUse(specs []runtime.CommandSpec) {
+	used := map[string]bool{}
+	for i := range specs {
+		key := specs[i].Group + "\x00" + specs[i].Use
+		if !used[key] {
+			used[key] = true
+			continue
+		}
+		base := specs[i].Use
+		for n := 2; ; n++ {
+			cand := base + "-" + strconv.Itoa(n)
+			ck := specs[i].Group + "\x00" + cand
+			if !used[ck] {
+				specs[i].Use = cand
+				used[ck] = true
+				break
+			}
+		}
+	}
 }
 
 func applyRawOutputHints(spec *runtime.CommandSpec, hints *rawir.RawOutputHints) {

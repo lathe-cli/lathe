@@ -1,1 +1,25 @@
-null
+[
+  {
+    "Group": "Users",
+    "Use": "get-users",
+    "Aliases": null,
+    "Short": "",
+    "Long": "",
+    "Example": "",
+    "OperationID": "getUsers",
+    "Hidden": false,
+    "Deprecated": false,
+    "Method": "GET",
+    "PathTpl": "/users",
+    "Params": null,
+    "RequestBody": null,
+    "Output": {
+      "ListPath": "",
+      "DefaultColumns": null,
+      "ResponseMediaType": "",
+      "Pagination": null,
+      "Streaming": null
+    },
+    "Security": null
+  }
+]

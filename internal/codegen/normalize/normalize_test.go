@@ -376,3 +376,20 @@ func securityScopes() *rawir.RawModule {
 		}},
 	}
 }
+
+func TestDisambiguateUseCollisions(t *testing.T) {
+	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
+		{OperationID: "getGroups", Method: "GET", Path: "/groups"},
+		{OperationID: "getGroupsUpper", Method: "GET", Path: "/Groups"},
+	}}
+	// Force both to the same base Use via identical opNameFromID output.
+	mod.Operations[0].OperationID = "x_groups"
+	mod.Operations[1].OperationID = "y_groups"
+	specs := Normalize(mod)
+	if len(specs) != 2 {
+		t.Fatalf("want 2 specs, got %d", len(specs))
+	}
+	if specs[0].Use == specs[1].Use {
+		t.Errorf("colliding command names not disambiguated: both %q", specs[0].Use)
+	}
+}
