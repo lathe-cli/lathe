@@ -123,7 +123,7 @@ func searchCmd(m *config.Manifest) *cobra.Command {
 func catalogOptions(m *config.Manifest, includeHidden bool) runtime.CatalogOptions {
 	return runtime.CatalogOptions{
 		CLIName:       m.CLI.Name,
-		CLIVersion:    Version,
+		CLIVersion:    catalogCLIVersion(),
 		IncludeHidden: includeHidden,
 	}
 }

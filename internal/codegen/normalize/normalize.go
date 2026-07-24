@@ -12,20 +12,21 @@ import (
 )
 
 func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
+	trim := commonNoisePrefix(mod.Operations)
 	var specs []runtime.CommandSpec
 	for _, op := range mod.Operations {
 		// Fall back to a method+path-derived id when the spec omits operationId
 		// (common with swaggo/springfox and framework-extracted drafts); without
 		// this the operation is silently dropped and the CLI is empty.
 		opID := op.OperationID
+		useName := ""
 		if opID == "" {
 			opID = synthOperationID(op.Method, op.Path)
+			useName = synthUseName(op.Method, op.Path, trim)
+		} else {
+			useName = kebabFromID(opNameFromID(opID, group(op)))
 		}
-		if opID == "" {
-			continue
-		}
-		useName := camelToKebab(opNameFromID(opID))
-		if useName == "" {
+		if opID == "" || useName == "" {
 			continue
 		}
 		spec := runtime.CommandSpec{
@@ -85,8 +86,8 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 }
 
 // synthOperationID builds a camelCase id like "getUsersId" from a method and
-// path, for specs that omit operationId. It contains no underscore, so
-// opNameFromID returns it whole and camelToKebab yields the command name.
+// path, for specs that omit operationId. It stands in for the missing id in the
+// catalog and Skill; the command name comes from synthUseName instead.
 func synthOperationID(method, path string) string {
 	var b strings.Builder
 	b.WriteString(strings.ToLower(method))
@@ -108,11 +109,107 @@ func synthOperationID(method, path string) string {
 	return b.String()
 }
 
+// synthUseName names an operation the spec never named, from the path rather
+// than the id: "delete-dashboard-pk-favorites", not
+// "delete-api-v1dashboard-pk-favorites".
+func synthUseName(method, path string, trim int) string {
+	segs := pathSegments(path)
+	if trim < len(segs) {
+		segs = segs[trim:]
+	}
+	parts := []string{strings.ToLower(method)}
+	for _, seg := range segs {
+		if s := sanitizeSegment(seg); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, "-")
+}
+
+// commonNoisePrefix counts leading segments ("api", "v1") shared by every
+// unnamed operation. Module-wide rather than per-operation, so a spec serving
+// two API versions keeps them distinct instead of collapsing onto one name.
+func commonNoisePrefix(ops []rawir.RawOperation) int {
+	var paths [][]string
+	for _, op := range ops {
+		if op.OperationID != "" {
+			continue
+		}
+		paths = append(paths, pathSegments(op.Path))
+	}
+	if len(paths) == 0 {
+		return 0
+	}
+	n := 0
+	for {
+		// Always leave one segment: a command needs a noun.
+		if n >= len(paths[0])-1 || !noiseSegment(paths[0][n]) {
+			return n
+		}
+		for _, p := range paths[1:] {
+			if n >= len(p)-1 || p[n] != paths[0][n] {
+				return n
+			}
+		}
+		n++
+	}
+}
+
+func noiseSegment(seg string) bool {
+	switch folded := foldToken(seg); folded {
+	case "api", "apis", "rest":
+		return true
+	default:
+		if len(folded) < 2 || folded[0] != 'v' || folded[1] < '0' || folded[1] > '9' {
+			return false
+		}
+		return true
+	}
+}
+
+func pathSegments(path string) []string {
+	var out []string
+	for _, seg := range strings.Split(path, "/") {
+		if seg != "" {
+			out = append(out, seg)
+		}
+	}
+	return out
+}
+
+func sanitizeSegment(seg string) string {
+	seg = strings.Trim(seg, "{}")
+	seg = strings.NewReplacer("_", "-", ".", "-", " ", "-").Replace(seg)
+	var b strings.Builder
+	for _, r := range camelToKebab(seg) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	return strings.Trim(collapseDashes(b.String()), "-")
+}
+
+func collapseDashes(s string) string {
+	var b strings.Builder
+	prev := false
+	for _, r := range s {
+		if r == '-' {
+			if prev {
+				continue
+			}
+			prev = true
+		} else {
+			prev = false
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // disambiguateUse makes each command's Group+Use unique. Distinct operations can
-// normalize to the same command name (e.g. GET /groups and GET /Groups, or
-// create_x and get_x whose ids both reduce to "x"); without this, codegen aborts
-// on the collision instead of exposing both endpoints. Runs after the sort so
-// the suffix assignment is deterministic.
+// still normalize to the same command name (e.g. GET /groups and GET /Groups);
+// without this, codegen aborts on the collision instead of exposing both
+// endpoints. Runs after the sort so the suffix assignment is deterministic.
 func disambiguateUse(specs []runtime.CommandSpec) {
 	used := map[string]bool{}
 	for i := range specs {
@@ -164,11 +261,39 @@ func group(op rawir.RawOperation) string {
 	return "Default"
 }
 
-func opNameFromID(id string) string {
-	if idx := strings.Index(id, "_"); idx >= 0 {
-		return id[idx+1:]
+// opNameFromID drops a leading segment only when it repeats the group
+// ("Dashboards_getList" in group "Dashboards"). Dropping it unconditionally
+// collapsed create_chunk/update_chunk/delete_chunk onto one name.
+func opNameFromID(id, group string) string {
+	idx := strings.Index(id, "_")
+	if idx <= 0 || !sameToken(id[:idx], group) {
+		return id
 	}
-	return id
+	return id[idx+1:]
+}
+
+// kebabFromID renders an operationId as a command name. Edge separators are
+// trimmed: "_foo" would otherwise yield "-foo", which cobra reads as a flag.
+func kebabFromID(id string) string {
+	return strings.Trim(collapseDashes(camelToKebab(strings.ReplaceAll(id, "_", "-"))), "-")
+}
+
+func sameToken(a, b string) bool {
+	fa, fb := foldToken(a), foldToken(b)
+	if fa == "" || fb == "" {
+		return false
+	}
+	return fa == fb || strings.TrimSuffix(fa, "s") == strings.TrimSuffix(fb, "s")
+}
+
+func foldToken(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
 }
 
 func pickShort(op rawir.RawOperation) string {

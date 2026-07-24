@@ -66,7 +66,8 @@ func runWithOutputs(args []string, stdout io.Writer, stderr io.Writer) error {
 	case "skill":
 		return RunSkill(args[1:], stdout, stderr)
 	case "version":
-		fmt.Fprintf(stdout, "lathe %s (%s, %s)\n", lathe.Version, lathe.Commit, lathe.Date)
+		version, commit, date := lathe.VersionInfo()
+		fmt.Fprintf(stdout, "lathe %s (%s, %s)\n", version, commit, date)
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])

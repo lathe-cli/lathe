@@ -378,18 +378,91 @@ func securityScopes() *rawir.RawModule {
 }
 
 func TestDisambiguateUseCollisions(t *testing.T) {
+	// Same group, same derived name: distinct operations must both survive with
+	// distinct command names rather than aborting codegen.
 	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
-		{OperationID: "getGroups", Method: "GET", Path: "/groups"},
-		{OperationID: "getGroupsUpper", Method: "GET", Path: "/Groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/groups"},
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/Groups"},
 	}}
-	// Force both to the same base Use via identical opNameFromID output.
-	mod.Operations[0].OperationID = "x_groups"
-	mod.Operations[1].OperationID = "y_groups"
 	specs := Normalize(mod)
 	if len(specs) != 2 {
 		t.Fatalf("want 2 specs, got %d", len(specs))
 	}
 	if specs[0].Use == specs[1].Use {
 		t.Errorf("colliding command names not disambiguated: both %q", specs[0].Use)
+	}
+}
+
+// A leading id segment is redundant only when it repeats the group. Stripping
+// it unconditionally collapsed every CRUD verb onto the same command name.
+func TestOpNameKeepsVerbWhenPrefixIsNotTheGroup(t *testing.T) {
+	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Chunk", OperationID: "create_chunk", Method: "POST", Path: "/api/chunk"},
+		{Group: "Chunk", OperationID: "update_chunk", Method: "PUT", Path: "/api/chunk"},
+		{Group: "Chunk", OperationID: "delete_chunk", Method: "DELETE", Path: "/api/chunk"},
+		{Group: "Chunks", OperationID: "Chunks_search", Method: "POST", Path: "/api/chunk/search"},
+	}}
+	got := map[string]string{}
+	for _, spec := range Normalize(mod) {
+		got[spec.OperationID] = spec.Use
+	}
+	want := map[string]string{
+		"create_chunk":  "create-chunk",
+		"update_chunk":  "update-chunk",
+		"delete_chunk":  "delete-chunk",
+		"Chunks_search": "search",
+	}
+	for id, expected := range want {
+		if got[id] != expected {
+			t.Errorf("%s: want Use %q, got %q", id, expected, got[id])
+		}
+	}
+}
+
+func TestSynthUseNameDropsSharedNoisePrefix(t *testing.T) {
+	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Dashboards", Method: "GET", Path: "/api/v1/dashboard/"},
+		{Group: "Dashboards", Method: "DELETE", Path: "/api/v1/dashboard/{pk}/favorites/"},
+		{Group: "Charts", Method: "POST", Path: "/api/v1/advanced_data_type/convert"},
+	}}
+	want := map[string]string{
+		"GET":    "get-dashboard",
+		"DELETE": "delete-dashboard-pk-favorites",
+		"POST":   "post-advanced-data-type-convert",
+	}
+	for _, spec := range Normalize(mod) {
+		if want[spec.Method] != spec.Use {
+			t.Errorf("%s %s: want Use %q, got %q", spec.Method, spec.PathTpl, want[spec.Method], spec.Use)
+		}
+	}
+}
+
+// Two API versions in one spec must stay distinguishable: the version segment
+// is only noise when every unnamed operation shares it.
+func TestSynthUseNameKeepsDivergingVersions(t *testing.T) {
+	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Users", Method: "GET", Path: "/api/v1/users"},
+		{Group: "Users", Method: "GET", Path: "/api/v2/users"},
+	}}
+	specs := Normalize(mod)
+	uses := []string{specs[0].Use, specs[1].Use}
+	for _, use := range uses {
+		if use != "get-v1-users" && use != "get-v2-users" {
+			t.Errorf("want versioned command names, got %v", uses)
+		}
+	}
+	if uses[0] == uses[1] {
+		t.Errorf("versions collapsed onto one name: %v", uses)
+	}
+}
+
+// An operationId can start or end with an underscore; the command name must not
+// start with a dash, which cobra would read as a flag.
+func TestKebabFromIDTrimsEdgeSeparators(t *testing.T) {
+	cases := map[string]string{"_foo": "foo", "foo_": "foo", "a__b": "a-b", "_": ""}
+	for id, want := range cases {
+		if got := kebabFromID(id); got != want {
+			t.Errorf("kebabFromID(%q) = %q, want %q", id, got, want)
+		}
 	}
 }
