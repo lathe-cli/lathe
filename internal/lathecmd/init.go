@@ -194,14 +194,23 @@ func selectLanguage(reader *bufio.Reader, output io.Writer) (string, error) {
 
 func resolveInitVersion(linkedVersion, moduleVersion, override string) (string, error) {
 	if linkedVersion != "dev" {
-		return linkedVersion, nil
+		return withVPrefix(linkedVersion), nil
 	}
 	if override != "" {
-		return override, nil
+		return withVPrefix(override), nil
 	}
 	moduleVersion = strings.TrimSuffix(moduleVersion, "+dirty")
 	if moduleVersion != "" && moduleVersion != "(devel)" {
-		return moduleVersion, nil
+		return withVPrefix(moduleVersion), nil
 	}
 	return "", errors.New("cannot determine generator/runtime version; set LATHE_INIT_VERSION")
+}
+
+// Release builds stamp the tag without its leading "v" ("0.5.0"), which is not
+// a valid go.mod requirement and made `lathe init` reject its own version.
+func withVPrefix(version string) string {
+	if version != "" && version[0] >= '0' && version[0] <= '9' {
+		return "v" + version
+	}
+	return version
 }
