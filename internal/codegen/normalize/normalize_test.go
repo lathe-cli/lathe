@@ -419,6 +419,19 @@ func TestOpNameKeepsVerbWhenPrefixIsNotTheGroup(t *testing.T) {
 	}
 }
 
+func TestOpNameDropsModulePrefix(t *testing.T) {
+	mod := &rawir.RawModule{
+		Name: "console",
+		Operations: []rawir.RawOperation{{
+			Group: "Apps", OperationID: "console_listApps", Method: "POST", Path: "/graphql",
+		}},
+	}
+	specs := Normalize(mod)
+	if got := specs[0].Use; got != "list-apps" {
+		t.Fatalf("Use = %q, want list-apps", got)
+	}
+}
+
 func TestSynthUseNameDropsSharedNoisePrefix(t *testing.T) {
 	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
 		{Group: "Dashboards", Method: "GET", Path: "/api/v1/dashboard/"},

@@ -24,7 +24,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			opID = synthOperationID(op.Method, op.Path)
 			useName = synthUseName(op.Method, op.Path, trim)
 		} else {
-			useName = kebabFromID(opNameFromID(opID, group(op)))
+			useName = kebabFromID(opNameFromID(opID, group(op), mod.Name))
 		}
 		if opID == "" || useName == "" {
 			continue
@@ -261,12 +261,10 @@ func group(op rawir.RawOperation) string {
 	return "Default"
 }
 
-// opNameFromID drops a leading segment only when it repeats the group
-// ("Dashboards_getList" in group "Dashboards"). Dropping it unconditionally
-// collapsed create_chunk/update_chunk/delete_chunk onto one name.
-func opNameFromID(id, group string) string {
+// Blind prefix stripping collapses create_chunk/update_chunk/delete_chunk onto one name.
+func opNameFromID(id, group, module string) string {
 	idx := strings.Index(id, "_")
-	if idx <= 0 || !sameToken(id[:idx], group) {
+	if idx <= 0 || !sameToken(id[:idx], group) && !sameToken(id[:idx], module) {
 		return id
 	}
 	return id[idx+1:]
