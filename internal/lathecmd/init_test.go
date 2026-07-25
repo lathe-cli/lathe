@@ -63,3 +63,13 @@ func TestInitSelectsLanguageInTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveInitVersionAddsVPrefixToReleaseStamp(t *testing.T) {
+	got, err := resolveInitVersion("0.5.0", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "v0.5.0" {
+		t.Fatalf("version = %q, want v0.5.0", got)
+	}
+}
