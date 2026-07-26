@@ -9,6 +9,7 @@ import (
 
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
+	"gopkg.in/yaml.v3"
 )
 
 func anyToString(v any) string {
@@ -82,6 +83,16 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", p, err)
+		}
+		if ext := strings.ToLower(filepath.Ext(p)); ext == ".yaml" || ext == ".yml" {
+			var document any
+			if err := yaml.Unmarshal(data, &document); err != nil {
+				return nil, fmt.Errorf("parse %s: %w", p, err)
+			}
+			data, err = json.Marshal(document)
+			if err != nil {
+				return nil, fmt.Errorf("parse %s: %w", p, err)
+			}
 		}
 		var sw swaggerDoc
 		if err := json.Unmarshal(data, &sw); err != nil {
@@ -167,7 +178,16 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 		produces = docProduces
 	}
 	out.Produces = produces
+	seenParameters := map[string]parameter{}
 	for _, p := range op.Parameters {
+		key := p.In + "\x00" + p.Name
+		if existing, ok := seenParameters[key]; ok {
+			if !sameJSON(existing, p) {
+				fmt.Fprintf(os.Stderr, "warn: diverging duplicate parameter %q in %s %s (kept first)\n", p.Name, out.Method, path)
+			}
+			continue
+		}
+		seenParameters[key] = p
 		if p.In == "body" {
 			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, Schema: convertSchema(p.Schema)}
 			continue

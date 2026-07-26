@@ -3,8 +3,11 @@ package swagger
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
@@ -45,6 +48,60 @@ func TestParse_Golden(t *testing.T) {
 	}
 }
 
+func TestParse_YAMLMatchesJSON(t *testing.T) {
+	syncDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(syncDir, "petstore.json"), []byte(petstoreMinInput), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(syncDir, "petstore.yaml"), []byte(petstoreMinYAMLInput), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	parse := func(file string) *rawir.RawModule {
+		t.Helper()
+		src := &sourceconfig.Source{
+			Name:    "demo",
+			Swagger: &sourceconfig.SwaggerConfig{Files: []string{file}},
+		}
+		mod, err := Parse(src, syncDir)
+		if err != nil {
+			t.Fatalf("Parse(%s): %v", file, err)
+		}
+		return mod
+	}
+
+	jsonModule := parse("petstore.json")
+	yamlModule := parse("petstore.yaml")
+	for _, module := range []*rawir.RawModule{jsonModule, yamlModule} {
+		sort.Slice(module.Operations, func(i, j int) bool {
+			return module.Operations[i].Method+" "+module.Operations[i].Path <
+				module.Operations[j].Method+" "+module.Operations[j].Path
+		})
+	}
+	if !reflect.DeepEqual(jsonModule, yamlModule) {
+		t.Fatalf("YAML module differs from JSON\nJSON: %#v\nYAML: %#v", jsonModule, yamlModule)
+	}
+}
+
+func TestParse_DeduplicatesSwaggerParameters(t *testing.T) {
+	syncDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(syncDir, "duplicate.yaml"), []byte(duplicateParameterYAMLInput), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &sourceconfig.Source{
+		Name:    "demo",
+		Swagger: &sourceconfig.SwaggerConfig{Files: []string{"duplicate.yaml"}},
+	}
+
+	mod, err := Parse(src, syncDir)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := len(mod.Operations[0].Parameters); got != 1 {
+		t.Fatalf("parameters = %d, want one unique parameter", got)
+	}
+}
+
 const petstoreMinInput = `{
   "swagger": "2.0",
   "definitions": {
@@ -78,6 +135,54 @@ const petstoreMinInput = `{
     }
   }
 }
+`
+
+const petstoreMinYAMLInput = `swagger: "2.0"
+definitions:
+  Pet:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+paths:
+  /pets:
+    get:
+      operationId: Pet_List
+      tags: [Pets]
+      summary: List pets.
+      responses:
+        "200":
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Pet"
+  /pets/{id}:
+    get:
+      operationId: Pet_Get
+      tags: [Pets]
+      summary: Get one pet.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+      responses:
+        "200":
+          schema:
+            $ref: "#/definitions/Pet"
+`
+
+const duplicateParameterYAMLInput = `swagger: "2.0"
+paths:
+  /jit:
+    get:
+      parameters:
+        - {name: network, in: query, required: true, type: string}
+        - {name: network, in: query, required: true, type: string}
+      responses:
+        "200": {description: ok}
 `
 
 const refResolutionInput = `{

@@ -88,6 +88,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	var bodyFile string
 	var bodySets []string
 	var bodyStringSets []string
+	var bodyFileFlag string
 	var paginateAll bool
 	var maxPages int
 	var waitPoll bool
@@ -120,7 +121,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return err
 			}
 
-			hasFile := s.RequestBody != nil && cmd.Flags().Changed("file")
+			hasFile := s.RequestBody != nil && cmd.Flags().Changed(bodyFileFlag)
 			var fileBody []byte
 			if hasFile {
 				fileBody, err = ReadBody(bodyFile)
@@ -164,27 +165,32 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
 	}
 	if s.RequestBody != nil {
+		bodyFileFlag = controlFlagName(cmd, "file")
+		bodySetFlag := controlFlagName(cmd, "set")
+		bodyStringSetFlag := controlFlagName(cmd, "set-str")
 		fileHelp := "path to JSON body file, or '-' for stdin"
-		setHelp := "set body field with type inference, e.g. --set spec.replicas=3 (repeatable; nested via dots)"
-		setStrHelp := "set body field as string, e.g. --set-str spec.replicas=3 (repeatable; nested via dots)"
+		setHelp := fmt.Sprintf("set body field with type inference, e.g. --%s spec.replicas=3 (repeatable; nested via dots)", bodySetFlag)
+		setStrHelp := fmt.Sprintf("set body field as string, e.g. --%s spec.replicas=3 (repeatable; nested via dots)", bodyStringSetFlag)
 		if s.RequestBody.Required {
-			suffix := " (use --file, --set, or --set-str)"
+			suffix := fmt.Sprintf(" (use --%s, --%s, or --%s)", bodyFileFlag, bodySetFlag, bodyStringSetFlag)
 			fileHelp += suffix
 			setHelp += suffix
 			setStrHelp += suffix
 		}
-		cmd.Flags().StringVarP(&bodyFile, "file", "f", "", fileHelp)
-		cmd.Flags().StringArrayVar(&bodySets, "set", nil, setHelp)
-		cmd.Flags().StringArrayVar(&bodyStringSets, "set-str", nil, setStrHelp)
+		cmd.Flags().StringVarP(&bodyFile, bodyFileFlag, "f", "", fileHelp)
+		cmd.Flags().StringArrayVar(&bodySets, bodySetFlag, nil, setHelp)
+		cmd.Flags().StringArrayVar(&bodyStringSets, bodyStringSetFlag, nil, setStrHelp)
 	}
 	if s.Output.Pagination != nil {
-		cmd.Flags().BoolVar(&paginateAll, "all", false, "fetch all pages")
-		cmd.Flags().IntVar(&maxPages, "max-pages", DefaultMaxPages, "maximum pages to fetch with --all")
+		allFlag := controlFlagName(cmd, "all")
+		maxPagesFlag := controlFlagName(cmd, "max-pages")
+		cmd.Flags().BoolVar(&paginateAll, allFlag, false, "fetch all pages")
+		cmd.Flags().IntVar(&maxPages, maxPagesFlag, DefaultMaxPages, "maximum pages to fetch with --"+allFlag)
 	}
 	if s.Method == "POST" || s.Method == "PUT" || s.Method == "DELETE" || s.Method == "PATCH" {
-		cmd.Flags().BoolVar(&waitPoll, "wait", false, "poll until long-running operation completes")
+		cmd.Flags().BoolVar(&waitPoll, controlFlagName(cmd, "wait"), false, "poll until long-running operation completes")
 	}
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print resolved request JSON without sending it")
+	cmd.Flags().BoolVar(&dryRun, controlFlagName(cmd, "dry-run"), false, "print resolved request JSON without sending it")
 	cmd.Hidden = s.Hidden
 	if s.Deprecated {
 		cmd.Deprecated = "this command is deprecated"
@@ -193,6 +199,22 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+func controlFlagName(cmd *cobra.Command, name string) string {
+	if cmd.Flags().Lookup(name) == nil {
+		return name
+	}
+	base := "lathe-" + name
+	if cmd.Flags().Lookup(base) == nil {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if cmd.Flags().Lookup(candidate) == nil {
+			return candidate
+		}
+	}
 }
 
 func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequestBody bool) {

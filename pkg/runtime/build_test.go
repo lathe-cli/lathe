@@ -808,6 +808,42 @@ func TestBuild_WaitFlagOnMutating(t *testing.T) {
 	}
 }
 
+func TestBuild_ControlFlagsAvoidOperationParameterCollisions(t *testing.T) {
+	names := []string{"all", "max-pages", "wait", "dry-run", "file", "set", "set-str"}
+	params := make([]ParamSpec, 0, len(names))
+	for _, name := range names {
+		params = append(params, ParamSpec{Name: name, Flag: name, In: InQuery, GoType: "string"})
+	}
+	params = append(params, ParamSpec{Name: "lathe-dry-run", Flag: "lathe-dry-run", In: InQuery, GoType: "string"})
+	specs := []CommandSpec{{
+		Group:       "Resources",
+		Use:         "create-resource",
+		Method:      "POST",
+		PathTpl:     "/resources",
+		Params:      params,
+		RequestBody: &RequestBody{MediaType: "application/json"},
+		Output: OutputHints{
+			Pagination: &PaginationHint{Strategy: "cursor", TokenParam: "page_token", TokenField: "next_page_token"},
+		},
+	}}
+
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", specs)
+
+	create := mustFindChild(t, mustFindChild(t, mustFindChild(t, root, "demo"), "resources"), "create-resource")
+	for _, name := range names {
+		if create.Flag(name) == nil {
+			t.Errorf("create-resource missing operation parameter --%s", name)
+		}
+		if create.Flag("lathe-"+name) == nil {
+			t.Errorf("create-resource missing collision-safe control flag --lathe-%s", name)
+		}
+	}
+	if create.Flag("lathe-dry-run-2") == nil {
+		t.Error("create-resource missing deterministic fallback --lathe-dry-run-2")
+	}
+}
+
 func mustFindChild(t *testing.T, parent *cobra.Command, use string) *cobra.Command {
 	t.Helper()
 	for _, c := range parent.Commands() {
