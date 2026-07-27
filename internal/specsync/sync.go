@@ -1,6 +1,7 @@
 package specsync
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ type Options struct {
 func Sync(cfg *sourceconfig.Config, opts Options) error {
 	workRoot := filepath.Join(opts.CacheRoot, WorkSubdir)
 	syncRoot := filepath.Join(opts.CacheRoot, SyncSubdir)
+	checkouts := make(map[string]string)
 	if err := os.MkdirAll(workRoot, 0o755); err != nil {
 		return err
 	}
@@ -31,20 +33,24 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 		if opts.Filter != "" && src.Name != opts.Filter {
 			continue
 		}
-		workDir := filepath.Join(workRoot, src.Name)
 		syncDir := filepath.Join(syncRoot, src.Name)
 		if err := os.RemoveAll(syncDir); err != nil {
 			return err
 		}
-		sourceDir := workDir
+		sourceDir := src.LocalPath
 		sha := ""
-		if src.LocalPath != "" {
-			sourceDir = src.LocalPath
-		} else {
-			var err error
-			sha, err = ensureRepo(workDir, src.RepoURL, src.PinnedTag)
-			if err != nil {
-				return fmt.Errorf("source %q: %w", src.Name, err)
+		if src.LocalPath == "" {
+			key := src.RepoURL + "\x00" + src.PinnedTag
+			sourceDir = filepath.Join(workRoot, fmt.Sprintf("%x", sha256.Sum256([]byte(key))))
+			if cached, ok := checkouts[key]; ok {
+				sha = cached
+			} else {
+				var err error
+				sha, err = ensureRepo(sourceDir, src.RepoURL, src.PinnedTag)
+				if err != nil {
+					return fmt.Errorf("source %q: %w", src.Name, err)
+				}
+				checkouts[key] = sha
 			}
 		}
 		switch src.Backend {
