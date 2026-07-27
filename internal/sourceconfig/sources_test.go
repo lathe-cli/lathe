@@ -592,3 +592,71 @@ func TestLoad_AcceptsFullSHA(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 }
+
+func TestLoad_AcceptsProtoDependencies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  demo:
+    repo_url: https://example.com/repo.git
+    pinned_tag: 1234567890abcdef1234567890abcdef12345678
+    backend: proto
+    proto:
+      staging:
+        - from: .
+          to: example.com/demo
+      entries: [example.com/demo/api/service.proto]
+      import_roots: [example.com/demo]
+      dependencies:
+        - kind: buf
+          module: buf.build/googleapis/googleapis
+          commit: 004180b77378443887d3b55cabc00384
+          digest: b5:e8f475fe3330f31f5fd86ac689093bcd274e19611a09db91f41d637cb9197881ce89882b94d13a58738e53c91c6e4bae7dc1feba85f590164c975a89e25115dc
+          staging:
+            - from: .
+              to: .
+        - kind: go_module
+          module: k8s.io/api
+          version: v0.35.4
+          sum: h1:abcdefghijklmnopqrstuvwxyz
+          staging:
+            - from: .
+              to: k8s.io/api
+        - kind: git
+          repo_url: https://github.com/argoproj/argo-events
+          pinned_tag: 1234567890abcdef1234567890abcdef12345678
+          staging:
+            - from: .
+              to: github.com/argoproj/argo-events
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := len(cfg.Sources["demo"].Proto.Dependencies); got != 3 {
+		t.Fatalf("dependency count = %d, want 3", got)
+	}
+}
+
+func TestValidateProtoDependenciesRejectsIncompletePins(t *testing.T) {
+	staging := []StagingEntry{{From: ".", To: "."}}
+	for _, tc := range []struct {
+		name string
+		dep  ProtoDependency
+	}{
+		{name: "empty buf digest", dep: ProtoDependency{Kind: ProtoDependencyBuf, Module: "buf.build/acme/api", Commit: "004180b77378443887d3b55cabc00384", Digest: "b5:", Staging: staging}},
+		{name: "v1 lock digest", dep: ProtoDependency{Kind: ProtoDependencyBuf, Module: "buf.build/acme/api", Commit: "004180b77378443887d3b55cabc00384", Digest: "shake256:c62ecead9b13485a02893cd678a6c81e40879bf00ea509bbc6fd8f1b2cc33ecc", Staging: staging}},
+		{name: "empty go sum", dep: ProtoDependency{Kind: ProtoDependencyGoModule, Module: "example.com/api", Version: "v1.0.0", Sum: "h1:", Staging: staging}},
+		{name: "unsafe module", dep: ProtoDependency{Kind: ProtoDependencyGoModule, Module: "../api", Version: "v1.0.0", Sum: "h1:sum", Staging: staging}},
+		{name: "unknown kind", dep: ProtoDependency{Kind: "http", Staging: staging}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateProtoDependencies([]ProtoDependency{tc.dep}); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
