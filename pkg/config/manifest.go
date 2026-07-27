@@ -100,11 +100,17 @@ type AuthValidate struct {
 	Method  string              `yaml:"method"`
 	Path    string              `yaml:"path"`
 	Display AuthValidateDisplay `yaml:"display"`
+	Assert  *AuthValidateAssert `yaml:"assert,omitempty"`
 }
 
 type AuthValidateDisplay struct {
 	UsernameField string `yaml:"username_field"`
 	FallbackField string `yaml:"fallback_field"`
+}
+
+type AuthValidateAssert struct {
+	Field    string `yaml:"field,omitempty"`
+	NonEmpty bool   `yaml:"non_empty,omitempty"`
 }
 
 const (
@@ -139,6 +145,12 @@ func Load(bytes []byte) (*Manifest, error) {
 		m.Update.GitHub.Asset = strings.TrimSpace(m.Update.GitHub.Asset)
 		if m.Update.GitHub.Owner == "" || m.Update.GitHub.Repo == "" || m.Update.GitHub.Asset == "" {
 			return nil, fmt.Errorf("update.github.owner, update.github.repo, and update.github.asset are required")
+		}
+	}
+	if m.Auth.Validate != nil && m.Auth.Validate.Assert != nil {
+		m.Auth.Validate.Assert.Field = strings.TrimSpace(m.Auth.Validate.Assert.Field)
+		if m.Auth.Validate.Assert.Field == "" && !m.Auth.Validate.Assert.NonEmpty {
+			return nil, fmt.Errorf("auth.validate.assert requires field or non_empty")
 		}
 	}
 	if m.Auth.Login != nil {

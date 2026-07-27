@@ -19,6 +19,9 @@ auth:
   validate:
     method: POST
     path: /whoami
+    assert:
+      field: user.id
+      non_empty: true
     display:
       username_field: user.name
       fallback_field: uid
@@ -41,6 +44,9 @@ auth:
 	}
 	if m.Auth.Validate.Method != "POST" || m.Auth.Validate.Path != "/whoami" {
 		t.Errorf("unexpected AuthValidate: %+v", m.Auth.Validate)
+	}
+	if m.Auth.Validate.Assert == nil || m.Auth.Validate.Assert.Field != "user.id" || !m.Auth.Validate.Assert.NonEmpty {
+		t.Errorf("unexpected AuthValidate.Assert: %+v", m.Auth.Validate.Assert)
 	}
 	if m.Auth.Validate.Display.UsernameField != "user.name" {
 		t.Errorf("unexpected UsernameField: %q", m.Auth.Validate.Display.UsernameField)
@@ -249,6 +255,17 @@ auth:
     type: oauth_device
     start_path: start
     token_path: /token
+`,
+		},
+		{
+			name: "empty assertion",
+			yaml: `
+cli:
+  name: demo
+auth:
+  validate:
+    path: /whoami
+    assert: {}
 `,
 		},
 	}

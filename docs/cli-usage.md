@@ -68,6 +68,9 @@ auth:
   validate:
     method: GET
     path: /api/v1/whoami
+    assert:
+      field: data.id
+      non_empty: true
     display:
       username_field: data.username
       fallback_field: data.email
@@ -86,6 +89,15 @@ module flat path and fail codegen on root command conflicts.
 `verification_uri`, optional `user_code`, `interval`, `expires_in`, and later
 `access_token`). `refresh_path` is optional; when present, generated commands
 refresh expired bearer tokens before execution.
+
+`auth.validate.assert.field` requires a dot-separated JSON response path;
+numeric path segments index arrays. Add `non_empty: true` to reject empty
+values. With no field, `non_empty: true` checks the raw response body, including
+plain-text endpoints. Display paths accept JSON scalar leaves.
+
+With neither `assert` nor a `display` path, `auth.validate` only proves the
+request succeeded and no longer requires a JSON response body. Endpoints that
+return 200 for anonymous callers need `assert` to reject invalid credentials.
 
 To customize generated Skill output, add an optional top-level `skill` block:
 

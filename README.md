@@ -303,7 +303,7 @@ Defines CLI identity and optional auth validation behavior.
 | `cli.name` | Binary and command name, for example `acmectl`. |
 | `cli.short` | Root command summary. |
 | `auth.login` | Optional OAuth device login endpoints used by `auth login --device-auth`. |
-| `auth.validate` | Optional endpoint used by `auth status` to display the logged-in user. |
+| `auth.validate` | Optional endpoint used to validate credentials during login. Supports `assert.field` and `assert.non_empty`. |
 
 ### `specs/sources.yaml`
 
