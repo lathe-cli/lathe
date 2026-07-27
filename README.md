@@ -296,14 +296,16 @@ go run ./cmd/lathe codegen -skill-root ""
 
 ### `cli.yaml`
 
-Defines CLI identity and optional auth validation behavior.
+Defines CLI identity and auth behavior.
 
 | Field | Notes |
 |---|---|
 | `cli.name` | Binary and command name, for example `acmectl`. |
 | `cli.short` | Root command summary. |
+| `auth.default_type` | Default `auth login` type: `bearer`, `apikey`, `basic`, or `oauth`. |
+| `auth.api_key_header` | API key header used by `apikey` login; defaults to `X-API-Key`. |
 | `auth.login` | Optional OAuth device login endpoints used by `auth login --device-auth`. |
-| `auth.validate` | Optional endpoint used by `auth status` to display the logged-in user. |
+| `auth.validate` | Optional endpoint used to validate credentials during login. Supports `assert.field` and `assert.non_empty`. |
 
 ### `specs/sources.yaml`
 

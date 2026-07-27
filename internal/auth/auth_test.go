@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -91,6 +92,64 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 		t.Fatal("host not saved")
 	}
 	if entry.AuthType != "bearer" || entry.LoginType != config.AuthLoginOAuthDevice || entry.LoginProvider != "github" || entry.OAuthToken != "access-1" || entry.OAuthRefreshToken != "refresh-1" || entry.User != "octo@example.com" || entry.OAuthExpiresAt == 0 {
+		t.Fatalf("entry = %+v", entry)
+	}
+}
+
+func TestAPIKeyLoginUsesManifestDefaults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Auth-Token"); got != "secret" {
+			t.Errorf("X-Auth-Token = %q, want secret", got)
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	m := &config.Manifest{
+		CLI: config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		Auth: config.AuthInfo{
+			DefaultType:  "apikey",
+			APIKeyHeader: "X-Auth-Token",
+			Validate:     &config.AuthValidate{Path: "/", Assert: &config.AuthValidateAssert{Field: "ok", NonEmpty: true}},
+		},
+	}
+	config.Bind(m)
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+
+	stdin, input, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := input.WriteString("secret\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	oldStdin := os.Stdin
+	os.Stdin = stdin
+	defer func() {
+		stdin.Close()
+		os.Stdin = oldStdin
+	}()
+
+	root := &cobra.Command{Use: "demo"}
+	root.PersistentFlags().String("hostname", srv.URL, "")
+	root.PersistentFlags().Bool("insecure", false, "")
+	root.AddCommand(NewCommand(m))
+	root.SetArgs([]string{"auth", "login", "--with-token"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatalf("LoadHosts: %v", err)
+	}
+	entry, ok := hosts.Get(srv.URL)
+	if !ok {
+		t.Fatal("host not saved")
+	}
+	if entry.AuthType != "apikey" || entry.APIKey != "secret" || entry.APIKeyHeader != "X-Auth-Token" {
 		t.Fatalf("entry = %+v", entry)
 	}
 }

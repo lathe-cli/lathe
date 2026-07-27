@@ -1,9 +1,12 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,10 +18,8 @@ type validateResult struct {
 	Username string
 }
 
-// validateToken hits the auth validation endpoint declared by cli.yaml and
-// plucks a display username from the JSON response. A nil v means the
-// manifest has no auth.validate block, which is equivalent to passing
-// --skip-validate: returns a zero result with nil error.
+// validateWithAuth checks the endpoint and optional success assertion declared
+// by cli.yaml. A nil v is equivalent to passing --skip-validate.
 func validateWithAuth(ctx context.Context, hostname string, auth runtime.Authenticator, v *config.AuthValidate, opts runtime.ClientOptions) (validateResult, error) {
 	if v == nil {
 		return validateResult{}, nil
@@ -35,42 +36,92 @@ func validateWithAuth(ctx context.Context, hostname string, auth runtime.Authent
 	if err != nil {
 		return validateResult{}, err
 	}
-	if len(data) == 0 {
+	assertField := v.Assert != nil && v.Assert.Field != ""
+	needsJSON := assertField || v.Display.UsernameField != "" || v.Display.FallbackField != ""
+	if len(bytes.TrimSpace(data)) == 0 {
+		if v.Assert != nil && (v.Assert.NonEmpty || assertField) {
+			return validateResult{}, fmt.Errorf("validation assertion failed: response body is empty")
+		}
 		return validateResult{}, nil
 	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if !needsJSON {
+		return validateResult{}, nil
+	}
+	var raw any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return validateResult{}, fmt.Errorf("decode response: %w", err)
 	}
-	user := pluck(raw, v.Display.UsernameField)
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return validateResult{}, fmt.Errorf("decode response: unexpected trailing data")
+	}
+	if assertField {
+		value, ok := pluck(raw, v.Assert.Field)
+		if !ok {
+			return validateResult{}, fmt.Errorf("validation assertion failed: field %q is missing", v.Assert.Field)
+		}
+		if v.Assert.NonEmpty && !nonEmpty(value) {
+			return validateResult{}, fmt.Errorf("validation assertion failed: field %q is empty", v.Assert.Field)
+		}
+	}
+	user := pluckString(raw, v.Display.UsernameField)
 	if user == "" {
-		user = pluck(raw, v.Display.FallbackField)
+		user = pluckString(raw, v.Display.FallbackField)
 	}
 	return validateResult{Username: user}, nil
 }
 
-// pluck walks a dot-separated path (e.g. "data.user.name") through a decoded
-// JSON object and returns the final value as a string. A plain key
-// (e.g. "username") walks a single step. Returns "" if any segment is
-// missing or if the leaf is not a string.
-func pluck(raw map[string]any, path string) string {
+func pluck(raw any, path string) (any, bool) {
 	if path == "" {
-		return ""
+		return nil, false
 	}
-	var cur any = raw
-	for _, p := range strings.Split(path, ".") {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return ""
+	cur := raw
+	for _, part := range strings.Split(path, ".") {
+		var ok bool
+		switch value := cur.(type) {
+		case map[string]any:
+			cur, ok = value[part]
+		case []any:
+			index, err := strconv.Atoi(part)
+			if err != nil || index < 0 || index >= len(value) {
+				return nil, false
+			}
+			cur, ok = value[index], true
+		default:
+			return nil, false
 		}
-		cur, ok = m[p]
 		if !ok {
-			return ""
+			return nil, false
 		}
 	}
-	s, ok := cur.(string)
+	return cur, true
+}
+
+func pluckString(raw any, path string) string {
+	value, ok := pluck(raw, path)
 	if !ok {
 		return ""
 	}
-	return s
+	switch value.(type) {
+	case nil, map[string]any, []any:
+		return ""
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
+func nonEmpty(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(value) != ""
+	case map[string]any:
+		return len(value) > 0
+	case []any:
+		return len(value) > 0
+	default:
+		return true
+	}
 }
