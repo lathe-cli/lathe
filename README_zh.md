@@ -246,12 +246,14 @@ go run ./cmd/lathe codegen -skill-root ""
 
 ### `cli.yaml`
 
-定义 CLI 身份和可选的认证校验行为。
+定义 CLI 身份和认证行为。
 
 | 字段 | 说明 |
 |---|---|
 | `cli.name` | 二进制和命令名称，例如 `acmectl`。 |
 | `cli.short` | 根命令摘要。 |
+| `auth.default_type` | `auth login` 默认类型：`bearer`、`apikey`、`basic` 或 `oauth`。 |
+| `auth.api_key_header` | `apikey` 登录使用的请求头，默认 `X-API-Key`。 |
 | `auth.login` | 可选 OAuth device login 端点，供 `auth login --device-auth` 使用。 |
 | `auth.validate` | 登录时校验凭据的可选端点，支持 `assert.field` 和 `assert.non_empty`。 |
 

@@ -26,8 +26,10 @@ type CLIInfo struct {
 }
 
 type AuthInfo struct {
-	Validate *AuthValidate `yaml:"validate,omitempty"`
-	Login    *AuthLogin    `yaml:"login,omitempty"`
+	DefaultType  string        `yaml:"default_type,omitempty"`
+	APIKeyHeader string        `yaml:"api_key_header,omitempty"`
+	Validate     *AuthValidate `yaml:"validate,omitempty"`
+	Login        *AuthLogin    `yaml:"login,omitempty"`
 }
 
 type UpdateInfo struct {
@@ -147,6 +149,13 @@ func Load(bytes []byte) (*Manifest, error) {
 			return nil, fmt.Errorf("update.github.owner, update.github.repo, and update.github.asset are required")
 		}
 	}
+	m.Auth.DefaultType = strings.ToLower(strings.TrimSpace(m.Auth.DefaultType))
+	m.Auth.APIKeyHeader = strings.TrimSpace(m.Auth.APIKeyHeader)
+	switch m.Auth.DefaultType {
+	case "", "bearer", "apikey", "basic", "oauth":
+	default:
+		return nil, fmt.Errorf("auth.default_type must be one of bearer, apikey, basic, or oauth")
+	}
 	if m.Auth.Validate != nil && m.Auth.Validate.Assert != nil {
 		m.Auth.Validate.Assert.Field = strings.TrimSpace(m.Auth.Validate.Assert.Field)
 		if m.Auth.Validate.Assert.Field == "" && !m.Auth.Validate.Assert.NonEmpty {
@@ -170,6 +179,8 @@ func Load(bytes []byte) (*Manifest, error) {
 		if m.Auth.Login.RefreshPath != "" && !strings.HasPrefix(m.Auth.Login.RefreshPath, "/") {
 			return nil, fmt.Errorf("auth.login.refresh_path must start with /")
 		}
+	} else if m.Auth.DefaultType == "oauth" {
+		return nil, fmt.Errorf("auth.default_type oauth requires an auth.login block")
 	}
 	m.CLI.CommandPath = strings.ToLower(strings.TrimSpace(m.CLI.CommandPath))
 	if m.CLI.CommandPath == "" {

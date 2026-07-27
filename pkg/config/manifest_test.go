@@ -11,6 +11,8 @@ cli:
   name: demo
   short: "demo CLI"
 auth:
+  default_type: apikey
+  api_key_header: X-Auth-Token
   login:
     type: oauth_device
     start_path: /auth/cli/start
@@ -38,6 +40,9 @@ auth:
 	}
 	if m.Auth.Login == nil {
 		t.Fatal("expected Auth.Login non-nil")
+	}
+	if m.Auth.DefaultType != "apikey" || m.Auth.APIKeyHeader != "X-Auth-Token" {
+		t.Errorf("unexpected auth defaults: %+v", m.Auth)
 	}
 	if m.Auth.Login.Type != AuthLoginOAuthDevice || m.Auth.Login.StartPath != "/auth/cli/start" || m.Auth.Login.TokenPath != "/auth/cli/token" || m.Auth.Login.RefreshPath != "/auth/cli/refresh" {
 		t.Errorf("unexpected AuthLogin: %+v", m.Auth.Login)
@@ -255,6 +260,24 @@ auth:
     type: oauth_device
     start_path: start
     token_path: /token
+`,
+		},
+		{
+			name: "unsupported default auth type",
+			yaml: `
+cli:
+  name: demo
+auth:
+  default_type: digest
+`,
+		},
+		{
+			name: "oauth default without login block",
+			yaml: `
+cli:
+  name: demo
+auth:
+  default_type: oauth
 `,
 		},
 		{

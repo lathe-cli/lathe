@@ -5,7 +5,7 @@ Lathe ships one generator binary: `lathe`.
 Use it in a target CLI repository that owns:
 
 - `go.mod`: the downstream module path for generated internal package imports.
-- `cli.yaml`: the generated CLI identity and optional auth validation config.
+- `cli.yaml`: the generated CLI identity and auth behavior.
 - `specs/sources.yaml`: declared upstream or local API specs.
 - `cmd/<cli-name>/main.go`: the thin runtime entrypoint for the generated CLI.
 
@@ -60,6 +60,8 @@ cli:
   short: "Command-line tool for Acme services"
 
 auth:
+  default_type: apikey
+  api_key_header: X-Auth-Token
   login:
     type: oauth_device
     start_path: /auth/device/start
@@ -89,6 +91,13 @@ module flat path and fail codegen on root command conflicts.
 `verification_uri`, optional `user_code`, `interval`, `expires_in`, and later
 `access_token`). `refresh_path` is optional; when present, generated commands
 refresh expired bearer tokens before execution.
+
+`auth.default_type` controls `auth login` when `--auth-type` is omitted and
+defaults to `bearer`; `oauth` requires an `auth.login` block. For API key login,
+`auth.api_key_header` replaces the `X-API-Key` default, including
+non-interactive `--with-token` login. The header is resolved at login time and
+stored in `hosts.yml`, so hosts logged in before the value changed keep their
+previous header until the next `auth login`.
 
 `auth.validate.assert.field` requires a dot-separated JSON response path;
 numeric path segments index arrays. Add `non_empty: true` to reject empty

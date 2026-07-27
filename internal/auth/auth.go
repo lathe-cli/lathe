@@ -215,7 +215,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 			hostname = config.NormalizeHostname(hostname)
 			authType = strings.ToLower(strings.TrimSpace(authType))
 			if deviceAuth {
-				if authType != "" && authType != "oauth" {
+				if cmd.Flags().Changed("auth-type") && authType != "oauth" {
 					return fmt.Errorf("--device-auth cannot be used with --auth-type %s", authType)
 				}
 				authType = "oauth"
@@ -241,8 +241,13 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return errors.New("empty API key")
 				}
 				entry.APIKey = key
+				entry.APIKeyHeader = m.Auth.APIKeyHeader
 				if !withToken {
-					fmt.Fprint(os.Stderr, "? Header name [X-API-Key]: ")
+					header := entry.APIKeyHeader
+					if header == "" {
+						header = "X-API-Key"
+					}
+					fmt.Fprintf(os.Stderr, "? Header name [%s]: ", header)
 					line, err := readLine(os.Stdin)
 					if err != nil {
 						return err
@@ -311,7 +316,11 @@ func newLogin(m *config.Manifest) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&authType, "auth-type", "", "Authentication type: bearer (default), apikey, basic, oauth")
+	authTypeUsage := "Authentication type: bearer, apikey, basic, oauth"
+	if m.Auth.DefaultType == "" {
+		authTypeUsage = "Authentication type: bearer (default), apikey, basic, oauth"
+	}
+	cmd.Flags().StringVar(&authType, "auth-type", m.Auth.DefaultType, authTypeUsage)
 	cmd.Flags().StringVar(&provider, "provider", "", "OAuth provider hint passed to the service")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read token/key from stdin")
 	cmd.Flags().BoolVar(&deviceAuth, "device-auth", false, "Use OAuth device login")
