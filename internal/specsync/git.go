@@ -28,7 +28,11 @@ func ensureRepo(workDir, repoURL, tag string) (string, error) {
 		if err := cmd.Run(); err != nil {
 			return "", fmt.Errorf("git clone: %w", err)
 		}
-		checkout := exec.Command("git", "-C", cloneDir, "-c", "advice.detachedHead=false", "checkout", "--quiet", tag)
+		checkoutRef := tag
+		if len(tag) != 40 || !isHex(tag) {
+			checkoutRef = qualifiedTagRef(tag)
+		}
+		checkout := exec.Command("git", "-C", cloneDir, "-c", "advice.detachedHead=false", "checkout", "--quiet", checkoutRef)
 		checkout.Stderr = os.Stderr
 		if err := checkout.Run(); err != nil {
 			return "", fmt.Errorf("git checkout %s: %w", tag, err)
@@ -69,10 +73,7 @@ func remoteRefSHA(repoURL, ref string) (string, error) {
 	if len(ref) == 40 && isHex(ref) {
 		return ref, nil
 	}
-	tagRef := ref
-	if !strings.HasPrefix(tagRef, "refs/tags/") {
-		tagRef = "refs/tags/" + tagRef
-	}
+	tagRef := qualifiedTagRef(ref)
 	peeledRef := tagRef + "^{}"
 	var out bytes.Buffer
 	cmd := exec.Command("git", "ls-remote", repoURL, tagRef, peeledRef)
@@ -102,6 +103,13 @@ func remoteRefSHA(repoURL, ref string) (string, error) {
 		return "", fmt.Errorf("git ref %q not found in remote", ref)
 	}
 	return sha, nil
+}
+
+func qualifiedTagRef(ref string) string {
+	if strings.HasPrefix(ref, "refs/tags/") {
+		return ref
+	}
+	return "refs/tags/" + ref
 }
 
 func repoSHA(workDir string) (string, error) {

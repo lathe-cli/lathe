@@ -26,6 +26,7 @@ func TestSyncRejectsMovedTagWithExistingCheckout(t *testing.T) {
 		}
 	}
 	runGit("init", "--quiet")
+	runGit("branch", "-m", "v1.0.0")
 	writeSpec := func(version int) {
 		t.Helper()
 		body := []byte(fmt.Sprintf("{\"version\":%d}\n", version))
@@ -37,6 +38,7 @@ func TestSyncRejectsMovedTagWithExistingCheckout(t *testing.T) {
 	}
 	writeSpec(1)
 	runGit("tag", "v1.0.0")
+	writeSpec(2)
 
 	cfg := &sourceconfig.Config{Sources: map[string]*sourceconfig.Source{
 		"demo": {
@@ -51,10 +53,16 @@ func TestSyncRejectsMovedTagWithExistingCheckout(t *testing.T) {
 	if err := Sync(cfg, Options{CacheRoot: cache}); err != nil {
 		t.Fatal(err)
 	}
-	writeSpec(2)
+	synced, err := os.ReadFile(filepath.Join(cache, SyncSubdir, "demo", "swagger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(synced) != "{\"version\":1}\n" {
+		t.Fatalf("synced spec = %q, want configured tag contents", synced)
+	}
 	runGit("tag", "-f", "v1.0.0")
 
-	err := Sync(cfg, Options{CacheRoot: cache})
+	err = Sync(cfg, Options{CacheRoot: cache})
 	if err == nil {
 		t.Fatal("Sync accepted a cached checkout after its configured tag moved upstream")
 	}
