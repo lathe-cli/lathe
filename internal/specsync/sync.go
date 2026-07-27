@@ -41,7 +41,7 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 		sha := ""
 		if src.LocalPath == "" {
 			key := src.RepoURL + "\x00" + src.PinnedTag
-			sourceDir = filepath.Join(workRoot, fmt.Sprintf("%x", sha256.Sum256([]byte(key))))
+			sourceDir = repoWorkDir(workRoot, src.RepoURL, src.PinnedTag)
 			if cached, ok := checkouts[key]; ok {
 				sha = cached
 			} else {
@@ -59,7 +59,7 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
 		case sourceconfig.BackendProto:
-			if err := syncProto(src, sourceDir, syncDir); err != nil {
+			if err := syncProto(src, sourceDir, syncDir, workRoot); err != nil {
 				return fmt.Errorf("source %q: %w", src.Name, err)
 			}
 		case sourceconfig.BackendOpenAPI3:
@@ -88,4 +88,9 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 		}
 	}
 	return nil
+}
+
+func repoWorkDir(workRoot, repoURL, ref string) string {
+	key := repoURL + "\x00" + ref
+	return filepath.Join(workRoot, fmt.Sprintf("%x", sha256.Sum256([]byte(key))))
 }

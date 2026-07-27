@@ -232,6 +232,9 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 
 		specs := normalize.Normalize(mod)
 		specs = render.MergeOverlayModule(specs, overlays[src.Name])
+		if len(specs) == 0 {
+			return nil, fmt.Errorf("source %q produced no commands: check its entry/file list, expose policy, and overlay ignore rules", src.Name)
+		}
 		if src.DefaultHostname != nil {
 			for i := range specs {
 				specs[i].DefaultHostname = *src.DefaultHostname

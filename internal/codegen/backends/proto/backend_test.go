@@ -39,13 +39,36 @@ func TestParse_Golden(t *testing.T) {
 				t.Fatalf("seed descriptor_set.pb: %v", err)
 			}
 
-			src := &sourceconfig.Source{Name: "demo"}
+			src := &sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}
 			mod, err := Parse(src, syncDir)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
 			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
+	}
+}
+
+func TestParseIgnoresImportedDependencyServices(t *testing.T) {
+	fds := buildGoogleAPIHTTPGet()
+	dependency := buildGoogleAPIHTTPGet().File[0]
+	dependency.Name = proto.String("dependency.proto")
+	fds.File = append(fds.File, dependency)
+	data, err := proto.Marshal(fds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(syncDir, descriptorFile), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}
+	mod, err := Parse(src, syncDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(mod.Operations); got != 1 {
+		t.Fatalf("operation count = %d, want only entry-file operations", got)
 	}
 }
 

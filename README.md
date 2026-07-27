@@ -320,12 +320,23 @@ Declares which upstream specs become modules.
 | `swagger.files` | Swagger only | One or more Swagger 2.0 JSON specs. |
 | `openapi3.files` | OpenAPI 3 only | JSON or YAML OpenAPI specs. |
 | `proto.staging` | Proto only | Files staged into the `protoc` include root before parsing. |
-| `proto.entries` | Proto only | Entry proto files; only RPCs with `google.api.http` become commands. |
+| `proto.entries` | Proto only | Entry proto files. Only RPCs declared in these files, and annotated with `google.api.http`, become commands; imported files, including dependencies, never contribute commands. |
+| `proto.import_roots` | Proto only | Additional staged include roots passed to `protoc`. |
+| `proto.dependencies` | Proto only | Pinned `buf`, `go_module`, or `git` sources staged before `protoc`; each dependency requires explicit staging. |
 | `graphql.schema` | GraphQL only | Pinned SDL file staged from the upstream repository. |
 | `graphql.expose` | GraphQL only | Explicit `queries` and/or `mutations` allow policy; missing policy fails closed. |
 | `graphql.groups` | GraphQL only | Operation-name globs mapped to CLI groups. Ambiguous matches fail closed. |
 | `graphql.output` | GraphQL only | Configured list path and default columns for generated output hints. |
 | `graphql.selection` | GraphQL only | Selection-set max depth and per-type field pruning. Explicit `max_depth` must be greater than zero. |
+
+Buf dependencies require `module`, an immutable `commit`, and the `b5` digest
+the BSR reports for that commit. Go module dependencies require
+`module`, `version`, and `sum`. Git dependencies require `repo_url` and
+immutable `pinned_tag`. Dependency staging uses the same repository-relative
+`from` and include-tree `to` fields as `proto.staging`. Syncing these sources
+requires `buf`, `go`, or `git` respectively on `PATH`. Staging never overwrites:
+two staged trees that write different content to the same include path fail the
+sync instead of silently picking one.
 
 Grouping rules:
 

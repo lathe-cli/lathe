@@ -18,6 +18,10 @@ const (
 	BackendProto    = "proto"
 	BackendOpenAPI3 = "openapi3"
 	BackendGraphQL  = "graphql"
+
+	ProtoDependencyBuf      = "buf"
+	ProtoDependencyGoModule = "go_module"
+	ProtoDependencyGit      = "git"
 )
 
 type Config struct {
@@ -43,9 +47,22 @@ type SwaggerConfig struct {
 }
 
 type ProtoConfig struct {
-	Staging     []StagingEntry `yaml:"staging"`
-	Entries     []string       `yaml:"entries"`
-	ImportRoots []string       `yaml:"import_roots,omitempty"`
+	Staging      []StagingEntry    `yaml:"staging"`
+	Entries      []string          `yaml:"entries"`
+	ImportRoots  []string          `yaml:"import_roots,omitempty"`
+	Dependencies []ProtoDependency `yaml:"dependencies,omitempty"`
+}
+
+type ProtoDependency struct {
+	Kind      string         `yaml:"kind"`
+	Module    string         `yaml:"module,omitempty"`
+	Version   string         `yaml:"version,omitempty"`
+	Sum       string         `yaml:"sum,omitempty"`
+	Commit    string         `yaml:"commit,omitempty"`
+	Digest    string         `yaml:"digest,omitempty"`
+	RepoURL   string         `yaml:"repo_url,omitempty"`
+	PinnedTag string         `yaml:"pinned_tag,omitempty"`
+	Staging   []StagingEntry `yaml:"staging"`
 }
 
 type OpenAPI3Config struct {
@@ -181,6 +198,9 @@ func validate(s *Source, baseDir string) error {
 		if err := validateRelPathList("proto.import_roots", s.Proto.ImportRoots); err != nil {
 			return err
 		}
+		if err := validateProtoDependencies(s.Proto.Dependencies); err != nil {
+			return err
+		}
 	case BackendOpenAPI3:
 		if s.OpenAPI3 == nil || len(s.OpenAPI3.Files) == 0 {
 			return fmt.Errorf("backend=openapi3 requires non-empty openapi3.files")
@@ -207,6 +227,63 @@ func validate(s *Source, baseDir string) error {
 		return fmt.Errorf("unknown backend %q", s.Backend)
 	}
 	return rejectForeignBlocks(s)
+}
+
+func validateProtoDependencies(deps []ProtoDependency) error {
+	for i, dep := range deps {
+		field := fmt.Sprintf("proto.dependencies[%d]", i)
+		if len(dep.Staging) == 0 {
+			return fmt.Errorf("%s requires non-empty staging", field)
+		}
+		for _, st := range dep.Staging {
+			if err := ValidateRelPath(field+".staging.from", st.From); err != nil {
+				return err
+			}
+			if err := ValidateRelPath(field+".staging.to", st.To); err != nil {
+				return err
+			}
+		}
+		switch dep.Kind {
+		case ProtoDependencyBuf:
+			if dep.Module == "" || len(dep.Commit) != 32 || !allHex(dep.Commit) || len(dep.Digest) <= 3 || !strings.HasPrefix(dep.Digest, "b5:") || !allHex(strings.TrimPrefix(dep.Digest, "b5:")) {
+				return fmt.Errorf("%s kind=buf requires module, 32-character commit, and a b5 digest", field)
+			}
+			if dep.Version != "" || dep.Sum != "" || dep.RepoURL != "" || dep.PinnedTag != "" {
+				return fmt.Errorf("%s kind=buf contains fields for another dependency kind", field)
+			}
+		case ProtoDependencyGoModule:
+			if dep.Module == "" || dep.Version == "" || len(dep.Sum) <= 3 || !strings.HasPrefix(dep.Sum, "h1:") {
+				return fmt.Errorf("%s kind=go_module requires module, version, and h1 sum", field)
+			}
+			if err := validateRef(dep.Version); err != nil {
+				return fmt.Errorf("%s.version: %w", field, err)
+			}
+			if dep.Commit != "" || dep.Digest != "" || dep.RepoURL != "" || dep.PinnedTag != "" {
+				return fmt.Errorf("%s kind=go_module contains fields for another dependency kind", field)
+			}
+		case ProtoDependencyGit:
+			if dep.RepoURL == "" || dep.PinnedTag == "" {
+				return fmt.Errorf("%s kind=git requires repo_url and pinned_tag", field)
+			}
+			if err := validateRef(dep.PinnedTag); err != nil {
+				return fmt.Errorf("%s.pinned_tag: %w", field, err)
+			}
+			if dep.Module != "" || dep.Version != "" || dep.Sum != "" || dep.Commit != "" || dep.Digest != "" {
+				return fmt.Errorf("%s kind=git contains fields for another dependency kind", field)
+			}
+		default:
+			return fmt.Errorf("%s has unknown kind %q", field, dep.Kind)
+		}
+		if dep.Module != "" {
+			if strings.ContainsAny(dep.Module, " \t\r\n:") {
+				return fmt.Errorf("%s.module is invalid", field)
+			}
+			if err := ValidateRelPath(field+".module", dep.Module); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func validateRelPathList(field string, paths []string) error {

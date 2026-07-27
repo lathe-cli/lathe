@@ -28,12 +28,19 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 	}
 
 	idx := newIndex(&fds)
+	entries := make(map[string]bool, len(src.Proto.Entries))
+	for _, entry := range src.Proto.Entries {
+		entries[entry] = true
+	}
 	mod := &rawir.RawModule{
 		Name:    src.Name,
 		Schemas: map[string]*rawir.RawSchema{},
 	}
 
 	for _, file := range fds.File {
+		if !entries[file.GetName()] {
+			continue
+		}
 		for _, svc := range file.Service {
 			for _, m := range svc.Method {
 				rules := extractHTTPRules(m)

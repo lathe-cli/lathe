@@ -1,6 +1,7 @@
 package specsync
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
-func syncProto(src *sourceconfig.Source, workDir, syncDir string) error {
+func syncProto(src *sourceconfig.Source, workDir, syncDir, workRoot string) error {
 	for _, st := range src.Proto.Staging {
 		from, err := safeJoin(workDir, st.From)
 		if err != nil {
@@ -27,6 +28,9 @@ func syncProto(src *sourceconfig.Source, workDir, syncDir string) error {
 			return fmt.Errorf("staging %s -> %s: %w", st.From, st.To, err)
 		}
 		fmt.Fprintf(os.Stderr, "   %s stage %s -> %s\n", src.Name, st.From, st.To)
+	}
+	if err := stageProtoDependencies(src, syncDir, workRoot); err != nil {
+		return err
 	}
 	entries := make([]string, 0, len(src.Proto.Entries))
 	for _, e := range src.Proto.Entries {
@@ -79,6 +83,19 @@ func copyProtoTree(from, to string) error {
 		if err != nil {
 			return err
 		}
-		return copyFile(path, filepath.Join(to, rel))
+		dst := filepath.Join(to, rel)
+		if existing, err := os.ReadFile(dst); err == nil {
+			incoming, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(existing, incoming) {
+				return fmt.Errorf("proto staging collision at %s", dst)
+			}
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		return copyFile(path, dst)
 	})
 }
