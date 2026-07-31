@@ -127,7 +127,7 @@ subcommands:
 
 Download the archive for your platform from the [latest release](https://github.com/lathe-cli/lathe/releases/latest), unpack it, and put `lathe` on your `PATH`.
 
-When working from a source checkout, you can use the Make targets shown below instead of installing the release tools.
+When working from a source checkout, run `make build` and use `./bin/lathe` instead of installing a release archive.
 
 ### 1. Define the CLI
 
