@@ -2,15 +2,15 @@
 
 # lathe
 
-> 从 OpenAPI、Swagger 和 protobuf API 规格生成 Agent 友好的 Cobra CLI。
+> 从 OpenAPI、Swagger、protobuf 和 GraphQL API 规格生成 Agent 友好的 Cobra CLI。
 
 [![CI](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Lathe 是一个 API-to-CLI 生成器，适合需要同时服务人类用户和 AI Agent 的团队。
-它可以把 Swagger 2.0、OpenAPI 3，以及带 `google.api.http` 注解的 protobuf
-API 生成生产级 Cobra CLI，并内置结构化命令发现、认证元数据、请求体构造器和
-机器可读输出。
+它可以把 Swagger 2.0、OpenAPI 3、带 `google.api.http` 注解的 protobuf API，
+以及经过策略筛选的 GraphQL schema 生成生产级 Cobra CLI，并内置结构化命令发现、
+认证元数据、请求体构造器和机器可读输出。
 
 生成的 CLI 自带 command catalog JSON、意图搜索、单命令详情 JSON、认证元数据、
 请求体构造器、结构化输出，以及仓库内的 Skill 目录 `skills/<cli-name>/`。
@@ -36,7 +36,7 @@ Lathe 可以从已有 API 规格生成单文件命令行工具。你不需要手
 
 当你需要做这些事时，可以使用 Lathe：
 
-- 从 OpenAPI 3、Swagger 2.0 或 protobuf service 生成 Cobra CLI。
+- 从 OpenAPI 3、Swagger 2.0、protobuf service 或 GraphQL control-plane API 生成 Cobra CLI。
 - 让内部或面向客户的 CLI 和上游 API 规格保持同步。
 - 把 API 操作暴露给 AI Agent，同时避免它们猜 flag、认证、body 结构或输出格式。
 - 交付一个内置命令发现、认证预检、结构化输出和 Agent Skill 文档的单文件二进制。
@@ -45,14 +45,15 @@ Lathe 可以从已有 API 规格生成单文件命令行工具。你不需要手
 ## 为什么需要 Lathe
 
 只要一个 API 被团队认真使用，在 LLM 时代就会想要 CLI。常见做法是照着
-Swagger、OpenAPI 或 protobuf 手写一棵命令树，然后长期维护一份和 API 规格
+Swagger、OpenAPI、protobuf 或 GraphQL 手写一棵命令树，然后长期维护一份和 API 规格
 高度重复、随时可能漂移的代码。
 
 Lathe 的判断很简单：API 规格才是事实来源，CLI 应该从规格生成，而不是靠人工
 翻写。
 
-你只需要锁定上游规格、声明 CLI 名称和认证行为，再用 overlay 补强少量不够
-清楚的帮助文案。API 变更时，升级锁定的 tag，重新生成即可。
+你只需要声明锁定的上游规格或本地 working-tree 规格、CLI 名称和认证行为，再用
+overlay 补强少量不够清楚的帮助文案。API 变更时，升级锁定的 tag 或重新同步本地
+source，然后重新生成。
 
 最终得到的不是一个薄包装，而是一套 Agent 友好的 CLI 表面。runtime catalog
 会告诉 Agent 有哪些命令、哪些 flag 必填、是否需要认证、会发起什么 HTTP
@@ -62,11 +63,11 @@ Lathe 的判断很简单：API 规格才是事实来源，CLI 应该从规格生
 
 | 能力 | 说明 |
 |---|---|
-| 多后端生成 | Swagger 2.0、OpenAPI 3，以及带 `google.api.http` 注解的 protobuf service 都可以生成 Cobra 命令树。 |
+| 多后端生成 | Swagger 2.0、OpenAPI 3、带 `google.api.http` 注解的 protobuf service，以及经过策略筛选的 GraphQL schema 都可以生成 Cobra 命令树。 |
 | 统一运行时 | 生成模块共享同一套认证、请求构造、输出格式化、分页、流式响应和错误处理逻辑。 |
 | Agent 友好的发现能力 | `search`、`commands --json`、`commands show` 和 `commands schema` 会把 CLI 能力暴露成结构化数据。 |
 | 生成 Skill | Codegen 会写入 `skills/<cli-name>/`，让 Agent 能快速读取 CLI 的使用指南和模块 reference。 |
-| 可复现输入 | API 规格按 tag 锁定，解析到 commit SHA，并从仓库内配置重新生成。 |
+| 可复现输入 | Git 规格按 tag 锁定并解析到 commit SHA；本地 source 从仓库内配置声明的 working tree 暂存。 |
 | 真实 CLI 体验 | 按 hostname 管理认证，支持 `--file`、`--set`、`--set-str`、`-o table|json|yaml|raw`、枚举校验、分页、流式响应和 `--debug`。 |
 | Overlay 润色 | 不改生成代码，也能补充摘要、别名、参数帮助、分组和示例。 |
 
@@ -117,7 +118,7 @@ Lathe release archive 包含一个命令行工具 `lathe`，生成流程通过�
 
 从 [latest release](https://github.com/lathe-cli/lathe/releases/latest) 下载对应平台的 archive，解压后把 `lathe` 放进 `PATH`。
 
-如果你是在 source checkout 里工作，也可以继续使用下面的 Make targets，不需要单独安装 release 工具。
+如果你是在 source checkout 里工作，可以运行 `make build`，然后直接使用 `./bin/lathe`，不需要安装 release archive。
 
 ### 1. 定义 CLI
 
@@ -169,6 +170,23 @@ sources:
     openapi3:
       files:
         - api/openapi.yaml
+
+  console:
+    repo_url: https://github.com/acme/graphql-console.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema/console.graphql
+      expose:
+        queries: ["listApps", "getApp"]
+        mutations: ["createApp"]
+
+  awire:
+    local_path: ../awire
+    backend: openapi3
+    openapi3:
+      files:
+        - openapi/awire.yaml
 ```
 
 ### 3. 生成并构建
@@ -178,7 +196,7 @@ lathe bootstrap
 go build -o bin/acmectl ./cmd/acmectl
 ```
 
-`lathe bootstrap` 会同步锁定的规格并运行 codegen。Codegen 会生成 Go 模块，
+`lathe bootstrap` 会同步声明的规格并运行 codegen。Codegen 会生成 Go 模块，
 并默认生成 Skill 目录 `skills/acmectl/`。
 
 ### 4. 使用 CLI
@@ -263,18 +281,23 @@ go run ./cmd/lathe codegen -skill-root ""
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `repo_url` | 是 | `git clone` 能接受的任意 URL。 |
-| `pinned_tag` | 是 | 不接受浮动分支；可复现性是硬要求。 |
-| `backend` | 是 | `swagger`、`openapi3` 或 `proto` 之一。 |
+| `repo_url` | Git source | `git clone` 能接受的 URL；与 `local_path` 互斥。 |
+| `pinned_tag` | Git source | 不接受浮动分支；同步时解析到 commit SHA。 |
+| `local_path` | Local source | 本地路径或 `file://` URL；相对路径从 `specs/sources.yaml` 解析。 |
+| `backend` | 是 | `swagger`、`openapi3`、`proto` 或 `graphql` 之一。 |
 | `swagger.files` | 仅 Swagger | 一个或多个 Swagger 2.0 JSON 规格。 |
 | `openapi3.files` | 仅 OpenAPI 3 | JSON 或 YAML OpenAPI 规格。 |
 | `proto.staging` | 仅 Proto | 解析前暂存到 `protoc` include root 的文件。 |
 | `proto.entries` | 仅 Proto | 入口 proto 文件；只有带 `google.api.http` 的 RPC 会变成命令。 |
+| `proto.dependencies` | 仅 Proto | 显式暂存的锁定 `buf`、Go module 或 Git 依赖。 |
+| `graphql.schema` | 仅 GraphQL | 从 source 暂存的 SDL 文件。 |
+| `graphql.expose` | 仅 GraphQL | 必填的 query/mutation allow policy；缺失时 fail closed。 |
 
 分组规则：
 
 - Swagger 和 OpenAPI 3 使用 operation 的第一个 tag。
 - Proto 使用 service 名称。
+- GraphQL 使用 `graphql.groups` 策略；没有匹配时回退到 source module 名。
 
 ### Overlays
 

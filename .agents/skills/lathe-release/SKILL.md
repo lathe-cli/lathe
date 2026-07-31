@@ -32,7 +32,7 @@ Never claim a release is ready without fresh command output from this run.
 
 ## Lathe Pre-Release Gate
 
-Use this section in `/Users/x/git/samzong/lathe` or another Lathe checkout. It captures the v0.4.3 regression shape and should evolve with Lathe's real release surface.
+Use this section in a Lathe checkout. Derive the baseline from the latest release and validate the current tracked product surfaces; do not copy assumptions from a version-named scratch directory.
 
 ### Live State
 
@@ -71,6 +71,7 @@ Run uncached targeted tests for Lathe's release-sensitive surfaces.
 go test ./internal/sourceconfig ./internal/specsync -count=1
 go test ./internal/codegen/render ./internal/overlay -count=1
 go test ./internal/codegen/backends/... -count=1
+go test ./internal/lathecmd ./internal/projectinit ./internal/latheskill -count=1
 go test ./pkg/runtime ./pkg/lathe -count=1
 ```
 
@@ -83,7 +84,11 @@ mkdir -p "$ROOT/bin"
 COMMIT=$(git rev-parse --short HEAD)
 DATE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 go build -trimpath -ldflags "-X github.com/lathe-cli/lathe/pkg/lathe.Version=$VERSION -X github.com/lathe-cli/lathe/pkg/lathe.Commit=$COMMIT -X github.com/lathe-cli/lathe/pkg/lathe.Date=$DATE_UTC" -o "$ROOT/bin/lathe" ./cmd/lathe
+go build -trimpath -ldflags "-X github.com/lathe-cli/lathe/pkg/lathe.Commit=$COMMIT -X github.com/lathe-cli/lathe/pkg/lathe.Date=$DATE_UTC" -o "$ROOT/bin/lathe-init" ./cmd/lathe
 "$ROOT/bin/lathe" version
+"$ROOT/bin/lathe" --help | grep -F -- "lathe init" >/dev/null
+"$ROOT/bin/lathe" --help | grep -F -- "lathe skill" >/dev/null
+"$ROOT/bin/lathe" skill install --help 2>&1 | grep -F -- "-scope string" >/dev/null
 CATALOG_SCHEMA=$(awk '/const CatalogSchemaVersion =/{print $4}' pkg/runtime/catalog.go)
 REPO=$(pwd)
 ```
@@ -148,6 +153,45 @@ cd "$REPO"
 
 If a JSON assertion fails, inspect the actual `commands show --json` output before calling it a product regression. Catalog shape can legitimately evolve with a schema bump.
 
+Lathe does not currently have a tracked proto example app. Keep `go test ./internal/codegen/backends/proto -count=1` green and report product-level proto E2E as skipped, not passed.
+
+### Application Initialization E2E
+
+Initialize every supported starter from the candidate commit. Use the latest released baseline for init's internal `go mod tidy`, because the target version is not resolvable until it is published; then replace Lathe with the live checkout before running each starter's gate.
+
+```bash
+for LANGUAGE in node go python rust; do
+  APP="$ROOT/init-$LANGUAGE"
+  LATHE_INIT_VERSION="$BASELINE" "$ROOT/bin/lathe-init" init "$APP" \
+    --language "$LANGUAGE" \
+    --app-name "Lathe $LANGUAGE Smoke" \
+    --cli-name "${LANGUAGE}ctl" \
+    --go-module "example.com/lathe-$LANGUAGE-smoke" \
+    --license none \
+    --json > "$ROOT/init-$LANGUAGE.json"
+  jq -e --arg language "$LANGUAGE" \
+    '.schema_version == 1 and .language == $language and .git.has_commits == false and .git.has_remote == false and .git.staged_files == 0 and (.next_command | length > 0)' \
+    "$ROOT/init-$LANGUAGE.json" >/dev/null
+  (cd "$APP" && go mod edit -replace github.com/lathe-cli/lathe="$REPO")
+done
+
+(cd "$ROOT/init-node" && pnpm check)
+(cd "$ROOT/init-go" && make check)
+(cd "$ROOT/init-python" && make check)
+(cd "$ROOT/init-rust" && make check)
+```
+
+### Bundled Skill Install Smoke
+
+Install into an isolated home so validation never touches real user configuration.
+
+```bash
+SKILL_HOME="$ROOT/skill-home"
+mkdir -p "$SKILL_HOME"
+HOME="$SKILL_HOME" "$ROOT/bin/lathe" skill install --scope user --agent codex --yes
+test -f "$SKILL_HOME/.agents/skills/lathe/SKILL.md"
+```
+
 ### Skill Include Smoke
 
 If `.local/skill-include-smoke` exists, copy it into the scratch root and run it against the candidate Lathe. Do not run its old `run-smoke.sh` blindly if it pins an older Lathe version.
@@ -206,6 +250,8 @@ Report:
 - GitHub workflows checked for `HEAD`
 - exact local commands that passed
 - E2E surfaces that passed
+- starter languages and bundled Skill install that passed
+- whether proto product-level E2E was skipped
 - skipped checks and why
 - worktree cleanliness
 - whether tag, push, or release actions were performed

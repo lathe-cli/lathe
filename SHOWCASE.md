@@ -4,7 +4,7 @@ This page collects Lathe generation paths and public adoption notes.
 
 ## CLI Generation Path
 
-Use the `lathe` CLI to generate a downstream Cobra CLI from pinned API specs:
+Use the `lathe` CLI to generate a downstream Cobra CLI from declared API specs:
 
 ```sh
 go mod init example.com/acme   # skip when go.mod already exists
@@ -25,6 +25,7 @@ This is the core Lathe promise: agents discover commands, inspect exact contract
 
 - `examples/petstore`: minimal OpenAPI 3 path from pinned spec to generated CLI.
 - `examples/richapi`: broader generated CLI path covering pagination, enums, headers, request bodies, public endpoints, streaming hints, and long-running operation hints.
+- `examples/graphql`: policy-curated GraphQL path covering request envelopes, complex variables, body-cursor pagination, and generated output hints.
 
 See [CLI Usage](docs/cli-usage.md) for the exact files, commands, and generated CLI verification loop.
 

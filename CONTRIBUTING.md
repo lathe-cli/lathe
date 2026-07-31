@@ -15,7 +15,7 @@ Requires Go (version in `go.mod`) and [`golangci-lint`](https://golangci-lint.ru
 To follow the end-to-end generated CLI workflow, see:
 
 - [CLI Usage](docs/cli-usage.md) for the exact `go mod init` -> `lathe bootstrap` -> `go build` path.
-- [Showcase](SHOWCASE.md) for the petstore and richapi generation paths.
+- [Showcase](SHOWCASE.md) for the petstore, richapi, and GraphQL generation paths.
 
 ## Workflow
 
@@ -27,13 +27,13 @@ To follow the end-to-end generated CLI workflow, see:
 
 ## Scope
 
-- **In scope**: codegen accuracy, runtime correctness, spec backend improvements (Swagger 2.0, OpenAPI 3, proto), test coverage, docs, `Authenticator` / `Formatter` extensions, overlay ergonomics, `cli.yaml` schema.
-- **Out of scope**: new spec formats beyond Swagger / OpenAPI / proto, plugin loaders, GUI/TUI. These can ship as sibling projects on top of lathe.
+- **In scope**: codegen accuracy, runtime correctness, spec backend improvements (Swagger 2.0, OpenAPI 3, proto, policy-curated GraphQL), application initialization, bundled Skill installation, test coverage, docs, `Authenticator` / `Formatter` extensions, overlay ergonomics, `cli.yaml` schema.
+- **Out of scope**: new spec formats beyond the supported backends, generic scaffolders, plugin loaders, GUI/TUI. These can ship as sibling projects on top of lathe.
 
 ## Project conventions
 
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`). Scope is optional.
-- Error wrapping uses `fmt.Errorf("...%w", err)`; never drop context.
+- Error wrapping uses `fmt.Errorf("...: %w", err)`; never drop context.
 - Don't commit generated code (`internal/generated/`) or upstream clones (`.cache/`).
 - For anything data-driven (auth endpoints, CLI identity, spec sources), prefer extending `cli.yaml` / `specs/sources.yaml` over hard-coding.
 
