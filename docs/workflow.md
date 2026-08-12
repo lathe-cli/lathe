@@ -38,7 +38,8 @@ operations. It can remain custom Go until diagnostic primitives are designed.
 The first version does not support:
 
 - Rollback or compensation.
-- `if` / `else`, loops, parallel steps, or workflow-specific retry policy.
+- `if` / `else` blocks, loops, parallel steps, or workflow-specific retry
+  policy. Steps can be guarded individually with `when`; see Conditional Steps.
 - Shell commands or external actions.
 - Dynamic plugins or remote extension code.
 - A public `GeneratedApp` or workflow engine ABI.
@@ -165,6 +166,42 @@ steps:
       input.label: ${input.label}
 ```
 
+## Conditional Steps
+
+A step can be guarded with `when`. Conditions are joined with AND; values within
+one condition are joined with OR.
+
+```yaml
+steps:
+  - id: label
+    uses: console.Apps_SetLabel
+    when:
+      - value: ${input.label}
+        operator: notin
+        values: [""]
+    params:
+      appId: ${input.app_id}
+```
+
+`operator` is `in` or `notin` and is required. Comparison is string comparison,
+so `values: [404]` and `values: ["404"]` are equivalent.
+
+A reference that does not resolve evaluates to the empty string inside `when`,
+which makes `notin [""]` the way to ask whether an optional input was provided.
+
+A step whose condition is false is `skipped`: no request is sent, and no host or
+credential loading happens for it. A later step that references a skipped step
+is skipped as well, transitively. If `output.from` references a skipped step,
+the command emits the step summary instead of failing.
+
+Because every `${steps.<id>}` reference names one specific step, conditions
+cannot express branch convergence — a step reading `${steps.deploy_gpu.id}` is
+skipped whenever the CPU branch ran instead. Guarded steps should either be
+terminal or belong to branches that never rejoin.
+
+There is no `else`. Two complementary conditions express a two-way branch, and
+Lathe does not check that they are mutually exclusive or exhaustive.
+
 ## Output
 
 If `output.from` is set, the command outputs that referenced value using the
@@ -250,8 +287,20 @@ Workflow commands use:
 }
 ```
 
-The catalog schema version is `11` for this contract. Generated binaries with
-workflow commands also attach capability:
+The catalog schema version is `12` for this contract. Conditional steps carry
+their conditions in catalog JSON, so an agent can tell a step is guarded without
+running it:
+
+```json
+{
+  "id": "label",
+  "operation_id": "Apps_SetLabel",
+  "http": {"method": "POST", "path_template": "/apps/{appId}/label"},
+  "when": [{"value": "${input.label}", "operator": "notin", "values": [""]}]
+}
+```
+
+Generated binaries with workflow commands also attach capability:
 
 ```text
 workflow.dsl
@@ -266,5 +315,6 @@ compiled in:
 - Every workflow command appears in catalog JSON as `kind=workflow`.
 - Every workflow command has workflow metadata.
 - Every workflow step has an ID and operation HTTP metadata.
+- Every step condition has a value, a valid operator, and at least one value.
 
 The verify report schema does not change.

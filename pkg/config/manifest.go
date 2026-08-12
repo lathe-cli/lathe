@@ -71,11 +71,38 @@ type WorkflowInput struct {
 }
 
 type WorkflowStep struct {
-	ID     string            `yaml:"id"`
-	Uses   string            `yaml:"uses"`
-	Params map[string]string `yaml:"params,omitempty"`
-	Set    map[string]string `yaml:"set,omitempty"`
-	SetStr map[string]string `yaml:"set_str,omitempty"`
+	ID     string              `yaml:"id"`
+	Uses   string              `yaml:"uses"`
+	When   []WorkflowCondition `yaml:"when,omitempty"`
+	Params map[string]string   `yaml:"params,omitempty"`
+	Set    map[string]string   `yaml:"set,omitempty"`
+	SetStr map[string]string   `yaml:"set_str,omitempty"`
+}
+
+type WorkflowCondition struct {
+	Value    string                  `yaml:"value"`
+	Operator string                  `yaml:"operator"`
+	Values   WorkflowConditionValues `yaml:"values"`
+}
+
+// WorkflowConditionValues accepts any scalar list so that `values: [404]` and
+// `values: ["404"]` are both valid. Comparison is always string comparison, so
+// items are kept in their source form.
+type WorkflowConditionValues []string
+
+func (v *WorkflowConditionValues) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.SequenceNode {
+		return fmt.Errorf("workflow condition values must be a list")
+	}
+	out := make(WorkflowConditionValues, 0, len(node.Content))
+	for _, item := range node.Content {
+		if item.Kind != yaml.ScalarNode {
+			return fmt.Errorf("workflow condition values must contain scalars")
+		}
+		out = append(out, item.Value)
+	}
+	*v = out
+	return nil
 }
 
 type WorkflowOutput struct {
@@ -275,6 +302,20 @@ func normalizeWorkflow(workflow *WorkflowInfo) error {
 			if step.Uses == "" {
 				return fmt.Errorf("workflow command %q step %q uses is required", cmd.Use, step.ID)
 			}
+			for k := range step.When {
+				cond := &step.When[k]
+				cond.Value = strings.TrimSpace(cond.Value)
+				cond.Operator = strings.ToLower(strings.TrimSpace(cond.Operator))
+				if cond.Value == "" {
+					return fmt.Errorf("workflow command %q step %q when[%d].value is required", cmd.Use, step.ID, k)
+				}
+				if !validWorkflowOperator(cond.Operator) {
+					return fmt.Errorf("workflow command %q step %q when[%d].operator must be %q or %q", cmd.Use, step.ID, k, "in", "notin")
+				}
+				if len(cond.Values) == 0 {
+					return fmt.Errorf("workflow command %q step %q when[%d].values must not be empty", cmd.Use, step.ID, k)
+				}
+			}
 		}
 	}
 	return nil
@@ -284,6 +325,15 @@ func workflowInputFlag(name string) string {
 	name = strings.ReplaceAll(name, "_", "-")
 	name = strings.ReplaceAll(name, ".", "-")
 	return name
+}
+
+func validWorkflowOperator(value string) bool {
+	switch value {
+	case "in", "notin":
+		return true
+	default:
+		return false
+	}
 }
 
 func validWorkflowInputType(value string) bool {

@@ -63,6 +63,7 @@ func buildWorkflowSpecs(manifest *config.Manifest, modules []app.Module, shortcu
 			workflow.Steps = append(workflow.Steps, runtime.WorkflowStepSpec{
 				ID:             step.ID,
 				Operation:      ref,
+				When:           workflowConditions(step.When),
 				Params:         maps.Clone(step.Params),
 				BodySets:       workflowValues(step.Set),
 				BodyStringSets: workflowValues(step.SetStr),
@@ -210,6 +211,11 @@ func workflowOperationName(spec runtime.CommandSpec) string {
 }
 
 func validateWorkflowStepRefs(step config.WorkflowStep, inputs map[string]bool, steps map[string]bool) error {
+	for i, cond := range step.When {
+		if err := validateWorkflowRefs(cond.Value, inputs, steps); err != nil {
+			return fmt.Errorf("when[%d]: %w", i, err)
+		}
+	}
 	for key, expr := range step.Params {
 		if err := validateWorkflowRefs(expr, inputs, steps); err != nil {
 			return fmt.Errorf("param %q: %w", key, err)
@@ -285,6 +291,21 @@ func workflowInputs(inputs []config.WorkflowInput) []runtime.ParamSpec {
 			Enum:       append([]string(nil), input.Enum...),
 			Format:     input.Format,
 			Deprecated: input.Deprecated,
+		})
+	}
+	return out
+}
+
+func workflowConditions(conditions []config.WorkflowCondition) []runtime.WorkflowCondition {
+	if len(conditions) == 0 {
+		return nil
+	}
+	out := make([]runtime.WorkflowCondition, 0, len(conditions))
+	for _, cond := range conditions {
+		out = append(out, runtime.WorkflowCondition{
+			Value:    cond.Value,
+			Operator: cond.Operator,
+			Values:   append([]string(nil), cond.Values...),
 		})
 	}
 	return out

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -218,5 +219,328 @@ func publicGetSpec(use string, path string) CommandSpec {
 		Method:   "GET",
 		PathTpl:  path,
 		Security: &SecurityHint{Public: true},
+	}
+}
+
+func TestBuildWorkflows_WhenSelectsBranch(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{
+			{
+				ID:        "gpu",
+				Operation: publicGetSpec("gpu", "/gpu"),
+				When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+			},
+			{
+				ID:        "cpu",
+				Operation: publicGetSpec("cpu", "/cpu"),
+				When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"cpu"}}},
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy", "--kind", "cpu"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !reflect.DeepEqual(paths, []string{"/cpu"}) {
+		t.Fatalf("paths = %#v, want only /cpu", paths)
+	}
+	summary := decodeWorkflowSummary(t, stdout.String())
+	if summary.Status != "ok" {
+		t.Fatalf("status = %q", summary.Status)
+	}
+	if got := stepStatuses(summary); !reflect.DeepEqual(got, map[string]string{"gpu": "skipped", "cpu": "ok"}) {
+		t.Fatalf("step statuses = %#v", got)
+	}
+}
+
+// notin [""] is the documented existence check for an optional flag.
+func TestBuildWorkflows_WhenTreatsUnsetInputAsEmpty(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	root := newWorkflowRoot(io.Discard)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "label", Flag: "label", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{{
+			ID:        "label",
+			Operation: publicGetSpec("label", "/label"),
+			When:      []WorkflowCondition{{Value: "${input.label}", Operator: "notin", Values: []string{""}}},
+		}},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("paths = %#v, want no request when --label is unset", paths)
+	}
+}
+
+func TestBuildWorkflows_SkipPropagatesThroughParamsAndConditions(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"abc"}`))
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{
+			{
+				ID:        "gpu",
+				Operation: publicGetSpec("gpu", "/gpu"),
+				When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+			},
+			// references a skipped step through params
+			{
+				ID: "notify",
+				Operation: CommandSpec{
+					Group:    "System",
+					Use:      "notify",
+					Method:   "GET",
+					PathTpl:  "/notify/{id}",
+					Params:   []ParamSpec{{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true}},
+					Security: &SecurityHint{Public: true},
+				},
+				Params: map[string]string{"id": "${steps.gpu.id}"},
+			},
+			// references a skipped step from inside when itself
+			{
+				ID:        "audit",
+				Operation: publicGetSpec("audit", "/audit"),
+				When:      []WorkflowCondition{{Value: "${steps.gpu.id}", Operator: "in", Values: []string{"abc"}}},
+			},
+			// transitive: depends on a step that was itself skipped by propagation
+			{
+				ID:        "trail",
+				Operation: publicGetSpec("trail", "/trail"),
+				When:      []WorkflowCondition{{Value: "${steps.audit.ok}", Operator: "in", Values: []string{"true"}}},
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy", "--kind", "cpu"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("paths = %#v, want every step skipped", paths)
+	}
+	summary := decodeWorkflowSummary(t, stdout.String())
+	if summary.Status != "ok" {
+		t.Fatalf("status = %q, want ok", summary.Status)
+	}
+	want := map[string]string{"gpu": "skipped", "notify": "skipped", "audit": "skipped", "trail": "skipped"}
+	if got := stepStatuses(summary); !reflect.DeepEqual(got, want) {
+		t.Fatalf("step statuses = %#v", got)
+	}
+}
+
+// A skipped step must not load host options or refresh credentials. The step
+// below is non-public and no host is configured, so reaching auth would fail.
+func TestBuildWorkflows_SkippedStepDoesNotLoadAuth(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{{
+			ID: "guarded",
+			Operation: CommandSpec{
+				Group:   "System",
+				Use:     "guarded",
+				Method:  "GET",
+				PathTpl: "/guarded",
+			},
+			When: []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+		}},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"deploy", "--kind", "cpu"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v, want the guarded step to be skipped before auth", err)
+	}
+	summary := decodeWorkflowSummary(t, stdout.String())
+	if got := stepStatuses(summary); !reflect.DeepEqual(got, map[string]string{"guarded": "skipped"}) {
+		t.Fatalf("step statuses = %#v", got)
+	}
+}
+
+func TestBuildWorkflows_OutputFromSkippedStepDegradesToSummary(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{{
+			ID:        "gpu",
+			Operation: publicGetSpec("gpu", "/gpu"),
+			When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+		}},
+		OutputFrom: "${steps.gpu}",
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy", "--kind", "cpu"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	summary := decodeWorkflowSummary(t, stdout.String())
+	if summary.Status != "ok" || len(summary.Steps) != 1 || summary.Steps[0].Status != "skipped" {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
+// Branch convergence is a documented limitation: a step that references one
+// branch is skipped when the other branch runs. See docs/workflow-conditional.md.
+func TestBuildWorkflows_BranchConvergenceSkipsConvergingStep(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"abc"}`))
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{
+			{
+				ID:        "gpu",
+				Operation: publicGetSpec("gpu", "/gpu"),
+				When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+			},
+			{
+				ID:        "cpu",
+				Operation: publicGetSpec("cpu", "/cpu"),
+				When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"cpu"}}},
+			},
+			{
+				ID: "notify",
+				Operation: CommandSpec{
+					Group:    "System",
+					Use:      "notify",
+					Method:   "GET",
+					PathTpl:  "/notify/{id}",
+					Params:   []ParamSpec{{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true}},
+					Security: &SecurityHint{Public: true},
+				},
+				Params: map[string]string{"id": "${steps.gpu.id}"},
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy", "--kind", "cpu"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !reflect.DeepEqual(paths, []string{"/cpu"}) {
+		t.Fatalf("paths = %#v, want the cpu branch only", paths)
+	}
+	if got := stepStatuses(decodeWorkflowSummary(t, stdout.String()))["notify"]; got != "skipped" {
+		t.Fatalf("notify status = %q, want skipped", got)
+	}
+}
+
+func decodeWorkflowSummary(t *testing.T, raw string) WorkflowResult {
+	t.Helper()
+	var summary WorkflowResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &summary); err != nil {
+		t.Fatalf("decode summary %q: %v", raw, err)
+	}
+	return summary
+}
+
+func stepStatuses(result WorkflowResult) map[string]string {
+	out := map[string]string{}
+	for _, step := range result.Steps {
+		out[step.ID] = step.Status
+	}
+	return out
+}
+
+// Control for TestBuildWorkflows_SkippedStepDoesNotLoadAuth: with the condition
+// satisfied, the same step reaches auth and fails. The pair pins the ordering.
+func TestBuildWorkflows_RunningStepLoadsAuth(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	root := newWorkflowRoot(io.Discard)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{{
+			ID: "guarded",
+			Operation: CommandSpec{
+				Group:   "System",
+				Use:     "guarded",
+				Method:  "GET",
+				PathTpl: "/guarded",
+			},
+			When: []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+		}},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"deploy", "--kind", "gpu"})
+	err := root.Execute()
+	if !errors.Is(err, ErrNotAuthenticated) {
+		t.Fatalf("error = %v, want ErrNotAuthenticated once the step actually runs", err)
 	}
 }

@@ -3,7 +3,9 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -104,46 +106,70 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 
 func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any) (WorkflowResult, []byte, error) {
 	state := workflowState{
-		inputs: workflowInputValues(cmd, spec, vals),
-		steps:  map[string]any{},
+		inputs:  workflowInputValues(cmd, spec, vals),
+		steps:   map[string]any{},
+		skipped: map[string]bool{},
 	}
 	result := WorkflowResult{Status: "ok", Steps: make([]WorkflowStepResult, 0, len(spec.Steps))}
 	for _, step := range spec.Steps {
 		stepResult := WorkflowStepResult{ID: step.ID, Status: "ok"}
+		fail := func(err error) (WorkflowResult, []byte, error) {
+			stepResult.Status = "failed"
+			result.Status = "failed"
+			result.Steps = append(result.Steps, stepResult)
+			return result, nil, &WorkflowError{StepID: step.ID, Err: err, Result: result}
+		}
+		skip := func() {
+			state.skipped[step.ID] = true
+			stepResult.Status = "skipped"
+			result.Steps = append(result.Steps, stepResult)
+		}
+
+		// Conditions are evaluated before any host or auth work so a skipped
+		// step never loads credentials or triggers a token refresh.
+		run, err := evalWorkflowConditions(step.When, state)
+		if err != nil {
+			if errors.Is(err, errStepSkipped) {
+				skip()
+				continue
+			}
+			return fail(err)
+		}
+		if !run {
+			skip()
+			continue
+		}
+
+		input, err := workflowOperationInput(step, state)
+		if err != nil {
+			if errors.Is(err, errStepSkipped) {
+				skip()
+				continue
+			}
+			return fail(err)
+		}
+
 		var hostname string
 		var clientOpts ClientOptions
-		var err error
 		if step.Operation.Security != nil && step.Operation.Security.Public {
 			hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
 		} else {
 			hostname, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
 		}
 		if err != nil {
-			stepResult.Status = "failed"
-			result.Status = "failed"
-			result.Steps = append(result.Steps, stepResult)
-			return result, nil, &WorkflowError{StepID: step.ID, Err: err, Result: result}
+			return fail(err)
 		}
 		if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
 			clientOpts.Debug = true
 		}
 		clientOpts.UserAgent = cmd.Root().Use
-		input, err := workflowOperationInput(step, state)
-		if err != nil {
-			stepResult.Status = "failed"
-			result.Status = "failed"
-			result.Steps = append(result.Steps, stepResult)
-			return result, nil, &WorkflowError{StepID: step.ID, Err: err, Result: result}
-		}
+
 		opResult, err := InvokeOperation(cmd.Context(), step.Operation, input, OperationOptions{
 			Hostname: hostname,
 			Client:   clientOpts,
 		})
 		if err != nil {
-			stepResult.Status = "failed"
-			result.Status = "failed"
-			result.Steps = append(result.Steps, stepResult)
-			return result, nil, &WorkflowError{StepID: step.ID, Err: err, Result: result}
+			return fail(err)
 		}
 		state.steps[step.ID] = workflowStepValue(opResult.Data)
 		result.Steps = append(result.Steps, stepResult)
@@ -153,6 +179,11 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 	}
 	value, err := evalWorkflowValue(spec.OutputFrom, state)
 	if err != nil {
+		// Referencing a skipped step degrades to the step summary rather than
+		// failing the command.
+		if errors.Is(err, errStepSkipped) {
+			return result, nil, nil
+		}
 		return result, nil, err
 	}
 	data, err := json.Marshal(value)
@@ -163,9 +194,15 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 }
 
 type workflowState struct {
-	inputs map[string]any
-	steps  map[string]any
+	inputs  map[string]any
+	steps   map[string]any
+	skipped map[string]bool
 }
+
+// errStepSkipped marks a reference to a step that was skipped. It propagates
+// out of reference evaluation so the referencing step is skipped in turn, which
+// makes propagation transitive without a dependency graph.
+var errStepSkipped = errors.New("workflow step was skipped")
 
 func workflowInputValues(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any) map[string]any {
 	input := OperationInput{Values: vals, Changed: operationChangedFlags(cmd, spec.Params)}
@@ -182,6 +219,41 @@ func workflowInputValues(cmd *cobra.Command, spec WorkflowSpec, vals map[string]
 		out[p.Flag] = v
 	}
 	return out
+}
+
+// evalWorkflowConditions reports whether a step should run. Conditions are
+// joined with AND; values within one condition are joined with OR.
+func evalWorkflowConditions(conditions []WorkflowCondition, state workflowState) (bool, error) {
+	for _, cond := range conditions {
+		actual, err := evalWorkflowConditionValue(cond.Value, state)
+		if err != nil {
+			return false, err
+		}
+		matched := slices.Contains(cond.Values, actual)
+		if cond.Operator == "notin" {
+			matched = !matched
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// evalWorkflowConditionValue is the lenient evaluator. Data that does not
+// resolve becomes the empty string, because referencing a field that may be
+// absent is normal in a condition. Leniency stops at skipped steps: that
+// sentinel propagates so the referencing step is skipped rather than compared
+// against an empty value.
+func evalWorkflowConditionValue(expr string, state workflowState) (string, error) {
+	value, err := evalWorkflowValue(expr, state)
+	if err != nil {
+		if errors.Is(err, errStepSkipped) {
+			return "", err
+		}
+		return "", nil
+	}
+	return workflowString(value), nil
 }
 
 func workflowOperationInput(step WorkflowStepSpec, state workflowState) (OperationInput, error) {
@@ -277,6 +349,9 @@ func workflowRefValue(ref string, state workflowState) (any, error) {
 	}
 	if rest, ok := strings.CutPrefix(ref, "steps."); ok {
 		id, path, _ := strings.Cut(rest, ".")
+		if state.skipped[id] {
+			return nil, fmt.Errorf("step %q: %w", id, errStepSkipped)
+		}
 		step, exists := state.steps[id]
 		if !exists {
 			return nil, fmt.Errorf("unknown step %q", id)
