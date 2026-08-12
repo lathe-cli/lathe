@@ -17,8 +17,9 @@ that are already reachable today. It does not change failure semantics, and it
 ships `CatalogSchemaVersion` 12.
 
 **Stage 2** would add `allow_status` and a `${result.*}` namespace so conditions
-can branch on API responses. It is **on hold**: the data it needs does not exist
-in the shared invocation contract today (section 6.1). Stage 2 is reviewed
+can branch on API responses. It is **on hold**: a successful step's status code
+is not exposed by the shared invocation contract today (section 6.1). Stage 2 is
+reviewed
 separately and reserves nothing in advance: no schema number is set aside, and
 the field sketched in section 6.3 is a direction, not a commitment.
 
@@ -40,10 +41,13 @@ Every declared step always runs. Two classes of real requests do not fit.
 - Only call `Apps_Update` when the current status is `active` or `pending`.
 - Create the resource only when it does not already exist.
 
-Stage 1 serves class A completely, and serves class B only where the deciding
-value appears in a **successful** response body. The remaining class B cases —
-the ones that need a status code, or that need a non-2xx response to not abort
-the run — are stage 2 and are currently blocked.
+Stage 1 covers guarded steps that are **independent or terminal** — a step that
+nothing downstream references. It does **not** cover branch convergence, where a
+later step needs a value from whichever branch ran; see section 4.5.
+
+Within class B, stage 1 reaches only conditions whose deciding value appears in
+a **successful** response body. Cases that need a status code, or that need a
+non-2xx response to not abort the run, are stage 2.
 
 ## 3. Boundary
 
@@ -104,6 +108,9 @@ operand is `value:`.
 There is no `else`. Two complementary `when` blocks express a two-way branch, as
 shown above. Lathe does not verify that conditions are mutually exclusive or
 exhaustive; that is the builder's responsibility, and the docs must say so.
+
+The two branches above are terminal — no later step reads their output. That
+restriction is not incidental; see section 4.5.
 
 ### 4.2 Operators
 
@@ -179,7 +186,50 @@ Alternatives rejected:
 - **Evaluate to null.** Nothing crashes, but nulls flow silently into request
   bodies.
 
-### 4.5 Evaluation order inside the step loop
+### 4.5 What conditions cannot express: branch convergence
+
+Complementary conditions produce two branches, but every `${steps.<id>}`
+reference is statically bound to one named step. There is no way to write
+"whichever of these ran".
+
+```yaml
+- id: deploy_gpu
+  uses: console.Apps_DeployGPU
+  when:
+    - value: ${input.kind}
+      operator: in
+      values: [gpu]
+- id: deploy_cpu
+  uses: console.Apps_DeployCPU
+  when:
+    - value: ${input.kind}
+      operator: in
+      values: [cpu]
+- id: notify
+  uses: console.Apps_Notify
+  params:
+    deploymentId: ${steps.deploy_gpu.data.id}   # bound to one branch only
+```
+
+With `--kind cpu`, `deploy_gpu` is skipped, the sentinel propagates through
+`notify`, and `notify` is skipped as well — even though a deployment did happen.
+
+This is a consequence of section 4.4, not a defect in it. The alternative,
+resolving a skipped reference to null, would send a null deployment ID to a
+real endpoint. Skipping is the safer failure mode, but it means conditions are
+appropriate only for:
+
+- guarded steps that nothing downstream references
+- branches that never rejoin
+
+Branch convergence, and unified output assembled from whichever branch ran, are
+**out of scope**. Supporting them does not require a branch AST — naming a value
+across branches (an explicit alias or output binding) would be enough — but that
+is a separate, smaller proposal and is not made here. The `deploy_gpu` /
+`deploy_cpu` example in section 4.1 is well-formed precisely because those steps
+are terminal.
+
+### 4.6 Evaluation order inside the step loop
 
 `when` must be evaluated **before** any host or auth work for that step.
 
@@ -201,7 +251,7 @@ The loop body is reordered to:
 Step 2 moves ahead of auth for the same reason: a step skipped through
 propagation must not touch credentials either.
 
-### 4.6 Output
+### 4.7 Output
 
 If `output.from` references a skipped step, the command emits the workflow step
 summary instead, exactly as when `output.from` is omitted. It is not an error.
@@ -236,26 +286,29 @@ written with `when` alone. `DoRawFull` turns any non-2xx response into an
 `executeWorkflow` aborts immediately (`pkg/runtime/workflow.go:142`). A 404
 terminates the workflow before the next step's condition is ever evaluated.
 
-Two facts about the shared invocation layer block the fix, and both are the
-real reason this stage is on hold rather than merely unwritten:
-
-**The success status code is not available.** `OperationResult` carries only
-`Data` and `DryRun` (`pkg/runtime/operation.go:31`). `DoRawFull` does return a
-`RawResult` with `StatusCode` (`pkg/runtime/client.go:75`), but `InvokeOperation`
-discards it and returns bytes. `${result.<id>.status}` cannot be populated for a
-successful step without changing `OperationResult`, which is a downstream-facing
+**The blocker is the successful status code, and only that.** `OperationResult`
+carries only `Data` and `DryRun` (`pkg/runtime/operation.go:31`). `DoRawFull`
+does return a `RawResult` with `StatusCode` (`pkg/runtime/client.go:75`), but
+`InvokeOperation` discards it and returns bytes. A successful step's status code
+is therefore unreachable without changing `OperationResult`, a downstream-facing
 type shared with every generated API command.
 
-**The tolerated error body is discarded.** `InvokeOperation` returns
-`OperationResult{}, err` on any error (`pkg/runtime/operation.go:87`). The body
-survives inside `HTTPError.Body`, but the result is empty. Before stage 2 can be
-specified, it must decide whether an allowed non-2xx response writes its body
-into `${steps.<id>}` — and if so, the invocation contract has to hand that body
-back rather than throw it away.
+**A tolerated response is not lost.** `InvokeOperation` returns
+`OperationResult{}, err` on any error (`pkg/runtime/operation.go:87`), but the
+data survives: `HTTPError` carries both `Status` and `Body`
+(`pkg/runtime/client.go:211`), and `DoRaw` already returns the body alongside
+the same error (`pkg/runtime/client.go:204`). `executeWorkflow` can recover both
+with `errors.As` without touching `OperationResult`. Whether an allowed non-2xx
+response *should* write its body into `${steps.<id>}` is a semantic decision for
+stage 2, not a plumbing obstacle.
 
-Neither question can be answered inside `pkg/runtime/workflow.go`. Both change a
-`pkg/**` type that generated CLIs depend on. That is a wider blast radius than
-stage 1 and belongs in its own review.
+This narrows the problem considerably. For a tolerated step the status code is
+available today; only successful steps lack one. Shipping
+`${result.<id>.status}` as defined-on-failure and undefined-on-success would be
+an asymmetric contract not worth publishing, so stage 2 must either extend
+`OperationResult` or restrict the namespace to tolerated steps and say so
+explicitly. That choice touches a `pkg/**` type shared with generated CLIs,
+which is a wider blast radius than stage 1 and belongs in its own review.
 
 ### 6.2 Sketch: status allowlist, not a boolean
 
@@ -353,10 +406,13 @@ skip propagation is settled (section 4.4).
 
 For stage 2, before it can be re-reviewed:
 
-1. Does an allowed non-2xx response write its body into `${steps.<id>}`? This
-   determines whether `InvokeOperation` must return a result alongside an error.
-2. How does `OperationResult` expose a status code without disrupting the
-   generated API commands that share it?
+1. Does an allowed non-2xx response write its body into `${steps.<id>}`? The
+   data is reachable either way (section 6.1), so this is a contract choice, not
+   a plumbing one.
+2. Is `${result.<id>.status}` defined for successful steps? If yes,
+   `OperationResult` has to expose a status code without disrupting the
+   generated API commands that share it. If no, the namespace is restricted to
+   tolerated steps and the asymmetry must be documented.
 
 ## 10. Deliberate exclusions
 
@@ -395,7 +451,8 @@ its interaction with conditions is a new contract decided at that time.
   a skipped reference in `params`; **propagation through a skipped reference
   inside `when` itself**; transitive propagation; `output.from` pointing at a
   skipped step; all-steps-skipped; **a skipped step performs no host or auth
-  loading**
+  loading**; **branch convergence skips the converging step** (section 4.5), so
+  the documented limit is pinned by a test rather than by prose alone
 - `pkg/config/manifest_test.go` — DSL parsing and rejection cases
 - `internal/lathecmd/workflow_test.go` (new file) — reference validation for
   conditions
