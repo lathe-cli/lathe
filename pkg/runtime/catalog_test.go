@@ -437,3 +437,61 @@ func TestBuildCatalog_DefaultAuthRequired(t *testing.T) {
 		t.Fatal("nil security should require auth to match runtime behavior")
 	}
 }
+
+func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
+	root := newRootWithModuleGroup()
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use: "deploy",
+		Steps: []WorkflowStepSpec{{
+			ID: "gpu",
+			Operation: CommandSpec{
+				Group:       "Apps",
+				Use:         "deploy-gpu",
+				Method:      "POST",
+				PathTpl:     "/apps/gpu",
+				OperationID: "Apps_DeployGPU",
+			},
+			When: []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+		}},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+
+	catalog := BuildCatalog(root, CatalogOptions{})
+	if catalog.CatalogSchemaVersion != 12 {
+		t.Fatalf("schema version = %d, want 12", catalog.CatalogSchemaVersion)
+	}
+	var step *CatalogWorkflowStep
+	for i, entry := range catalog.Commands {
+		if entry.Kind == "workflow" && entry.Workflow != nil && len(entry.Workflow.Steps) > 0 {
+			step = &catalog.Commands[i].Workflow.Steps[0]
+			break
+		}
+	}
+	if step == nil {
+		t.Fatal("no workflow step in catalog")
+	}
+	want := []CatalogWorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}}
+	if !reflect.DeepEqual(step.When, want) {
+		t.Fatalf("when = %#v, want %#v", step.When, want)
+	}
+
+	data, err := json.Marshal(step)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"when":[{"value":"${input.kind}","operator":"in","values":["gpu"]}]`) {
+		t.Fatalf("catalog JSON = %s", data)
+	}
+}
+
+// A step with no conditions must not gain a "when" key.
+func TestBuildCatalog_UnconditionalStepOmitsWhen(t *testing.T) {
+	data, err := json.Marshal(CatalogWorkflowStep{ID: "plain"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "when") {
+		t.Fatalf("catalog JSON = %s", data)
+	}
+}

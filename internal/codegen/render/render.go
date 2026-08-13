@@ -688,6 +688,9 @@ func workflowStepSpecsLiteral(steps []runtime.WorkflowStepSpec) string {
 		b.WriteString("runtime.WorkflowStepSpec{")
 		writeStringField(&b, "ID", step.ID)
 		fmt.Fprintf(&b, "Operation: %s,", commandSpecLiteral(step.Operation))
+		if len(step.When) > 0 {
+			fmt.Fprintf(&b, "When: %s,", workflowConditionsLiteral(step.When))
+		}
 		if len(step.Params) > 0 {
 			fmt.Fprintf(&b, "Params: %s,", stringMapLiteral(step.Params))
 		}
@@ -698,6 +701,23 @@ func workflowStepSpecsLiteral(steps []runtime.WorkflowStepSpec) string {
 			fmt.Fprintf(&b, "BodyStringSets: %s,", workflowValuesLiteral(step.BodyStringSets))
 		}
 		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func workflowConditionsLiteral(conditions []runtime.WorkflowCondition) string {
+	var b strings.Builder
+	b.WriteString("[]runtime.WorkflowCondition{")
+	for _, cond := range conditions {
+		b.WriteString("runtime.WorkflowCondition{")
+		writeStringField(&b, "Value", cond.Value)
+		writeStringField(&b, "Operator", cond.Operator)
+		b.WriteString("Values: []string{")
+		for _, value := range cond.Values {
+			fmt.Fprintf(&b, "%q,", value)
+		}
+		b.WriteString("},},")
 	}
 	b.WriteByte('}')
 	return b.String()

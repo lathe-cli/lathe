@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 11
+const CatalogSchemaVersion = 12
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -81,9 +81,16 @@ type CatalogWorkflow struct {
 }
 
 type CatalogWorkflowStep struct {
-	ID          string      `json:"id"`
-	OperationID string      `json:"operation_id,omitempty"`
-	HTTP        CatalogHTTP `json:"http"`
+	ID          string                     `json:"id"`
+	OperationID string                     `json:"operation_id,omitempty"`
+	HTTP        CatalogHTTP                `json:"http"`
+	When        []CatalogWorkflowCondition `json:"when,omitempty"`
+}
+
+type CatalogWorkflowCondition struct {
+	Value    string   `json:"value"`
+	Operator string   `json:"operator"`
+	Values   []string `json:"values"`
 }
 
 type CatalogHTTP struct {
@@ -406,6 +413,21 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 	return cmd
 }
 
+func catalogWorkflowConditions(conditions []WorkflowCondition) []CatalogWorkflowCondition {
+	if len(conditions) == 0 {
+		return nil
+	}
+	out := make([]CatalogWorkflowCondition, 0, len(conditions))
+	for _, cond := range conditions {
+		out = append(out, CatalogWorkflowCondition{
+			Value:    cond.Value,
+			Operator: cond.Operator,
+			Values:   append([]string(nil), cond.Values...),
+		})
+	}
+	return out
+}
+
 func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 	flags := make([]CatalogFlag, 0, len(spec.Params))
 	for _, p := range spec.Params {
@@ -438,6 +460,7 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 				PathTemplate:    step.Operation.PathTpl,
 				DefaultHostname: step.Operation.DefaultHostname,
 			},
+			When: catalogWorkflowConditions(step.When),
 		})
 		stepAuth := catalogAuth(step.Operation.Security)
 		if stepAuth.Required {

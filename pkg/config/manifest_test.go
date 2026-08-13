@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -323,5 +324,95 @@ func TestBindActive_RoundTrip(t *testing.T) {
 	})
 	if Active() != m {
 		t.Fatal("Active() did not return the bound manifest")
+	}
+}
+
+func TestLoadManifest_WorkflowConditions(t *testing.T) {
+	t.Run("accepts scalar values in any form", func(t *testing.T) {
+		m := mustLoadWorkflowManifest(t, `
+      steps:
+        - id: probe
+          uses: console.Apps_Get
+          when:
+            - value: ${input.kind}
+              operator: in
+              values: [gpu, 404, "cpu", ""]
+`)
+		cond := m.Workflow.Commands[0].Steps[0].When
+		if len(cond) != 1 {
+			t.Fatalf("conditions = %#v", cond)
+		}
+		want := WorkflowConditionValues{"gpu", "404", "cpu", ""}
+		if !reflect.DeepEqual(cond[0].Values, want) {
+			t.Fatalf("values = %#v, want %#v", cond[0].Values, want)
+		}
+	})
+
+	for name, when := range map[string]string{
+		"missing operator": `
+            - value: ${input.kind}
+              values: [gpu]`,
+		"unknown operator": `
+            - value: ${input.kind}
+              operator: matches
+              values: [gpu]`,
+		"empty values": `
+            - value: ${input.kind}
+              operator: in
+              values: []`,
+		"missing value": `
+            - operator: in
+              values: [gpu]`,
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := Load([]byte(workflowManifestYAML(`
+      steps:
+        - id: probe
+          uses: console.Apps_Get
+          when:` + when + "\n")))
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
+
+func mustLoadWorkflowManifest(t *testing.T, steps string) *Manifest {
+	t.Helper()
+	m, err := Load([]byte(workflowManifestYAML(steps)))
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+	return m
+}
+
+func workflowManifestYAML(steps string) string {
+	return `cli:
+  name: myctl
+workflow:
+  version: 1
+  commands:
+    - use: deploy
+      inputs:
+        - name: kind
+` + steps
+}
+
+// Condition values must be normalized the way the runtime stringifies values,
+// otherwise `values: [1.0]` never matches a float64 input of 1.
+func TestLoadManifest_WorkflowConditionValuesMatchRuntimeFormatting(t *testing.T) {
+	m := mustLoadWorkflowManifest(t, `
+      steps:
+        - id: probe
+          uses: console.Apps_Get
+          when:
+            - value: ${input.kind}
+              operator: in
+              values: [1.0, 1.50, 404, 2.5, gpu, "1.0", true]
+`)
+	got := m.Workflow.Commands[0].Steps[0].When[0].Values
+	want := WorkflowConditionValues{"1", "1.5", "404", "2.5", "gpu", "1.0", "true"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("values = %#v, want %#v", got, want)
 	}
 }

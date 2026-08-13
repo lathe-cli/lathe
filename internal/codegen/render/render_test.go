@@ -765,3 +765,41 @@ func TestValidateModuleNames(t *testing.T) {
 		t.Fatalf("Cobra-normalized duplicate module names should be rejected, got %v", err)
 	}
 }
+
+func TestRenderWorkflows_EmitsStepConditions(t *testing.T) {
+	chdirWithGeneratedRoot(t)
+
+	specs := []runtime.WorkflowSpec{{
+		Use: "deploy",
+		Steps: []runtime.WorkflowStepSpec{{
+			ID: "gpu",
+			Operation: runtime.CommandSpec{
+				Group:       "Apps",
+				Use:         "deploy-gpu",
+				Method:      "POST",
+				PathTpl:     "/apps/gpu",
+				OperationID: "Apps_DeployGPU",
+			},
+			When: []runtime.WorkflowCondition{
+				{Value: "${input.kind}", Operator: "in", Values: []string{"gpu", "404"}},
+				{Value: "${input.label}", Operator: "notin", Values: []string{""}},
+			},
+		}},
+	}}
+
+	if err := RenderWorkflows(specs); err != nil {
+		t.Fatalf("RenderWorkflows: %v", err)
+	}
+	got := generatedWorkflows(t)
+	for _, want := range []string{
+		`When: []runtime.WorkflowCondition{`,
+		`Value: "${input.kind}"`,
+		`Operator: "in"`,
+		`Values: []string{"gpu", "404"}`,
+		`Operator: "notin"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q:\n%s", want, got)
+		}
+	}
+}

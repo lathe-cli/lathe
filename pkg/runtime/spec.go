@@ -131,9 +131,18 @@ type WorkflowSpec struct {
 type WorkflowStepSpec struct {
 	ID             string
 	Operation      CommandSpec
+	When           []WorkflowCondition
 	Params         map[string]string
 	BodySets       []WorkflowValue
 	BodyStringSets []WorkflowValue
+}
+
+// WorkflowCondition guards a workflow step. Conditions on one step are joined
+// with AND; Values within one condition are joined with OR.
+type WorkflowCondition struct {
+	Value    string
+	Operator string
+	Values   []string
 }
 
 type WorkflowValue struct {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -71,11 +72,67 @@ type WorkflowInput struct {
 }
 
 type WorkflowStep struct {
-	ID     string            `yaml:"id"`
-	Uses   string            `yaml:"uses"`
-	Params map[string]string `yaml:"params,omitempty"`
-	Set    map[string]string `yaml:"set,omitempty"`
-	SetStr map[string]string `yaml:"set_str,omitempty"`
+	ID     string              `yaml:"id"`
+	Uses   string              `yaml:"uses"`
+	When   []WorkflowCondition `yaml:"when,omitempty"`
+	Params map[string]string   `yaml:"params,omitempty"`
+	Set    map[string]string   `yaml:"set,omitempty"`
+	SetStr map[string]string   `yaml:"set_str,omitempty"`
+}
+
+type WorkflowCondition struct {
+	Value    string                  `yaml:"value"`
+	Operator string                  `yaml:"operator"`
+	Values   WorkflowConditionValues `yaml:"values"`
+}
+
+// WorkflowConditionValues accepts any scalar list so that `values: [404]` and
+// `values: ["404"]` are both valid.
+//
+// Comparison at runtime is string comparison against a value formatted by
+// runtime.workflowString, so typed scalars are normalized the same way here.
+// Keeping the YAML source form would make `values: [1.0]` never match a
+// float64 input of 1, which the runtime renders as "1". Quoted scalars are
+// left untouched, so `values: ["1.0"]` still means the literal string.
+//
+// This mirrors formatting rules in pkg/runtime; pkg/config cannot import
+// pkg/runtime because the dependency runs the other way. The two must be kept
+// in step.
+type WorkflowConditionValues []string
+
+func (v *WorkflowConditionValues) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.SequenceNode {
+		return fmt.Errorf("workflow condition values must be a list")
+	}
+	out := make(WorkflowConditionValues, 0, len(node.Content))
+	for _, item := range node.Content {
+		if item.Kind != yaml.ScalarNode {
+			return fmt.Errorf("workflow condition values must contain scalars")
+		}
+		out = append(out, normalizeWorkflowConditionValue(item))
+	}
+	*v = out
+	return nil
+}
+
+func normalizeWorkflowConditionValue(node *yaml.Node) string {
+	switch node.Tag {
+	case "!!float":
+		// JSON numbers decode as float64, and the runtime formats them with
+		// strconv.FormatFloat(v, 'f', -1, 64).
+		if f, err := strconv.ParseFloat(node.Value, 64); err == nil {
+			return strconv.FormatFloat(f, 'f', -1, 64)
+		}
+	case "!!int":
+		if i, err := strconv.ParseInt(node.Value, 0, 64); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+	case "!!bool":
+		if b, err := strconv.ParseBool(node.Value); err == nil {
+			return strconv.FormatBool(b)
+		}
+	}
+	return node.Value
 }
 
 type WorkflowOutput struct {
@@ -275,6 +332,20 @@ func normalizeWorkflow(workflow *WorkflowInfo) error {
 			if step.Uses == "" {
 				return fmt.Errorf("workflow command %q step %q uses is required", cmd.Use, step.ID)
 			}
+			for k := range step.When {
+				cond := &step.When[k]
+				cond.Value = strings.TrimSpace(cond.Value)
+				cond.Operator = strings.ToLower(strings.TrimSpace(cond.Operator))
+				if cond.Value == "" {
+					return fmt.Errorf("workflow command %q step %q when[%d].value is required", cmd.Use, step.ID, k)
+				}
+				if !validWorkflowOperator(cond.Operator) {
+					return fmt.Errorf("workflow command %q step %q when[%d].operator must be %q or %q", cmd.Use, step.ID, k, "in", "notin")
+				}
+				if len(cond.Values) == 0 {
+					return fmt.Errorf("workflow command %q step %q when[%d].values must not be empty", cmd.Use, step.ID, k)
+				}
+			}
 		}
 	}
 	return nil
@@ -284,6 +355,15 @@ func workflowInputFlag(name string) string {
 	name = strings.ReplaceAll(name, "_", "-")
 	name = strings.ReplaceAll(name, ".", "-")
 	return name
+}
+
+func validWorkflowOperator(value string) bool {
+	switch value {
+	case "in", "notin":
+		return true
+	default:
+		return false
+	}
 }
 
 func validWorkflowInputType(value string) bool {

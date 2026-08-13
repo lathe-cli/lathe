@@ -202,6 +202,17 @@ func verifyWorkflowContract(catalog runtime.Catalog) error {
 			if step.HTTP.Method == "" || step.HTTP.PathTemplate == "" {
 				return fmt.Errorf("workflow command %q step %q missing operation HTTP metadata", strings.Join(entry.Path, " "), step.ID)
 			}
+			for i, cond := range step.When {
+				if cond.Value == "" {
+					return fmt.Errorf("workflow command %q step %q condition %d missing value", strings.Join(entry.Path, " "), step.ID, i)
+				}
+				if cond.Operator != "in" && cond.Operator != "notin" {
+					return fmt.Errorf("workflow command %q step %q condition %d operator = %q", strings.Join(entry.Path, " "), step.ID, i, cond.Operator)
+				}
+				if len(cond.Values) == 0 {
+					return fmt.Errorf("workflow command %q step %q condition %d has no values", strings.Join(entry.Path, " "), step.ID, i)
+				}
+			}
 		}
 	}
 	if count == 0 {
