@@ -120,7 +120,8 @@ func normalizeWorkflowConditionValue(node *yaml.Node) string {
 	case "!!float":
 		// JSON numbers decode as float64, and the runtime formats them with
 		// strconv.FormatFloat(v, 'f', -1, 64).
-		if f, err := strconv.ParseFloat(node.Value, 64); err == nil {
+		var f float64
+		if err := node.Decode(&f); err == nil {
 			return strconv.FormatFloat(f, 'f', -1, 64)
 		}
 	case "!!int":
@@ -131,6 +132,8 @@ func normalizeWorkflowConditionValue(node *yaml.Node) string {
 		if b, err := strconv.ParseBool(node.Value); err == nil {
 			return strconv.FormatBool(b)
 		}
+	case "!!null":
+		return ""
 	}
 	return node.Value
 }
@@ -334,9 +337,8 @@ func normalizeWorkflow(workflow *WorkflowInfo) error {
 			}
 			for k := range step.When {
 				cond := &step.When[k]
-				cond.Value = strings.TrimSpace(cond.Value)
 				cond.Operator = strings.ToLower(strings.TrimSpace(cond.Operator))
-				if cond.Value == "" {
+				if strings.TrimSpace(cond.Value) == "" {
 					return fmt.Errorf("workflow command %q step %q when[%d].value is required", cmd.Use, step.ID, k)
 				}
 				if !validWorkflowOperator(cond.Operator) {

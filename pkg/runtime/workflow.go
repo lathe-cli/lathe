@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -319,8 +320,13 @@ func workflowStepValue(data []byte) any {
 		return nil
 	}
 	var value any
-	if err := json.Unmarshal(data, &value); err == nil {
-		return value
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err == nil {
+		var trailing any
+		if err := decoder.Decode(&trailing); errors.Is(err, io.EOF) {
+			return value
+		}
 	}
 	return string(data)
 }
@@ -399,7 +405,15 @@ func workflowString(value any) string {
 	case []byte:
 		return string(tv)
 	case json.Number:
-		return tv.String()
+		raw := tv.String()
+		if strings.ContainsAny(raw, ".eE") {
+			if f, err := strconv.ParseFloat(raw, 64); err == nil {
+				return strconv.FormatFloat(f, 'f', -1, 64)
+			}
+		} else if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+		return raw
 	case bool:
 		return fmt.Sprint(tv)
 	case float64:

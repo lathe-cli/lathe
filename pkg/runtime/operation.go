@@ -329,6 +329,8 @@ func coerceOperationValue(v any, p ParamSpec) (any, error) {
 		return append([]string(nil), (*tv)...), nil
 	case string:
 		return parseStringOperationValue(tv, p)
+	case json.Number:
+		return parseStringOperationValue(tv.String(), p)
 	case int:
 		return int64(tv), nil
 	case int64:
