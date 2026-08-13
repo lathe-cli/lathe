@@ -544,3 +544,44 @@ func TestBuildWorkflows_RunningStepLoadsAuth(t *testing.T) {
 		t.Fatalf("error = %v, want ErrNotAuthenticated once the step actually runs", err)
 	}
 }
+
+// A missing field inside a larger expression must blank only that reference,
+// not the whole string.
+func TestBuildWorkflows_ConditionKeepsLiteralAroundMissingReference(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"present":"here"}`))
+	}))
+	defer srv.Close()
+
+	root := newWorkflowRoot(io.Discard)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use: "deploy",
+		Steps: []WorkflowStepSpec{
+			{ID: "probe", Operation: publicGetSpec("probe", "/probe")},
+			{
+				ID:        "guarded",
+				Operation: publicGetSpec("guarded", "/guarded"),
+				When: []WorkflowCondition{{
+					Value:    "prefix-${steps.probe.missing}",
+					Operator: "in",
+					Values:   []string{"prefix-"},
+				}},
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !reflect.DeepEqual(paths, []string{"/probe", "/guarded"}) {
+		t.Fatalf("paths = %#v, want the guarded step to run", paths)
+	}
+}

@@ -397,3 +397,22 @@ workflow:
         - name: kind
 ` + steps
 }
+
+// Condition values must be normalized the way the runtime stringifies values,
+// otherwise `values: [1.0]` never matches a float64 input of 1.
+func TestLoadManifest_WorkflowConditionValuesMatchRuntimeFormatting(t *testing.T) {
+	m := mustLoadWorkflowManifest(t, `
+      steps:
+        - id: probe
+          uses: console.Apps_Get
+          when:
+            - value: ${input.kind}
+              operator: in
+              values: [1.0, 1.50, 404, 2.5, gpu, "1.0", true]
+`)
+	got := m.Workflow.Commands[0].Steps[0].When[0].Values
+	want := WorkflowConditionValues{"1", "1.5", "404", "2.5", "gpu", "1.0", "true"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("values = %#v, want %#v", got, want)
+	}
+}

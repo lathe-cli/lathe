@@ -240,20 +240,42 @@ func evalWorkflowConditions(conditions []WorkflowCondition, state workflowState)
 	return true, nil
 }
 
-// evalWorkflowConditionValue is the lenient evaluator. Data that does not
-// resolve becomes the empty string, because referencing a field that may be
-// absent is normal in a condition. Leniency stops at skipped steps: that
-// sentinel propagates so the referencing step is skipped rather than compared
-// against an empty value.
+// evalWorkflowConditionValue is the lenient evaluator, kept separate from
+// evalWorkflowValue rather than wrapping it. Leniency applies per reference:
+// a reference that does not resolve contributes the empty string while the
+// surrounding literal text is preserved, so "prefix-${steps.probe.missing}"
+// evaluates to "prefix-". Collapsing the whole expression would silently turn
+// a partially resolvable condition into a comparison against "".
+//
+// Leniency stops at skipped steps: that sentinel propagates so the referencing
+// step is skipped rather than compared against an empty value.
 func evalWorkflowConditionValue(expr string, state workflowState) (string, error) {
-	value, err := evalWorkflowValue(expr, state)
-	if err != nil {
-		if errors.Is(err, errStepSkipped) {
+	var out strings.Builder
+	rest := expr
+	for {
+		start := strings.Index(rest, "${")
+		if start < 0 {
+			out.WriteString(rest)
+			return out.String(), nil
+		}
+		out.WriteString(rest[:start])
+		after := rest[start+2:]
+		end := strings.Index(after, "}")
+		if end < 0 {
+			// Unterminated references are rejected at codegen time. Treat the
+			// remainder as literal text instead of failing the condition.
+			out.WriteString(rest[start:])
+			return out.String(), nil
+		}
+		value, err := workflowRefValue(strings.TrimSpace(after[:end]), state)
+		switch {
+		case err == nil:
+			out.WriteString(workflowString(value))
+		case errors.Is(err, errStepSkipped):
 			return "", err
 		}
-		return "", nil
+		rest = after[end+1:]
 	}
-	return workflowString(value), nil
 }
 
 func workflowOperationInput(step WorkflowStepSpec, state workflowState) (OperationInput, error) {

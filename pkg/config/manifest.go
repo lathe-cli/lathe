@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -86,8 +87,17 @@ type WorkflowCondition struct {
 }
 
 // WorkflowConditionValues accepts any scalar list so that `values: [404]` and
-// `values: ["404"]` are both valid. Comparison is always string comparison, so
-// items are kept in their source form.
+// `values: ["404"]` are both valid.
+//
+// Comparison at runtime is string comparison against a value formatted by
+// runtime.workflowString, so typed scalars are normalized the same way here.
+// Keeping the YAML source form would make `values: [1.0]` never match a
+// float64 input of 1, which the runtime renders as "1". Quoted scalars are
+// left untouched, so `values: ["1.0"]` still means the literal string.
+//
+// This mirrors formatting rules in pkg/runtime; pkg/config cannot import
+// pkg/runtime because the dependency runs the other way. The two must be kept
+// in step.
 type WorkflowConditionValues []string
 
 func (v *WorkflowConditionValues) UnmarshalYAML(node *yaml.Node) error {
@@ -99,10 +109,30 @@ func (v *WorkflowConditionValues) UnmarshalYAML(node *yaml.Node) error {
 		if item.Kind != yaml.ScalarNode {
 			return fmt.Errorf("workflow condition values must contain scalars")
 		}
-		out = append(out, item.Value)
+		out = append(out, normalizeWorkflowConditionValue(item))
 	}
 	*v = out
 	return nil
+}
+
+func normalizeWorkflowConditionValue(node *yaml.Node) string {
+	switch node.Tag {
+	case "!!float":
+		// JSON numbers decode as float64, and the runtime formats them with
+		// strconv.FormatFloat(v, 'f', -1, 64).
+		if f, err := strconv.ParseFloat(node.Value, 64); err == nil {
+			return strconv.FormatFloat(f, 'f', -1, 64)
+		}
+	case "!!int":
+		if i, err := strconv.ParseInt(node.Value, 0, 64); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+	case "!!bool":
+		if b, err := strconv.ParseBool(node.Value); err == nil {
+			return strconv.FormatBool(b)
+		}
+	}
+	return node.Value
 }
 
 type WorkflowOutput struct {
