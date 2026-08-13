@@ -408,11 +408,26 @@ func TestLoadManifest_WorkflowConditionValuesMatchRuntimeFormatting(t *testing.T
           when:
             - value: ${input.kind}
               operator: in
-              values: [1.0, 1.50, 404, 2.5, gpu, "1.0", true]
+              values: [1.0, 1.50, 404, 2.5, gpu, "1.0", true, .nan, .inf, -.inf, null]
 `)
 	got := m.Workflow.Commands[0].Steps[0].When[0].Values
-	want := WorkflowConditionValues{"1", "1.5", "404", "2.5", "gpu", "1.0", "true"}
+	want := WorkflowConditionValues{"1", "1.5", "404", "2.5", "gpu", "1.0", "true", "NaN", "+Inf", "-Inf", ""}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("values = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadManifest_WorkflowConditionPreservesValueWhitespace(t *testing.T) {
+	m := mustLoadWorkflowManifest(t, `
+      steps:
+        - id: probe
+          uses: console.Apps_Get
+          when:
+            - value: " ${input.kind} "
+              operator: in
+              values: [" gpu "]
+`)
+	if got := m.Workflow.Commands[0].Steps[0].When[0].Value; got != " ${input.kind} " {
+		t.Fatalf("value = %q, want surrounding spaces preserved", got)
 	}
 }

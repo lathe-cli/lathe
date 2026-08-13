@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -319,8 +320,13 @@ func workflowStepValue(data []byte) any {
 		return nil
 	}
 	var value any
-	if err := json.Unmarshal(data, &value); err == nil {
-		return value
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err == nil {
+		var trailing any
+		if err := decoder.Decode(&trailing); errors.Is(err, io.EOF) {
+			return value
+		}
 	}
 	return string(data)
 }

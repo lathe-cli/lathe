@@ -585,3 +585,50 @@ func TestBuildWorkflows_ConditionKeepsLiteralAroundMissingReference(t *testing.T
 		t.Fatalf("paths = %#v, want the guarded step to run", paths)
 	}
 }
+
+func TestBuildWorkflows_PreservesLargeIntegerReferences(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/probe" {
+			_, _ = w.Write([]byte(`{"id":9007199254740993}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	root := newWorkflowRoot(io.Discard)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use: "deploy",
+		Steps: []WorkflowStepSpec{
+			{ID: "probe", Operation: publicGetSpec("probe", "/probe")},
+			{
+				ID: "fetch",
+				Operation: CommandSpec{
+					Use:      "fetch",
+					Method:   "GET",
+					PathTpl:  "/items/{id}",
+					Params:   []ParamSpec{{Name: "id", Flag: "id", In: InPath, GoType: "int64", Required: true}},
+					Security: &SecurityHint{Public: true},
+				},
+				When:   []WorkflowCondition{{Value: "${steps.probe.id}", Operator: "in", Values: []string{"9007199254740993"}}},
+				Params: map[string]string{"id": "${steps.probe.id}"},
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := []string{"/probe", "/items/9007199254740993"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("paths = %#v, want %#v", paths, want)
+	}
+}
