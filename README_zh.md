@@ -5,7 +5,7 @@
 > 从 OpenAPI、Swagger、protobuf 和 GraphQL API 规格生成 Agent 友好的 Cobra CLI。
 
 [![CI](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Lathe 是一个 API-to-CLI 生成器，适合需要同时服务人类用户和 AI Agent 的团队。
 它可以把 Swagger 2.0、OpenAPI 3、带 `google.api.http` 注解的 protobuf API，
@@ -389,4 +389,6 @@ Lathe 分两步工作：
 
 ## 许可证
 
-[MIT](LICENSE) (c) lathe-cli
+[Apache License 2.0](LICENSE) © lathe-cli
+
+写入下游项目的生成物不受本许可证约束，详见 [LICENSE](LICENSE) 中的 generated-output exception。

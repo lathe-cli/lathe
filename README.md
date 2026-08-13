@@ -5,7 +5,7 @@
 > Generate agent-friendly Cobra CLIs from OpenAPI, Swagger, protobuf, and GraphQL API specs.
 
 [![CI](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Lathe is an API-to-CLI generator for teams that want one binary humans can use
 and AI agents can inspect safely. It turns Swagger 2.0, OpenAPI 3, and
@@ -482,4 +482,7 @@ See [SECURITY.md](SECURITY.md) for private vulnerability disclosure.
 
 ## License
 
-[MIT](LICENSE) (c) lathe-cli
+[Apache License 2.0](LICENSE) © lathe-cli
+
+Generated output written into a downstream project is not covered by this
+license. See the generated-output exception in [LICENSE](LICENSE).

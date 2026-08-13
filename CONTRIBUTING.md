@@ -1,6 +1,7 @@
 # Contributing to lathe
 
-Thanks for your interest in lathe.
+Thanks for your interest in lathe. Contributions are licensed under the
+Apache License 2.0.
 
 ## Local setup
 
