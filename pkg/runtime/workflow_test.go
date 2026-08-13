@@ -586,7 +586,7 @@ func TestBuildWorkflows_ConditionKeepsLiteralAroundMissingReference(t *testing.T
 	}
 }
 
-func TestBuildWorkflows_PreservesLargeIntegerReferences(t *testing.T) {
+func TestBuildWorkflows_PreservesNumericReferenceSemantics(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
 
@@ -595,7 +595,7 @@ func TestBuildWorkflows_PreservesLargeIntegerReferences(t *testing.T) {
 		paths = append(paths, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/probe" {
-			_, _ = w.Write([]byte(`{"id":9007199254740993}`))
+			_, _ = w.Write([]byte(`{"id":9007199254740993,"decimal":1.0,"exponent":1e3}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -616,7 +616,11 @@ func TestBuildWorkflows_PreservesLargeIntegerReferences(t *testing.T) {
 					Params:   []ParamSpec{{Name: "id", Flag: "id", In: InPath, GoType: "int64", Required: true}},
 					Security: &SecurityHint{Public: true},
 				},
-				When:   []WorkflowCondition{{Value: "${steps.probe.id}", Operator: "in", Values: []string{"9007199254740993"}}},
+				When: []WorkflowCondition{
+					{Value: "${steps.probe.id}", Operator: "in", Values: []string{"9007199254740993"}},
+					{Value: "${steps.probe.decimal}", Operator: "in", Values: []string{"1"}},
+					{Value: "${steps.probe.exponent}", Operator: "in", Values: []string{"1000"}},
+				},
 				Params: map[string]string{"id": "${steps.probe.id}"},
 			},
 		},

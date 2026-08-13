@@ -405,7 +405,15 @@ func workflowString(value any) string {
 	case []byte:
 		return string(tv)
 	case json.Number:
-		return tv.String()
+		raw := tv.String()
+		if strings.ContainsAny(raw, ".eE") {
+			if f, err := strconv.ParseFloat(raw, 64); err == nil {
+				return strconv.FormatFloat(f, 'f', -1, 64)
+			}
+		} else if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+		return raw
 	case bool:
 		return fmt.Sprint(tv)
 	case float64:
