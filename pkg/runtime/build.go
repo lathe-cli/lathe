@@ -127,7 +127,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			var clientOpts ClientOptions
 			var err error
 			refreshAuth := !dryRun
-			if s.Security != nil && s.Security.Public {
+			if dryRun || (s.Security != nil && s.Security.Public) {
 				hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
 			} else {
 				hostname, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
