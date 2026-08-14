@@ -404,7 +404,14 @@ const requestBodyNonJSON = `{
             "application/xml": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}
           }
         },
-        "responses": {}
+        "responses": {
+          "201": {
+            "content": {
+              "text/plain": {"schema": {"type": "object", "properties": {"message": {"type": "string"}}}},
+              "application/pdf": {"schema": {"type": "string"}}
+            }
+          }
+        }
       }
     }
   }

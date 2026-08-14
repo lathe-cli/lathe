@@ -26,7 +26,17 @@
           "Items": null
         }
       },
-      "Responses": {},
+      "Responses": {
+        "201": {
+          "Schema": {
+            "Ref": "",
+            "Type": "string",
+            "Properties": null,
+            "Items": null
+          },
+          "MediaType": "application/pdf"
+        }
+      },
       "Produces": null,
       "Security": null
     }
