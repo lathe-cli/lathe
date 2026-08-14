@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -455,6 +456,97 @@ func TestBuild_FileSendsRequestBodyMediaType(t *testing.T) {
 	}
 	if gotContentType != "text/plain" {
 		t.Errorf("Content-Type = %q, want text/plain", gotContentType)
+	}
+}
+
+func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	type capture struct {
+		contentType string
+		disposition string
+		filename    string
+		fileType    string
+		fileBody    string
+		purpose     string
+		err         error
+	}
+	var got capture
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.contentType = r.Header.Get("Content-Type")
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			got.err = err
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer func() { _ = r.MultipartForm.RemoveAll() }()
+		got.purpose = r.FormValue("purpose")
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			got.err = err
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		body, err := io.ReadAll(file)
+		if err != nil {
+			got.err = err
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		got.disposition = header.Header.Get("Content-Disposition")
+		got.filename = header.Filename
+		got.fileType = header.Header.Get("Content-Type")
+		got.fileBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"file-1"}`))
+	}))
+	defer srv.Close()
+
+	filePath := t.TempDir() + "/sample.png"
+	if err := os.WriteFile(filePath, []byte("file-content"), 0o600); err != nil {
+		t.Fatalf("write upload: %v", err)
+	}
+
+	root := newRootWithModuleGroup()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group:   "Uploads",
+		Use:     "create",
+		Method:  http.MethodPost,
+		PathTpl: "/uploads",
+		Params: []ParamSpec{
+			{Name: "file", Flag: "file", In: InFormData, GoType: "string", Required: true, Format: "binary"},
+			{Name: "purpose", Flag: "purpose", In: InFormData, GoType: "string"},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "multipart/form-data"},
+		Security:    &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "uploads", "create", "--file", filePath, "--purpose", "knowledge"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.err != nil {
+		t.Fatalf("parse multipart: %v", got.err)
+	}
+	if !strings.HasPrefix(got.contentType, "multipart/form-data; boundary=") {
+		t.Errorf("Content-Type = %q", got.contentType)
+	}
+	if got.filename != "sample.png" || got.fileType != "image/png" || got.fileBody != "file-content" {
+		t.Errorf("file = filename %q, type %q, body %q", got.filename, got.fileType, got.fileBody)
+	}
+	disposition, dispositionParams, err := mime.ParseMediaType(got.disposition)
+	if err != nil || disposition != "form-data" || dispositionParams["name"] != "file" || dispositionParams["filename"] != "sample.png" {
+		t.Errorf("Content-Disposition = %q: %v", got.disposition, err)
+	}
+	if got.purpose != "knowledge" {
+		t.Errorf("purpose = %q", got.purpose)
 	}
 }
 

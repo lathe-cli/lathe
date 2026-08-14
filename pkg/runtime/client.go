@@ -8,8 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -106,6 +112,11 @@ func doRawFull(ctx context.Context, hostname, method, path string, body any, opt
 
 type responseConsumer func(io.Reader) ([]byte, error)
 
+type multipartForm struct {
+	Fields url.Values
+	Files  map[string]string
+}
+
 func doRawFullConsume(ctx context.Context, hostname, method, path string, body any, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
 	req, bodyBytes, contentType, err := resolveRequest(ctx, hostname, method, path, body, opts)
 	if err != nil {
@@ -141,6 +152,8 @@ func encodeRequestBody(body any) ([]byte, string, error) {
 			return b, "application/json", nil
 		case url.Values:
 			return []byte(b.Encode()), "application/x-www-form-urlencoded", nil
+		case multipartForm:
+			return encodeMultipartForm(b)
 		default:
 			raw, err := json.Marshal(b)
 			if err != nil {
@@ -150,6 +163,64 @@ func encodeRequestBody(body any) ([]byte, string, error) {
 		}
 	}
 	return nil, "", nil
+}
+
+func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	fieldNames := make([]string, 0, len(form.Fields))
+	for name := range form.Fields {
+		fieldNames = append(fieldNames, name)
+	}
+	sort.Strings(fieldNames)
+	for _, name := range fieldNames {
+		for _, value := range form.Fields[name] {
+			if err := w.WriteField(name, value); err != nil {
+				return nil, "", fmt.Errorf("write multipart field %q: %w", name, err)
+			}
+		}
+	}
+	fileNames := make([]string, 0, len(form.Files))
+	for name := range form.Files {
+		fileNames = append(fileNames, name)
+	}
+	sort.Strings(fileNames)
+	for _, name := range fileNames {
+		path := form.Files[name]
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, "", fmt.Errorf("open multipart file %q: %w", path, err)
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+			"name": name, "filename": filepath.Base(path),
+		}))
+		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		header.Set("Content-Type", contentType)
+		part, partErr := w.CreatePart(header)
+		if partErr == nil {
+			_, partErr = io.Copy(part, file)
+		}
+		closeErr := file.Close()
+		if partErr != nil {
+			return nil, "", fmt.Errorf("write multipart file %q: %w", path, partErr)
+		}
+		if closeErr != nil {
+			return nil, "", fmt.Errorf("close multipart file %q: %w", path, closeErr)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, "", fmt.Errorf("close multipart body: %w", err)
+	}
+	return body.Bytes(), w.FormDataContentType(), nil
+}
+
+func isMultipartMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && mediaType == "multipart/form-data"
 }
 
 func resolveRequest(ctx context.Context, hostname, method, path string, body any, opts ClientOptions) (*http.Request, []byte, string, error) {

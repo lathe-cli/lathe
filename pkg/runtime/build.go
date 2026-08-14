@@ -144,7 +144,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return err
 			}
 
-			hasFile := s.RequestBody != nil && cmd.Flags().Changed(bodyFileFlag)
+			hasFile := bodyFileFlag != "" && cmd.Flags().Changed(bodyFileFlag)
 			var fileBody []byte
 			if hasFile {
 				fileBody, err = ReadBody(bodyFile)
@@ -195,7 +195,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	for i := range s.Params {
 		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
 	}
-	if s.RequestBody != nil {
+	if s.RequestBody != nil && !hasFormDataParams(s.Params) {
 		bodyFileFlag = controlFlagName(cmd, "file")
 		bodySetFlag := controlFlagName(cmd, "set")
 		bodyStringSetFlag := controlFlagName(cmd, "set-str")
@@ -328,6 +328,9 @@ func redactedDryRunHeaders(headers map[string][]string) map[string]string {
 func redactedDryRunBody(contentType string, body []byte) any {
 	if len(body) == 0 {
 		return nil
+	}
+	if isMultipartMediaType(contentType) {
+		return fmt.Sprintf("<multipart body omitted: %d bytes>", len(body))
 	}
 	redacted := redactDebugBody(contentType, body)
 	if strings.HasPrefix(contentType, "application/json") {

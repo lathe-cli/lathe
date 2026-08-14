@@ -449,7 +449,8 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		return nil
 	}
 	out := &rawir.RawSchema{
-		Type: string(s.Type),
+		Type:   string(s.Type),
+		Format: s.Format,
 	}
 	if s.Ref != "" {
 		if strings.HasPrefix(s.Ref, oas3RefPrefix) {

@@ -127,6 +127,7 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	q := url.Values{}
 	hdrs := map[string]string{}
 	form := url.Values{}
+	files := map[string]string{}
 	vars := map[string]any{}
 	for _, p := range s.Params {
 		switch p.In {
@@ -168,7 +169,11 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 			if err != nil {
 				return "", nil, ClientOptions{}, err
 			}
-			form.Set(p.Name, operationStringValue(v))
+			if p.Format == "binary" {
+				files[p.Name] = operationStringValue(v)
+			} else {
+				form.Set(p.Name, operationStringValue(v))
+			}
 			continue
 		}
 		if !operationChanged(input, p) {
@@ -201,14 +206,14 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 		path = path + "?" + enc
 	}
 
-	body, err := resolveOperationBody(s, input, form, vars)
+	body, err := resolveOperationBody(s, input, form, files, vars)
 	if err != nil {
 		return "", nil, ClientOptions{}, err
 	}
 	if err := validateRequiredVariableParams(s, body); err != nil {
 		return "", nil, ClientOptions{}, err
 	}
-	if body != nil && s.RequestBody != nil && s.RequestBody.MediaType != "" {
+	if body != nil && s.RequestBody != nil && s.RequestBody.MediaType != "" && !isMultipartMediaType(s.RequestBody.MediaType) {
 		hdrs["Content-Type"] = s.RequestBody.MediaType
 	}
 
@@ -219,7 +224,10 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	return path, body, clientOpts, nil
 }
 
-func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, vars map[string]any) (any, error) {
+func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, files map[string]string, vars map[string]any) (any, error) {
+	if len(files) > 0 || (isMultipartMediaType(requestBodyMediaType(s)) && (len(form) > 0 || s.RequestBody.Required && hasFormDataParams(s.Params))) {
+		return multipartForm{Fields: form, Files: files}, nil
+	}
 	if len(form) > 0 {
 		return form, nil
 	}
@@ -245,6 +253,22 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 	default:
 		return nil, nil
 	}
+}
+
+func requestBodyMediaType(s CommandSpec) string {
+	if s.RequestBody == nil {
+		return ""
+	}
+	return s.RequestBody.MediaType
+}
+
+func hasFormDataParams(params []ParamSpec) bool {
+	for _, param := range params {
+		if param.In == InFormData {
+			return true
+		}
+	}
+	return false
 }
 
 func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, path string, body any, opts ClientOptions) (DryRunRequest, error) {

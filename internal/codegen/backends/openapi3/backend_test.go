@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -74,6 +75,56 @@ func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
 	}
 	if got := mod.Operations[0].Responses["200"].Schema.Properties["name"].Type; got != "string" {
 		t.Fatalf("property type = %q, want string", got)
+	}
+}
+
+func TestParse_MultipartBodyFields(t *testing.T) {
+	input := `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "Upload_Create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {"$ref": "#/components/schemas/UploadForm"}
+            }
+          }
+        },
+        "responses": {"201": {}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UploadForm": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {"type": "string", "format": "binary"},
+          "purpose": {"type": "string"}
+        }
+      }
+    }
+  }
+}`
+	spec := parseNormalized(t, input)[0]
+	if spec.RequestBody == nil || spec.RequestBody.MediaType != "multipart/form-data" {
+		t.Fatalf("request body = %#v", spec.RequestBody)
+	}
+	want := map[string]runtime.ParamSpec{
+		"file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary"},
+		"purpose": {Name: "purpose", Flag: "purpose", In: runtime.InFormData, GoType: "string", Help: "purpose (formData)"},
+	}
+	if len(spec.Params) != len(want) {
+		t.Fatalf("params = %#v", spec.Params)
+	}
+	for _, param := range spec.Params {
+		if !reflect.DeepEqual(param, want[param.Name]) {
+			t.Errorf("param %q = %#v, want %#v", param.Name, param, want[param.Name])
+		}
 	}
 }
 

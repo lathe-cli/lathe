@@ -69,6 +69,7 @@ type RawPaginationHint struct {
 type RawSchema struct {
 	Ref        string
 	Type       string
+	Format     string `json:",omitempty"`
 	Properties map[string]*RawSchema
 	Required   []string `json:",omitempty"`
 	Items      *RawSchema
