@@ -476,6 +476,9 @@ func helpText(p rawir.RawParameter) string {
 }
 
 func deriveList(op rawir.RawOperation, defs map[string]*rawir.RawSchema) (string, string) {
+	if !supportsJSONOutput(deriveResponseMediaType(op)) {
+		return "", ""
+	}
 	r, compatible := successfulResponse(op.Responses)
 	if !compatible || r == nil || r.Schema == nil {
 		return "", ""
@@ -679,6 +682,15 @@ func deriveResponseMediaType(op rawir.RawOperation) string {
 	return ""
 }
 
+func supportsJSONOutput(mediaType string) bool {
+	mediaType, _, _ = strings.Cut(strings.ToLower(strings.TrimSpace(mediaType)), ";")
+	mediaType = strings.TrimSpace(mediaType)
+	if _, streaming := streamingMediaTypes[mediaType]; streaming {
+		return false
+	}
+	return mediaType == "" || mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
 var paginationTokenParams = map[string]bool{
 	"page_token": true, "pageToken": true,
 	"cursor": true, "after": true,
@@ -697,7 +709,7 @@ var paginationTokenFields = map[string]bool{
 }
 
 func derivePagination(op rawir.RawOperation) *runtime.PaginationHint {
-	if op.Method != "GET" {
+	if op.Method != "GET" || !supportsJSONOutput(deriveResponseMediaType(op)) {
 		return nil
 	}
 	var tokenParam, limitParam string
