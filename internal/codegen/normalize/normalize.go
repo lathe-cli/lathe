@@ -61,7 +61,9 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 				Template:  op.RequestBody.Template,
 				MergePath: op.RequestBody.MergePath,
 			}
-			spec.Params = append(spec.Params, multipartBodyParams(op.RequestBody, mod.Schemas)...)
+			bodyParams := multipartBodyParams(op.RequestBody, mod.Schemas)
+			disambiguateMultipartParamFlags(spec.Params, bodyParams)
+			spec.Params = append(spec.Params, bodyParams...)
 		}
 		lp, itemRef := deriveList(op, mod.Schemas)
 		spec.Output.ListPath = lp
@@ -506,6 +508,25 @@ func multipartScalar(schema *rawir.RawSchema) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func disambiguateMultipartParamFlags(existing, body []runtime.ParamSpec) {
+	used := make(map[string]bool, len(existing)+len(body))
+	for _, param := range existing {
+		used[param.Flag] = true
+	}
+	for i := range body {
+		flag := body[i].Flag
+		if used[flag] {
+			base := "body-" + flag
+			flag = base
+			for suffix := 2; used[flag]; suffix++ {
+				flag = fmt.Sprintf("%s-%d", base, suffix)
+			}
+			body[i].Flag = flag
+		}
+		used[flag] = true
 	}
 }
 

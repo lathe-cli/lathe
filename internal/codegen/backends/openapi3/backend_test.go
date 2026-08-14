@@ -85,6 +85,9 @@ func TestParse_MultipartBodyFields(t *testing.T) {
     "/uploads": {
       "post": {
         "operationId": "Upload_Create",
+        "parameters": [
+          {"name": "purpose", "in": "query", "schema": {"type": "string"}}
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -115,15 +118,17 @@ func TestParse_MultipartBodyFields(t *testing.T) {
 		t.Fatalf("request body = %#v", spec.RequestBody)
 	}
 	want := map[string]runtime.ParamSpec{
-		"file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary"},
-		"purpose": {Name: "purpose", Flag: "purpose", In: runtime.InFormData, GoType: "string", Help: "purpose (formData)"},
+		"formData:file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary"},
+		"formData:purpose": {Name: "purpose", Flag: "body-purpose", In: runtime.InFormData, GoType: "string", Help: "purpose (formData)"},
+		"query:purpose":    {Name: "purpose", Flag: "purpose", In: runtime.InQuery, GoType: "string", Help: "purpose (query)"},
 	}
 	if len(spec.Params) != len(want) {
 		t.Fatalf("params = %#v", spec.Params)
 	}
 	for _, param := range spec.Params {
-		if !reflect.DeepEqual(param, want[param.Name]) {
-			t.Errorf("param %q = %#v, want %#v", param.Name, param, want[param.Name])
+		key := param.In + ":" + param.Name
+		if !reflect.DeepEqual(param, want[key]) {
+			t.Errorf("param %q = %#v, want %#v", key, param, want[key])
 		}
 	}
 }
