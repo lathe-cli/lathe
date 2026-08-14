@@ -27,6 +27,7 @@ type ClientOptions struct {
 	Accept      string
 
 	sensitiveQueryParams map[string]bool
+	checkRedirect        func(*http.Request, []*http.Request) error
 }
 
 // BaseURL normalizes a user-facing hostname into an absolute URL base.
@@ -69,8 +70,9 @@ func HTTPClient(opts ClientOptions) *http.Client {
 		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams}
 	}
 	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
+		Timeout:       timeout,
+		Transport:     transport,
+		CheckRedirect: opts.checkRedirect,
 	}
 }
 

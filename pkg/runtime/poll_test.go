@@ -115,6 +115,33 @@ func TestPollUntilDone_RejectsCrossHostAbsoluteLocation(t *testing.T) {
 	}
 }
 
+func TestPollUntilDone_RejectsCrossHostRedirect(t *testing.T) {
+	reached := make(chan string, 1)
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached <- r.Header.Get("X-API-Key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	trusted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL+"/status", http.StatusFound)
+	}))
+	defer trusted.Close()
+
+	_, err := PollUntilDone(context.Background(), trusted.URL, "/status", ClientOptions{
+		Auth:    APIKeyAuth{Key: "secret"},
+		Timeout: 5 * time.Second,
+	}, 30*time.Second)
+	if err == nil {
+		t.Error("PollUntilDone followed a cross-host redirect")
+	}
+	select {
+	case key := <-reached:
+		t.Errorf("cross-host redirect received X-API-Key %q", key)
+	default:
+	}
+}
+
 func TestPollUntilDone_RelativeLocationCannotChangeAuthority(t *testing.T) {
 	var gotHost, gotPath, gotAuth string
 	opts := ClientOptions{

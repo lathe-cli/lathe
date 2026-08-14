@@ -40,6 +40,12 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 			return ""
 		}
 	}
+	opts.checkRedirect = func(req *http.Request, _ []*http.Request) error {
+		if !strings.EqualFold(req.URL.Scheme, baseURL.Scheme) || !strings.EqualFold(req.URL.Hostname(), baseURL.Hostname()) || port(req.URL) != port(baseURL) {
+			return fmt.Errorf("cross-host polling redirect %q", redactDebugURL(req.URL, opts.sensitiveQueryParams))
+		}
+		return nil
+	}
 	deadline := time.Now().Add(timeout)
 	backoff := pollInitBackoff
 
