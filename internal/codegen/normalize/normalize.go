@@ -2,6 +2,7 @@ package normalize
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -475,8 +476,8 @@ func helpText(p rawir.RawParameter) string {
 }
 
 func deriveList(op rawir.RawOperation, defs map[string]*rawir.RawSchema) (string, string) {
-	r := successfulResponse(op.Responses)
-	if r == nil || r.Schema == nil {
+	r, compatible := successfulResponse(op.Responses)
+	if !compatible || r == nil || r.Schema == nil {
 		return "", ""
 	}
 	s := rawir.Resolve(r.Schema, defs)
@@ -721,7 +722,10 @@ func derivePagination(op rawir.RawOperation) *runtime.PaginationHint {
 	}
 
 	var tokenField string
-	r := successfulResponse(op.Responses)
+	r, compatible := successfulResponse(op.Responses)
+	if !compatible {
+		return nil
+	}
 	if r != nil && r.Schema != nil && r.Schema.Properties != nil {
 		for k := range r.Schema.Properties {
 			if paginationTokenFields[k] {
@@ -751,17 +755,17 @@ func deriveStreaming(op rawir.RawOperation) *runtime.StreamingHint {
 			return &runtime.StreamingHint{Strategy: s}
 		}
 	}
-	if r := successfulResponse(op.Responses); r != nil && r.MediaType != "" {
-		if s, ok := streamingMediaTypes[r.MediaType]; ok {
+	if mediaType := deriveResponseMediaType(op); mediaType != "" {
+		if s, ok := streamingMediaTypes[mediaType]; ok {
 			return &runtime.StreamingHint{Strategy: s}
 		}
 	}
 	return nil
 }
 
-func successfulResponse(responses map[string]*rawir.RawResponse) *rawir.RawResponse {
+func successfulResponse(responses map[string]*rawir.RawResponse) (*rawir.RawResponse, bool) {
 	if response, ok := responses["200"]; ok {
-		return response
+		return response, true
 	}
 	status := 300
 	var selected *rawir.RawResponse
@@ -773,7 +777,26 @@ func successfulResponse(responses map[string]*rawir.RawResponse) *rawir.RawRespo
 		status = candidate
 		selected = response
 	}
-	return selected
+	if status == 300 {
+		return nil, true
+	}
+	var selectedSchema *rawir.RawSchema
+	if selected != nil {
+		selectedSchema = selected.Schema
+	}
+	for code, response := range responses {
+		if _, ok := explicitSuccessStatus(code); !ok {
+			continue
+		}
+		var schema *rawir.RawSchema
+		if response != nil {
+			schema = response.Schema
+		}
+		if !reflect.DeepEqual(schema, selectedSchema) {
+			return nil, false
+		}
+	}
+	return selected, true
 }
 
 func commonSuccessMediaType(responses map[string]*rawir.RawResponse) (string, bool) {

@@ -41,6 +41,22 @@ func TestNormalize_Golden(t *testing.T) {
 	}
 }
 
+func TestNormalize_HeterogeneousSuccessResponsesOmitDerivedOutputHints(t *testing.T) {
+	mod := listResponse()
+	op := &mod.Operations[0]
+	op.Parameters = []rawir.RawParameter{{Name: "page_token", In: "query", Type: "string"}}
+	op.Responses["201"].MediaType = "text/event-stream"
+	op.Responses["202"] = &rawir.RawResponse{
+		Schema:    &rawir.RawSchema{Type: "array", Items: &rawir.RawSchema{Type: "string"}},
+		MediaType: "application/zip",
+	}
+
+	out := Normalize(mod)[0].Output
+	if out.ListPath != "" || len(out.DefaultColumns) != 0 || out.ResponseMediaType != "" || out.Pagination != nil || out.Streaming != nil {
+		t.Fatalf("output hints = %+v, want no derived hints", out)
+	}
+}
+
 func minimalGet() *rawir.RawModule {
 	return &rawir.RawModule{
 		Name: "demo",
@@ -139,6 +155,7 @@ func listResponse() *rawir.RawModule {
 			Path:        "/items",
 			Responses: map[string]*rawir.RawResponse{
 				"201": {Schema: envelope, MediaType: "application/json"},
+				"202": {Schema: envelope, MediaType: "application/json"},
 			},
 		}},
 	}
