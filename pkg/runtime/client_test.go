@@ -250,3 +250,43 @@ func TestDoRaw_RefreshesAuthAndRetriesOnceOn401(t *testing.T) {
 		t.Fatalf("authorization sequence = %#v", seen)
 	}
 }
+
+func TestDoRawFull_StreamCancellationClosesResponse(t *testing.T) {
+	firstSent := make(chan struct{})
+	requestCanceled := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: first\n\n")
+		w.(http.Flusher).Flush()
+		close(firstSent)
+		<-r.Context().Done()
+		close(requestCanceled)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := doRawFull(ctx, srv.URL, http.MethodGet, "/events", nil, ClientOptions{Timeout: 5 * time.Second}, io.Discard)
+		errCh <- err
+	}()
+	select {
+	case <-firstSent:
+	case <-time.After(time.Second):
+		t.Fatal("server did not send first event")
+	}
+	cancel()
+	select {
+	case <-requestCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("server request context was not canceled")
+	}
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("stream error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stream call did not return after cancellation")
+	}
+}

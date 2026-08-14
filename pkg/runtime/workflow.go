@@ -173,6 +173,12 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 			return fail(err)
 		}
 		state.steps[step.ID] = workflowStepValue(opResult.Data)
+		if opResult.Outcome == OperationOutcomePaused {
+			stepResult.Status = OperationOutcomePaused
+			result.Status = OperationOutcomePaused
+			result.Steps = append(result.Steps, stepResult)
+			return result, opResult.Data, nil
+		}
 		result.Steps = append(result.Steps, stepResult)
 	}
 	if strings.TrimSpace(spec.OutputFrom) == "" {

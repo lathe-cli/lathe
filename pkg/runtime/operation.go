@@ -29,9 +29,15 @@ type OperationOptions struct {
 }
 
 type OperationResult struct {
-	Data   []byte
-	DryRun *DryRunRequest
+	Data    []byte
+	DryRun  *DryRunRequest
+	Outcome string
 }
+
+const (
+	OperationOutcomeCompleted = "completed"
+	OperationOutcomePaused    = "paused"
+)
 
 type DryRunRequest struct {
 	Method  string            `json:"method"`
@@ -49,6 +55,15 @@ type DryRunAuth struct {
 }
 
 func InvokeOperation(ctx context.Context, s CommandSpec, input OperationInput, opts OperationOptions) (OperationResult, error) {
+	return invokeOperation(ctx, s, input, opts, operationOutput{})
+}
+
+type operationOutput struct {
+	raw  io.Writer
+	live io.Writer
+}
+
+func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, opts OperationOptions, output operationOutput) (OperationResult, error) {
 	path, body, clientOpts, err := resolveOperationRequest(s, input, opts.Client)
 	if err != nil {
 		return OperationResult{}, err
@@ -58,10 +73,11 @@ func InvokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 		if err != nil {
 			return OperationResult{}, err
 		}
-		return OperationResult{DryRun: &out}, nil
+		return OperationResult{DryRun: &out, Outcome: OperationOutcomeCompleted}, nil
 	}
 
 	var data []byte
+	outcome := OperationOutcomeCompleted
 	if opts.PaginateAll && s.Output.Pagination != nil {
 		maxPages := opts.MaxPages
 		if maxPages == 0 {
@@ -80,13 +96,23 @@ func InvokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 		} else if err == nil {
 			data = r.Body
 		}
+	} else if output.raw != nil {
+		_, err = doRawFull(ctx, opts.Hostname, s.Method, path, body, clientOpts, output.raw)
+	} else if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Collect != nil {
+		var result *RawResult
+		result, err = doRawFullConsume(ctx, opts.Hostname, s.Method, path, body, clientOpts, func(r io.Reader) ([]byte, error) {
+			return collectStream(r, s.Output.Streaming, output.live, &outcome)
+		})
+		if err == nil {
+			data = result.Body
+		}
 	} else {
 		data, err = DoRaw(ctx, opts.Hostname, s.Method, path, body, clientOpts)
 	}
 	if err != nil {
 		return OperationResult{}, err
 	}
-	return OperationResult{Data: data}, nil
+	return OperationResult{Data: data, Outcome: outcome}, nil
 }
 
 func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts ClientOptions) (string, any, ClientOptions, error) {

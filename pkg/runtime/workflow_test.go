@@ -130,6 +130,56 @@ func TestBuildWorkflows_StopsOnFailedStep(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflows_StopsOnPausedStream(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/pause" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: {\"kind\":\"checkpoint\",\"token\":\"resume-1\"}\n\n")
+			return
+		}
+		_, _ = w.Write([]byte(`{"unexpected":true}`))
+	}))
+	defer srv.Close()
+
+	streaming := &StreamingHint{Strategy: "sse", Policy: &StreamPolicy{
+		DataFormat: "json", EventNamePath: "kind",
+		Collect: &StreamCollectHint{
+			RequireStop: true,
+			PauseEvents: []string{"checkpoint"},
+			Fields: []StreamFieldRule{
+				{Events: []string{"checkpoint"}, Value: "paused", To: "status", Reduce: "last"},
+				{Events: []string{"checkpoint"}, From: "token", To: "resume_token", Reduce: "last"},
+			},
+		},
+	}}
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use: "deploy",
+		Steps: []WorkflowStepSpec{
+			{ID: "wait", Operation: CommandSpec{Method: "GET", PathTpl: "/pause", Security: &SecurityHint{Public: true}, Output: OutputHints{Streaming: streaming}}},
+			{ID: "after", Operation: publicGetSpec("after", "/after")},
+		},
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !reflect.DeepEqual(paths, []string{"/pause"}) {
+		t.Fatalf("paths = %#v", paths)
+	}
+	if strings.TrimSpace(stdout.String()) != `{"resume_token":"resume-1","status":"paused"}` {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestBuildWorkflows_RejectsInvalidInputEnum(t *testing.T) {
 	root := newWorkflowRoot(io.Discard)
 	if err := BuildWorkflows(root, []WorkflowSpec{{

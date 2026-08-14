@@ -21,6 +21,7 @@ const (
 type debugTransport struct {
 	inner                http.RoundTripper
 	sensitiveQueryParams map[string]bool
+	streaming            bool
 }
 
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -48,7 +49,7 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for k, vs := range resp.Header {
 		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
 	}
-	if isTextContent(resp.Header.Get("Content-Type")) {
+	if isTextContent(resp.Header.Get("Content-Type")) && (!d.streaming || resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		body, restored := peekBody(resp.Body, maxDebugRespBody)
 		resp.Body = restored
 		dumpBody(os.Stderr, "<", redactDebugBody(resp.Header.Get("Content-Type"), body), maxDebugRespBody)

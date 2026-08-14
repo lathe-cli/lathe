@@ -102,6 +102,35 @@ type PaginationHint struct {
 
 type StreamingHint struct {
 	Strategy string
+	Policy   *StreamPolicy `json:"Policy,omitempty"`
+}
+
+type StreamPolicy struct {
+	DataFormat    string             `json:"data_format"`
+	EventNamePath string             `json:"event_name_path,omitempty"`
+	Collect       *StreamCollectHint `json:"collect"`
+	Live          *StreamLiveHint    `json:"live,omitempty"`
+}
+
+type StreamCollectHint struct {
+	RequireStop bool              `json:"require_stop,omitempty"`
+	StopEvents  []string          `json:"stop_events,omitempty"`
+	PauseEvents []string          `json:"pause_events,omitempty"`
+	ErrorEvents []string          `json:"error_events,omitempty"`
+	Fields      []StreamFieldRule `json:"fields,omitempty"`
+}
+
+type StreamFieldRule struct {
+	Events []string `json:"events"`
+	From   string   `json:"from,omitempty"`
+	Value  string   `json:"value,omitempty"`
+	To     string   `json:"to"`
+	Reduce string   `json:"reduce"`
+}
+
+type StreamLiveHint struct {
+	Events []string `json:"events"`
+	From   string   `json:"from"`
 }
 
 type SecurityHint struct {

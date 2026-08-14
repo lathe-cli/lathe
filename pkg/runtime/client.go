@@ -46,8 +46,12 @@ func BaseURL(hostname string) (string, error) {
 
 // HTTPClient returns an http.Client configured per opts.
 func HTTPClient(opts ClientOptions) *http.Client {
+	return httpClient(opts, false)
+}
+
+func httpClient(opts ClientOptions, streaming bool) *http.Client {
 	timeout := opts.Timeout
-	if timeout == 0 {
+	if timeout == 0 && !streaming {
 		timeout = 30 * time.Second
 	}
 	transport := opts.Transport
@@ -67,7 +71,7 @@ func HTTPClient(opts ClientOptions) *http.Client {
 		transport = &retryTransport{inner: transport, maxRetries: maxRetries, debug: opts.Debug, safeMethodsOnly: safeMethodsOnly}
 	}
 	if opts.Debug {
-		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams}
+		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams, streaming: streaming}
 	}
 	return &http.Client{
 		Timeout:       timeout,
@@ -83,13 +87,33 @@ type RawResult struct {
 }
 
 func DoRawFull(ctx context.Context, hostname, method, path string, body any, opts ClientOptions) (*RawResult, error) {
+	return doRawFull(ctx, hostname, method, path, body, opts, nil)
+}
+
+func doRawFull(ctx context.Context, hostname, method, path string, body any, opts ClientOptions, stream io.Writer) (*RawResult, error) {
+	var consume responseConsumer
+	if stream != nil {
+		consume = func(r io.Reader) ([]byte, error) {
+			_, err := io.Copy(stream, r)
+			if err != nil {
+				return nil, fmt.Errorf("stream response: %w", err)
+			}
+			return nil, nil
+		}
+	}
+	return doRawFullConsume(ctx, hostname, method, path, body, opts, consume)
+}
+
+type responseConsumer func(io.Reader) ([]byte, error)
+
+func doRawFullConsume(ctx context.Context, hostname, method, path string, body any, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
 	req, bodyBytes, contentType, err := resolveRequest(ctx, hostname, method, path, body, opts)
 	if err != nil {
 		return nil, err
 	}
 	u := req.URL.String()
 
-	result, err := doRawFullOnce(req, opts)
+	result, err := doRawFullOnce(req, opts, consume)
 	if err == nil {
 		return result, nil
 	}
@@ -107,7 +131,7 @@ func DoRawFull(ctx context.Context, hostname, method, path string, body any, opt
 	if err != nil {
 		return nil, err
 	}
-	return doRawFullOnce(req, opts)
+	return doRawFullOnce(req, opts, consume)
 }
 
 func encodeRequestBody(body any) ([]byte, string, error) {
@@ -175,27 +199,38 @@ func newRequest(ctx context.Context, method, u string, body []byte, contentType 
 	return req, nil
 }
 
-func doRawFullOnce(req *http.Request, opts ClientOptions) (*RawResult, error) {
+func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
 	method := req.Method
 	u := redactDebugURL(req.URL, opts.sensitiveQueryParams)
-	resp, err := HTTPClient(opts).Do(req)
+	resp, err := httpClient(opts, consume != nil).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, u, redactClientError(err, opts.sensitiveQueryParams))
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
 		return nil, &HTTPError{
 			Method: method,
 			URL:    u,
 			Status: resp.StatusCode,
 			Body:   data,
 		}
+	}
+	if consume != nil {
+		data, err := consume(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return &RawResult{Body: data, StatusCode: resp.StatusCode, Header: resp.Header}, nil
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 	return &RawResult{Body: data, StatusCode: resp.StatusCode, Header: resp.Header}, nil
 }

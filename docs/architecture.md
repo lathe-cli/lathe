@@ -209,6 +209,7 @@ Overlays apply at codegen-time. The runtime has no overlay types. This matrix sh
 | `Deprecated` | `deprecated` / proto option | bool + message | overlay > spec |
 | `Security` | `security` / proto option | override (post-v0.1) | overlay > spec |
 | `RequestBody.MediaType` | `consumes[0]` | override | overlay > spec |
+| `Output.Streaming.Policy` | streaming media type supplies transport only | JSON event collection and live projection | overlay > spec transport |
 | `Ignore` (command filter) | — | bool | overlay-only |
 
 ### ParamSpec level

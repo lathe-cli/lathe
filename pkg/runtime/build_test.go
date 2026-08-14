@@ -9,7 +9,9 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -26,6 +28,20 @@ func mustBuild(t *testing.T, root *cobra.Command, service string, specs []Comman
 		t.Fatalf("Build(%q): %v", service, err)
 	}
 }
+
+type observedWriter struct {
+	buf   bytes.Buffer
+	once  sync.Once
+	wrote chan struct{}
+}
+
+func (w *observedWriter) Write(p []byte) (int, error) {
+	n, err := w.buf.Write(p)
+	w.once.Do(func() { close(w.wrote) })
+	return n, err
+}
+
+func (w *observedWriter) String() string { return w.buf.String() }
 
 func TestBuild_RejectsExistingRootCommandConflict(t *testing.T) {
 	root := newRootWithModuleGroup()
@@ -122,6 +138,65 @@ func TestBuild_EmptySpecsMountsEmptyService(t *testing.T) {
 	svc := mustFindChild(t, root, "demo")
 	if len(svc.Commands()) != 0 {
 		t.Errorf("empty specs should yield no subcommands under demo; got %v", cmdNames(svc.Commands()))
+	}
+}
+
+func TestBuild_RawStreamingWritesBeforeResponseCloses(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	firstSent := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: first\n\n")
+		w.(http.Flusher).Flush()
+		close(firstSent)
+		select {
+		case <-release:
+			_, _ = io.WriteString(w, "data: second\n\n")
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	out := &observedWriter{wrote: make(chan struct{})}
+	root := newRootWithModuleGroup()
+	root.SetOut(out)
+	root.SetErr(io.Discard)
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group:    "Events",
+		Use:      "watch",
+		Method:   http.MethodGet,
+		PathTpl:  "/events",
+		Output:   OutputHints{Streaming: &StreamingHint{Strategy: "sse"}},
+		Security: &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "events", "watch", "-o", "raw"})
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- root.Execute() }()
+	select {
+	case <-firstSent:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("server did not send first event")
+	}
+	select {
+	case <-out.wrote:
+	case <-time.After(200 * time.Millisecond):
+		close(release)
+		<-errCh
+		t.Fatal("command produced no output before the streaming response closed")
+	}
+	close(release)
+	if err := <-errCh; err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got := out.String(); got != "data: first\n\ndata: second\n\n" {
+		t.Fatalf("output = %q", got)
 	}
 }
 

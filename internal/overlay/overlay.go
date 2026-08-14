@@ -25,6 +25,39 @@ type Override struct {
 	Notes         []string                 `yaml:"notes"`
 	Prerequisites []string                 `yaml:"prerequisites"`
 	KnownErrors   []KnownError             `yaml:"known_errors"`
+	Output        *OutputOverride          `yaml:"output"`
+}
+
+type OutputOverride struct {
+	Streaming *StreamingOverride `yaml:"streaming"`
+}
+
+type StreamingOverride struct {
+	Data          string         `yaml:"data"`
+	EventNamePath string         `yaml:"event_name_path"`
+	Collect       *StreamCollect `yaml:"collect"`
+	Live          *StreamLive    `yaml:"live"`
+}
+
+type StreamCollect struct {
+	RequireStop bool              `yaml:"require_stop"`
+	StopEvents  []string          `yaml:"stop_events"`
+	PauseEvents []string          `yaml:"pause_events"`
+	ErrorEvents []string          `yaml:"error_events"`
+	Fields      []StreamFieldRule `yaml:"fields"`
+}
+
+type StreamFieldRule struct {
+	Events []string `yaml:"events"`
+	From   string   `yaml:"from"`
+	Value  string   `yaml:"value"`
+	To     string   `yaml:"to"`
+	Reduce string   `yaml:"reduce"`
+}
+
+type StreamLive struct {
+	Events []string `yaml:"events"`
+	From   string   `yaml:"from"`
 }
 
 type OperationMatch struct {
