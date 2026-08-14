@@ -17,12 +17,12 @@ func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "event: chunk\ndata: {\"kind\":\"ignored\",\"text\":\"hel\",\"mode\":\"chat\"}\n\n")
+		_, _ = io.WriteString(w, "event: chunk\rdata: {\"kind\":\"ignored\",\"text\":\"hel\",\"mode\":\"chat\"}\r\r")
 		w.(http.Flusher).Flush()
 		close(firstSent)
 		select {
 		case <-release:
-			_, _ = io.WriteString(w, "data: {\"kind\":\"chunk\",\"text\":\"lo\"}\n\ndata: {\"kind\":\"done\",\"id\":\"msg-1\"}\n\n")
+			_, _ = io.WriteString(w, "data: {\"kind\":\"chunk\",\"text\":\"lo\"}\r\rdata: {\"kind\":\"done\",\"id\":\"msg-1\"}\r\r")
 		case <-r.Context().Done():
 		}
 	}))
@@ -79,6 +79,32 @@ func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
 	want := map[string]any{"answer": "hello", "message_id": "msg-1", "mode": "chat"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("result = %#v, want %#v", got, want)
+	}
+}
+
+func TestReadSSE_AcceptsStandardLineEndings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  string
+	}{
+		{name: "crlf", end: "\r\n"},
+		{name: "cr", end: "\r"},
+		{name: "lf", end: "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var event, data string
+			input := "event: chunk" + tc.end + "data: hello" + tc.end + tc.end
+			err := readSSE(strings.NewReader(input), func(gotEvent string, gotData []byte) error {
+				event, data = gotEvent, string(gotData)
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("readSSE: %v", err)
+			}
+			if event != "chunk" || data != "hello" {
+				t.Fatalf("event = %q, data = %q", event, data)
+			}
+		})
 	}
 }
 

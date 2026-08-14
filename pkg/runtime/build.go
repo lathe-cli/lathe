@@ -121,6 +121,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			if liveStream && format != "table" {
 				return fmt.Errorf("live stream output does not support -o %s", format)
 			}
+			if liveStream && waitPoll {
+				return fmt.Errorf("live stream output does not support wait polling")
+			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
 				return err
 			}
@@ -156,7 +159,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			clientOpts.UserAgent = cmd.Root().Use
 
 			output := operationOutput{}
-			if s.Output.Streaming != nil && format == "raw" {
+			if s.Output.Streaming != nil && format == "raw" && !waitPoll {
 				output.raw = cmd.OutOrStdout()
 			} else if liveStream && format == "table" {
 				output.live = cmd.OutOrStdout()

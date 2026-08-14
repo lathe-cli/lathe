@@ -84,6 +84,31 @@ func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *st
 
 func readSSE(r io.Reader, handle func(string, []byte) error) error {
 	reader := bufio.NewReader(r)
+	skipLF := false
+	readLine := func() (string, error) {
+		var line []byte
+		for {
+			b, err := reader.ReadByte()
+			if err != nil {
+				return string(line), err
+			}
+			if skipLF {
+				skipLF = false
+				if b == '\n' {
+					continue
+				}
+			}
+			switch b {
+			case '\r':
+				skipLF = true
+				return string(line), nil
+			case '\n':
+				return string(line), nil
+			default:
+				line = append(line, b)
+			}
+		}
+	}
 	var event string
 	var data [][]byte
 	dispatch := func() error {
@@ -97,8 +122,7 @@ func readSSE(r io.Reader, handle func(string, []byte) error) error {
 		return err
 	}
 	for {
-		line, err := reader.ReadString('\n')
-		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		line, err := readLine()
 		if line == "" {
 			if dispatchErr := dispatch(); dispatchErr != nil {
 				return dispatchErr

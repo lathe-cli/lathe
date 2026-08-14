@@ -200,24 +200,20 @@ func TestBuild_RawStreamingWritesBeforeResponseCloses(t *testing.T) {
 	}
 }
 
-func TestBuild_RejectsLiveStreamWithJSONOutput(t *testing.T) {
+func TestBuild_StreamOutputFlagCombinations(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
 
+	response := "{\"kind\":\"done\"}\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, "{\"kind\":\"done\"}\n")
+		_, _ = io.WriteString(w, response)
 	}))
 	defer srv.Close()
 
-	root := newRootWithModuleGroup()
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
-	root.PersistentFlags().String("hostname", "", "")
-	root.PersistentFlags().StringP("output", "o", "table", "")
-	mustBuild(t, root, "demo", []CommandSpec{{
+	spec := CommandSpec{
 		Group:   "Events",
 		Use:     "watch",
-		Method:  http.MethodGet,
+		Method:  http.MethodPost,
 		PathTpl: "/events",
 		Output: OutputHints{Streaming: &StreamingHint{Strategy: "ndjson", Policy: &StreamPolicy{
 			DataFormat:    "json",
@@ -226,12 +222,42 @@ func TestBuild_RejectsLiveStreamWithJSONOutput(t *testing.T) {
 			Live:          &StreamLiveHint{Events: []string{"chunk"}, From: "text"},
 		}}},
 		Security: &SecurityHint{Public: true},
-	}})
-	root.SetArgs([]string{"--hostname", srv.URL, "-o", "json", "demo", "events", "watch", "--stream"})
+	}
+	cases := []struct {
+		name       string
+		args       []string
+		wantErr    string
+		wantOutput string
+	}{
+		{name: "live with json", args: []string{"-o", "json", "demo", "events", "watch", "--stream"}, wantErr: "live stream output does not support -o json"},
+		{name: "live with wait", args: []string{"demo", "events", "watch", "--stream", "--wait"}, wantErr: "live stream output does not support wait polling"},
+		{name: "raw with wait", args: []string{"-o", "raw", "demo", "events", "watch", "--wait"}, wantOutput: response},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			root := newRootWithModuleGroup()
+			root.SetOut(&out)
+			root.SetErr(io.Discard)
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "table", "")
+			mustBuild(t, root, "demo", []CommandSpec{spec})
+			root.SetArgs(append([]string{"--hostname", srv.URL}, tc.args...))
 
-	err := root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "live stream output does not support -o json") {
-		t.Fatalf("expected incompatible output error, got %v", err)
+			err := root.Execute()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected %q error, got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if out.String() != tc.wantOutput {
+				t.Fatalf("output = %q, want %q", out.String(), tc.wantOutput)
+			}
+		})
 	}
 }
 
