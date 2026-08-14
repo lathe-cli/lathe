@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -187,9 +186,9 @@ func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
 	sort.Strings(fileNames)
 	for _, name := range fileNames {
 		path := form.Files[name]
-		file, err := os.Open(path)
+		data, err := ReadBody(path)
 		if err != nil {
-			return nil, "", fmt.Errorf("open multipart file %q: %w", path, err)
+			return nil, "", fmt.Errorf("read multipart file %q: %w", path, err)
 		}
 		header := make(textproto.MIMEHeader)
 		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
@@ -202,14 +201,10 @@ func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
 		header.Set("Content-Type", contentType)
 		part, partErr := w.CreatePart(header)
 		if partErr == nil {
-			_, partErr = io.Copy(part, file)
+			_, partErr = part.Write(data)
 		}
-		closeErr := file.Close()
 		if partErr != nil {
 			return nil, "", fmt.Errorf("write multipart file %q: %w", path, partErr)
-		}
-		if closeErr != nil {
-			return nil, "", fmt.Errorf("close multipart file %q: %w", path, closeErr)
 		}
 	}
 	if err := w.Close(); err != nil {
