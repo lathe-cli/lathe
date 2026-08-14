@@ -75,7 +75,6 @@ source，然后重新生成。
 
 - [Governance](GOVERNANCE.md)：决策流程和兼容性预期。
 - [Maintainers](MAINTAINERS.md)：维护者职责和 review 预期。
-- [Showcase](SHOWCASE.md)：CLI 生成路径和真实使用记录。
 - [CLI Usage](docs/cli-usage.md)：生成并验证下游 CLI 的命令序列。
 - [Adopters](ADOPTERS.md)：公开或匿名用户条目。
 - [Contributing](CONTRIBUTING.md)：本地 setup、PR 流程和项目范围。
