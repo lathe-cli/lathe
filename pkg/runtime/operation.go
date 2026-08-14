@@ -336,7 +336,10 @@ func operationChanged(input OperationInput, p ParamSpec) bool {
 		return true
 	}
 	if input.Changed != nil {
-		return input.Changed[p.Name] || input.Changed[p.Flag]
+		return input.Changed[boundParamKey(p)] || input.Changed[p.Name] || input.Changed[p.Flag]
+	}
+	if _, ok := input.Values[boundParamKey(p)]; ok {
+		return true
 	}
 	if _, ok := input.Values[p.Name]; ok {
 		return true
@@ -348,7 +351,10 @@ func operationChanged(input OperationInput, p ParamSpec) bool {
 }
 
 func operationValue(input OperationInput, p ParamSpec) (any, bool, error) {
-	v, ok := input.Values[p.Name]
+	v, ok := input.Values[boundParamKey(p)]
+	if !ok {
+		v, ok = input.Values[p.Name]
+	}
 	if !ok {
 		v, ok = input.Values[p.Flag]
 	}
@@ -363,6 +369,10 @@ func operationValue(input OperationInput, p ParamSpec) (any, bool, error) {
 		return nil, false, err
 	}
 	return out, true, nil
+}
+
+func boundParamKey(p ParamSpec) string {
+	return p.In + "\x00" + p.Flag
 }
 
 func coerceOperationValue(v any, p ParamSpec) (any, error) {

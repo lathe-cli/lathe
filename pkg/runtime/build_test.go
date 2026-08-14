@@ -469,19 +469,21 @@ func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
 		filename    string
 		fileType    string
 		fileBody    string
-		purpose     string
+		queryValue  string
+		bodyValue   string
 		err         error
 	}
 	var got capture
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.contentType = r.Header.Get("Content-Type")
+		got.queryValue = r.URL.Query().Get("purpose")
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			got.err = err
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		defer func() { _ = r.MultipartForm.RemoveAll() }()
-		got.purpose = r.FormValue("purpose")
+		got.bodyValue = strings.Join(r.MultipartForm.Value["purpose"], ",")
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			got.err = err
@@ -521,13 +523,14 @@ func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
 		Method:  http.MethodPost,
 		PathTpl: "/uploads",
 		Params: []ParamSpec{
+			{Name: "purpose", Flag: "purpose", In: InQuery, GoType: "string"},
 			{Name: "file", Flag: "file", In: InFormData, GoType: "string", Required: true, Format: "binary"},
-			{Name: "purpose", Flag: "purpose", In: InFormData, GoType: "string"},
+			{Name: "purpose", Flag: "body-purpose", In: InFormData, GoType: "string"},
 		},
 		RequestBody: &RequestBody{Required: true, MediaType: "multipart/form-data"},
 		Security:    &SecurityHint{Public: true},
 	}})
-	root.SetArgs([]string{"--hostname", srv.URL, "demo", "uploads", "create", "--file", filePath, "--purpose", "knowledge"})
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "uploads", "create", "--file", filePath, "--purpose", "query", "--body-purpose", "body"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -545,8 +548,8 @@ func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
 	if err != nil || disposition != "form-data" || dispositionParams["name"] != "file" || dispositionParams["filename"] != "sample.png" {
 		t.Errorf("Content-Disposition = %q: %v", got.disposition, err)
 	}
-	if got.purpose != "knowledge" {
-		t.Errorf("purpose = %q", got.purpose)
+	if got.queryValue != "query" || got.bodyValue != "body" {
+		t.Errorf("purpose = query %q, body %q", got.queryValue, got.bodyValue)
 	}
 }
 

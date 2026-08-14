@@ -252,9 +252,10 @@ func controlFlagName(cmd *cobra.Command, name string) string {
 }
 
 func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequestBody bool) {
+	key := boundParamKey(p)
 	if p.In == InPath {
 		v := new(string)
-		vals[p.Name] = v
+		vals[key] = v
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
 		if p.Default == "" && !isSensitiveStringParam(p) {
@@ -268,7 +269,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 	switch p.GoType {
 	case "int64":
 		v := new(int64)
-		vals[p.Name] = v
+		vals[key] = v
 		var def int64
 		if p.Default != "" {
 			def, _ = strconv.ParseInt(p.Default, 10, 64)
@@ -276,7 +277,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		cmd.Flags().Int64Var(v, p.Flag, def, p.Help)
 	case "float64":
 		v := new(float64)
-		vals[p.Name] = v
+		vals[key] = v
 		var def float64
 		if p.Default != "" {
 			def, _ = strconv.ParseFloat(p.Default, 64)
@@ -284,28 +285,28 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		cmd.Flags().Float64Var(v, p.Flag, def, p.Help)
 	case "bool":
 		v := new(bool)
-		vals[p.Name] = v
+		vals[key] = v
 		def := p.Default == "true"
 		cmd.Flags().BoolVar(v, p.Flag, def, p.Help)
 	case "[]int64":
 		v := new([]int64)
-		vals[p.Name] = v
+		vals[key] = v
 		cmd.Flags().Int64SliceVar(v, p.Flag, nil, p.Help)
 	case "[]float64":
 		v := new([]float64)
-		vals[p.Name] = v
+		vals[key] = v
 		cmd.Flags().Float64SliceVar(v, p.Flag, nil, p.Help)
 	case "[]bool":
 		v := new([]bool)
-		vals[p.Name] = v
+		vals[key] = v
 		cmd.Flags().BoolSliceVar(v, p.Flag, nil, p.Help)
 	case "[]string":
 		v := new([]string)
-		vals[p.Name] = v
+		vals[key] = v
 		cmd.Flags().StringSliceVar(v, p.Flag, nil, p.Help)
 	default:
 		v := new(string)
-		vals[p.Name] = v
+		vals[key] = v
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
 	}
@@ -412,7 +413,7 @@ func resolveSafeInputFlags(cmd *cobra.Command, params []ParamSpec, vals map[stri
 		if value == "" {
 			return fmt.Errorf("--%s value is empty", p.Flag)
 		}
-		*vals[p.Name].(*string) = value
+		*vals[boundParamKey(p)].(*string) = value
 	}
 	return nil
 }
@@ -603,11 +604,10 @@ func flagChangedOrDefault(cmd *cobra.Command, p ParamSpec) bool {
 }
 
 func operationChangedFlags(cmd *cobra.Command, params []ParamSpec) map[string]bool {
-	changed := make(map[string]bool, len(params)*2)
+	changed := make(map[string]bool, len(params))
 	for _, p := range params {
 		if flagChangedOrDefault(cmd, p) {
-			changed[p.Name] = true
-			changed[p.Flag] = true
+			changed[boundParamKey(p)] = true
 		}
 	}
 	return changed
