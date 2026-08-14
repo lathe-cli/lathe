@@ -427,10 +427,11 @@ commands:
           from: text
 ```
 
-Reducers are fixed to `first`, `last`, `concat`, and `append`. `-o json` and
-`-o yaml` collect one document, `-o raw` preserves wire events, and `--stream`
-is generated only when `live` is configured. A pause event returns exit code 0
-with the collected result; workflows stop before their next step. Stream
+Reducers are fixed to `first`, `last`, `concat`, and `append`. Choose one output
+mode: `-o json` or `-o yaml` collects one document, `-o raw` preserves wire
+events, and `--stream` in the default table mode prints the configured live
+field. A pause event returns exit code 0 with the collected result; workflows
+stop before their next step. Stream
 policies cannot call operations or branch and therefore do not replace the
 workflow DSL.
 
@@ -484,9 +485,9 @@ body:
 
 OpenAPI and Swagger streaming media types produce raw incremental output with
 `-o raw`. When a stream collection overlay is present, structured formats
-return the collected document and an optional `--stream` flag prints only the
-configured live field as frames arrive. The complete policy is inspectable at
-`output.streaming.policy` in `commands show ... --json`.
+return the collected document; an optional `--stream` flag in the default table
+mode prints only the configured live field as frames arrive. The complete policy
+is inspectable at `output.streaming.policy` in `commands show ... --json`.
 
 ## Architecture
 

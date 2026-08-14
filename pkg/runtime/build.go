@@ -118,6 +118,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		Example: s.Example,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if liveStream && format != "table" {
+				return fmt.Errorf("live stream output does not support -o %s", format)
+			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
 				return err
 			}
@@ -216,7 +219,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Flags().BoolVar(&waitPoll, controlFlagName(cmd, "wait"), false, "poll until long-running operation completes")
 	}
 	if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Live != nil {
-		cmd.Flags().BoolVar(&liveStream, controlFlagName(cmd, "stream"), false, "print configured stream fields as they arrive")
+		cmd.Flags().BoolVar(&liveStream, controlFlagName(cmd, "stream"), false, "print configured stream fields as they arrive (requires -o table)")
 	}
 	cmd.Flags().BoolVar(&dryRun, controlFlagName(cmd, "dry-run"), false, "print resolved request JSON without sending it")
 	cmd.Hidden = s.Hidden

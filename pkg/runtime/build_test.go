@@ -200,6 +200,41 @@ func TestBuild_RawStreamingWritesBeforeResponseCloses(t *testing.T) {
 	}
 }
 
+func TestBuild_RejectsLiveStreamWithJSONOutput(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "{\"kind\":\"done\"}\n")
+	}))
+	defer srv.Close()
+
+	root := newRootWithModuleGroup()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group:   "Events",
+		Use:     "watch",
+		Method:  http.MethodGet,
+		PathTpl: "/events",
+		Output: OutputHints{Streaming: &StreamingHint{Strategy: "ndjson", Policy: &StreamPolicy{
+			DataFormat:    "json",
+			EventNamePath: "kind",
+			Collect:       &StreamCollectHint{RequireStop: true, StopEvents: []string{"done"}},
+			Live:          &StreamLiveHint{Events: []string{"chunk"}, From: "text"},
+		}}},
+		Security: &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{"--hostname", srv.URL, "-o", "json", "demo", "events", "watch", "--stream"})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "live stream output does not support -o json") {
+		t.Fatalf("expected incompatible output error, got %v", err)
+	}
+}
+
 func TestBuildFlat_PopulatesRootGroupTree(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:   "Users",
