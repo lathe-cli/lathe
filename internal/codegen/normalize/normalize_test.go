@@ -57,6 +57,18 @@ func TestNormalize_HeterogeneousSuccessResponsesOmitDerivedOutputHints(t *testin
 	}
 }
 
+func TestNormalize_HeterogeneousSuccessMediaOmitJSONOutputHints(t *testing.T) {
+	mod := listResponse()
+	op := &mod.Operations[0]
+	op.Parameters = []rawir.RawParameter{{Name: "page_token", In: "query", Type: "string"}}
+	op.Responses["202"].MediaType = "application/xml"
+
+	out := Normalize(mod)[0].Output
+	if out.ListPath != "" || len(out.DefaultColumns) != 0 || out.Pagination != nil {
+		t.Fatalf("output hints = %+v, want no JSON-dependent hints", out)
+	}
+}
+
 func minimalGet() *rawir.RawModule {
 	return &rawir.RawModule{
 		Name: "demo",

@@ -780,19 +780,11 @@ func successfulResponse(responses map[string]*rawir.RawResponse) (*rawir.RawResp
 	if status == 300 {
 		return nil, true
 	}
-	var selectedSchema *rawir.RawSchema
-	if selected != nil {
-		selectedSchema = selected.Schema
-	}
 	for code, response := range responses {
 		if _, ok := explicitSuccessStatus(code); !ok {
 			continue
 		}
-		var schema *rawir.RawSchema
-		if response != nil {
-			schema = response.Schema
-		}
-		if !reflect.DeepEqual(schema, selectedSchema) {
+		if !reflect.DeepEqual(response, selected) {
 			return nil, false
 		}
 	}
