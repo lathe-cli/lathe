@@ -82,7 +82,6 @@ built, and which output format to prefer.
 
 - [Governance](GOVERNANCE.md): decision process and compatibility expectations.
 - [Maintainers](MAINTAINERS.md): maintainer responsibilities and review expectations.
-- [Showcase](SHOWCASE.md): CLI generation paths and real-world usage notes.
 - [CLI Usage](docs/cli-usage.md): command sequence for generating and validating a downstream CLI.
 - [Adopters](ADOPTERS.md): public and anonymized user entries.
 - [Contributing](CONTRIBUTING.md): local setup, PR workflow, and project scope.

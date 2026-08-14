@@ -16,7 +16,7 @@ Requires Go (version in `go.mod`) and [`golangci-lint`](https://golangci-lint.ru
 To follow the end-to-end generated CLI workflow, see:
 
 - [CLI Usage](docs/cli-usage.md) for the exact `go mod init` -> `lathe bootstrap` -> `go build` path.
-- [Showcase](SHOWCASE.md) for the petstore, richapi, and GraphQL generation paths.
+- `examples/petstore`, `examples/richapi`, and `examples/graphql` for the in-repo generation paths.
 
 ## Workflow
 
