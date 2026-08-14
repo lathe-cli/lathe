@@ -659,8 +659,18 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 }
 
 func deriveResponseMediaType(op rawir.RawOperation) string {
-	if r := successfulResponse(op.Responses); r != nil && r.MediaType != "" {
-		return r.MediaType
+	if response, ok := op.Responses["200"]; ok {
+		if response != nil && response.MediaType != "" {
+			return response.MediaType
+		}
+	} else {
+		mediaType, consistent := commonSuccessMediaType(op.Responses)
+		if !consistent {
+			return ""
+		}
+		if mediaType != "" {
+			return mediaType
+		}
 	}
 	if len(op.Produces) > 0 {
 		return op.Produces[0]
@@ -756,14 +766,36 @@ func successfulResponse(responses map[string]*rawir.RawResponse) *rawir.RawRespo
 	status := 300
 	var selected *rawir.RawResponse
 	for code, response := range responses {
-		candidate, err := strconv.Atoi(code)
-		if err != nil || candidate < 200 || candidate >= status {
+		candidate, ok := explicitSuccessStatus(code)
+		if !ok || candidate >= status {
 			continue
 		}
 		status = candidate
 		selected = response
 	}
 	return selected
+}
+
+func commonSuccessMediaType(responses map[string]*rawir.RawResponse) (string, bool) {
+	var mediaType string
+	for code, response := range responses {
+		if _, ok := explicitSuccessStatus(code); !ok || response == nil || response.MediaType == "" {
+			continue
+		}
+		if mediaType == "" {
+			mediaType = response.MediaType
+			continue
+		}
+		if response.MediaType != mediaType {
+			return "", false
+		}
+	}
+	return mediaType, true
+}
+
+func explicitSuccessStatus(code string) (int, bool) {
+	status, err := strconv.Atoi(code)
+	return status, err == nil && status >= 200 && status < 300
 }
 
 func deriveSecurity(op rawir.RawOperation) *runtime.SecurityHint {

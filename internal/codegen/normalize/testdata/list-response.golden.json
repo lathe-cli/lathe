@@ -20,7 +20,7 @@
         "id",
         "age"
       ],
-      "ResponseMediaType": "",
+      "ResponseMediaType": "application/json",
       "Pagination": null,
       "Streaming": null
     },

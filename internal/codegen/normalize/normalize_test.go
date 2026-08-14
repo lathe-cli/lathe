@@ -138,7 +138,7 @@ func listResponse() *rawir.RawModule {
 			Method:      "GET",
 			Path:        "/items",
 			Responses: map[string]*rawir.RawResponse{
-				"201": {Schema: envelope},
+				"201": {Schema: envelope, MediaType: "application/json"},
 			},
 		}},
 	}

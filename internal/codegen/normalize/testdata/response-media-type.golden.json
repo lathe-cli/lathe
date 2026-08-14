@@ -29,7 +29,7 @@
     "Output": {
       "ListPath": "",
       "DefaultColumns": null,
-      "ResponseMediaType": "application/pdf",
+      "ResponseMediaType": "",
       "Pagination": null,
       "Streaming": null
     },
