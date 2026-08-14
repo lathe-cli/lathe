@@ -7,18 +7,19 @@ type RawModule struct {
 }
 
 type RawOperation struct {
-	Group       string
-	OperationID string
-	Summary     string
-	Description string
-	Method      string
-	Path        string
-	Parameters  []RawParameter
-	RequestBody *RawRequestBody
-	Responses   map[string]*RawResponse
-	Produces    []string
-	Security    []RawSecurityReq
-	Output      *RawOutputHints `json:",omitempty"`
+	Group          string
+	OperationID    string
+	Summary        string
+	Description    string
+	Method         string
+	Path           string
+	ServerBasePath string `json:",omitempty"`
+	Parameters     []RawParameter
+	RequestBody    *RawRequestBody
+	Responses      map[string]*RawResponse
+	Produces       []string
+	Security       []RawSecurityReq
+	Output         *RawOutputHints `json:",omitempty"`
 }
 
 type RawSecurityReq struct {
