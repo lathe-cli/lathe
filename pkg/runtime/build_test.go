@@ -180,6 +180,26 @@ func TestBuildFlat_RejectsGeneratedGroupNameConflict(t *testing.T) {
 	}
 }
 
+func TestBuild_RejectsAliasThatShadowsCanonicalCommand(t *testing.T) {
+	root := newRootWithModuleGroup()
+	err := Build(root, "demo", []CommandSpec{
+		{Group: "Users", Use: "get-user", Method: "GET", PathTpl: "/users/{id}"},
+		{Group: "Users", Use: "remove-user", Aliases: []string{"get-user"}, Method: "DELETE", PathTpl: "/users/{id}"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("Build error = %v, want alias conflict", err)
+	}
+
+	root = newRootWithModuleGroup()
+	err = Build(root, "demo", []CommandSpec{
+		{Group: "Users API", Use: "remove-user", Aliases: []string{"get-user"}, Method: "DELETE", PathTpl: "/users/{id}"},
+		{Group: "Users", Use: "get-user", Method: "GET", PathTpl: "/users/{id}"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("Build error = %v, want normalized group alias conflict", err)
+	}
+}
+
 func TestBuild_BodyFlagsAttachedWhenHasBody(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:       "Users",
@@ -355,6 +375,9 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 		Params: []ParamSpec{
 			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
 			{Name: "limit", Flag: "limit", In: InQuery, GoType: "int64"},
+			{Name: "opaque", Flag: "opaque", In: InQuery, GoType: "string", Format: "password"},
+			{Name: "page_token", Flag: "page-token", In: InQuery, GoType: "string"},
+			{Name: "key", Flag: "key", In: InQuery, GoType: "string"},
 			{Name: "Authorization", Flag: "authorization", In: InHeader, GoType: "string"},
 		},
 		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
@@ -370,6 +393,9 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 		"--hostname", srv.URL,
 		"--id", "u 1",
 		"--limit", "5",
+		"--opaque", "dry-run-query-secret",
+		"--page-token", "cursor-1",
+		"--key", "dry-run-key-secret",
 		"--authorization", "Bearer secret",
 		"--set", "name=alice",
 		"--set", "password=hunter2",
@@ -405,8 +431,11 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 	if out.Method != "POST" {
 		t.Fatalf("method = %q, want POST", out.Method)
 	}
-	if out.URL != srv.URL+"/users/u%201?limit=5" {
+	if out.URL != srv.URL+"/users/u%201?key=%2A%2A%2A&limit=5&opaque=%2A%2A%2A&page_token=cursor-1" {
 		t.Fatalf("url = %q", out.URL)
+	}
+	if strings.Contains(stdout.String(), "dry-run-query-secret") || strings.Contains(stdout.String(), "dry-run-key-secret") {
+		t.Fatalf("dry-run leaked query credential: %s", stdout.String())
 	}
 	if out.Headers["Authorization"] != "***" {
 		t.Fatalf("authorization header = %q", out.Headers["Authorization"])

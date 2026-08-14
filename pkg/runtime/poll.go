@@ -50,14 +50,13 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 
 		loc, err := url.Parse(location)
 		if err != nil {
-			return nil, fmt.Errorf("parse polling location: %w", err)
+			return nil, fmt.Errorf("parse polling location: %w", redactClientError(err, opts.sensitiveQueryParams))
 		}
-		if loc.IsAbs() || loc.Host != "" {
-			if !strings.EqualFold(loc.Scheme, baseURL.Scheme) || !strings.EqualFold(loc.Hostname(), baseURL.Hostname()) || port(loc) != port(baseURL) {
-				return nil, fmt.Errorf("cross-host polling location %q", location)
-			}
-			location = loc.RequestURI()
+		resolved := baseURL.ResolveReference(loc)
+		if !strings.EqualFold(resolved.Scheme, baseURL.Scheme) || !strings.EqualFold(resolved.Hostname(), baseURL.Hostname()) || port(resolved) != port(baseURL) {
+			return nil, fmt.Errorf("cross-host polling location %q", redactDebugURLString(location, opts.sensitiveQueryParams))
 		}
+		location = resolved.RequestURI()
 		r, err := DoRawFull(ctx, hostname, "GET", location, nil, opts)
 		if err != nil {
 			return nil, err

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -93,15 +94,47 @@ func TestPollUntilDone_AcceptsDefaultPortAbsoluteLocation(t *testing.T) {
 }
 
 func TestPollUntilDone_RejectsCrossHostAbsoluteLocation(t *testing.T) {
+	const querySecret = "poll-location-secret"
+	const password = "poll-userinfo-secret"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", "https://example.com/status")
+		w.Header().Set("Location", "https://user:"+password+"@example.com/status?sig="+querySecret)
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer srv.Close()
 
-	_, err := PollUntilDone(context.Background(), srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second)
-	if err == nil || err.Error() != `cross-host polling location "https://example.com/status"` {
+	opts := ClientOptions{Timeout: 5 * time.Second}
+	_, err := PollUntilDone(context.Background(), srv.URL, "/status", opts, 30*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "cross-host polling location") {
 		t.Fatalf("PollUntilDone error = %v, want cross-host polling location", err)
+	}
+	if strings.Contains(err.Error(), querySecret) || strings.Contains(err.Error(), password) {
+		t.Fatalf("PollUntilDone error leaked Location credential: %v", err)
+	}
+	if !strings.Contains(err.Error(), "user:xxxxx@example.com") {
+		t.Fatalf("PollUntilDone error did not redact userinfo password: %v", err)
+	}
+}
+
+func TestPollUntilDone_RelativeLocationCannotChangeAuthority(t *testing.T) {
+	var gotHost, gotPath, gotAuth string
+	opts := ClientOptions{
+		Auth: BearerAuth{Token: "secret"},
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotHost = r.URL.Host
+			gotPath = r.URL.Path
+			gotAuth = r.Header.Get("Authorization")
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+		}),
+	}
+
+	if _, err := PollUntilDone(context.Background(), "trusted.example", "@attacker.example/status", opts, 30*time.Second); err != nil {
+		t.Fatalf("PollUntilDone: %v", err)
+	}
+	if gotHost != "trusted.example" || gotPath != "/@attacker.example/status" {
+		t.Fatalf("poll target = %q%s, want trusted.example/@attacker.example/status", gotHost, gotPath)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("same-origin authorization = %q", gotAuth)
 	}
 }
 

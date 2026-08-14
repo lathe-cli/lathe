@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,6 +78,82 @@ func TestDoRaw_4xxReturnsHTTPError(t *testing.T) {
 	}
 	if string(he.Body) != `{"error":"not found"}` {
 		t.Errorf("HTTPError.Body = %s", he.Body)
+	}
+}
+
+func TestInvokeOperation_RedactsQueryCredentialFromHTTPError(t *testing.T) {
+	const secret = "ordinary-error-secret"
+	var gotSecret string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSecret = r.URL.Query().Get("key")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := InvokeOperation(context.Background(), CommandSpec{
+		Method:  "GET",
+		PathTpl: "/fail",
+		Params: []ParamSpec{{
+			Name: "key", Flag: "key", In: InQuery, GoType: "string",
+		}},
+	}, OperationInput{
+		Values:  map[string]any{"key": secret},
+		Changed: map[string]bool{"key": true},
+	}, OperationOptions{Hostname: srv.URL, Client: ClientOptions{MaxRetries: -1}})
+	if err == nil {
+		t.Fatal("InvokeOperation returned nil error")
+	}
+	if gotSecret != secret {
+		t.Fatalf("server query credential = %q", gotSecret)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("HTTP error leaked query credential: %v", err)
+	}
+}
+
+func TestInvokeOperation_RedactsQueryCredentialFromTransportError(t *testing.T) {
+	const secret = "transport-error-secret"
+	_, err := InvokeOperation(context.Background(), CommandSpec{
+		Method:  "GET",
+		PathTpl: "/fail",
+		Params: []ParamSpec{{
+			Name: "opaque", Flag: "opaque", In: InQuery, GoType: "string", Format: "password",
+		}},
+	}, OperationInput{
+		Values:  map[string]any{"opaque": secret},
+		Changed: map[string]bool{"opaque": true},
+	}, OperationOptions{
+		Hostname: "example.com",
+		Client: ClientOptions{
+			MaxRetries: -1,
+			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("dial failed")
+			}),
+		},
+	})
+	if err == nil {
+		t.Fatal("InvokeOperation returned nil error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("transport error leaked query credential: %v", err)
+	}
+}
+
+func TestDoRaw_RedactsMalformedRedirectLocation(t *testing.T) {
+	const password = "redirect-userinfo-secret"
+	const signature = "redirect-signature-secret"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://user:"+password+"%zz@example.com/path?sig="+signature)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	_, err := DoRaw(context.Background(), srv.URL, http.MethodGet, "/", nil, ClientOptions{MaxRetries: -1})
+	if err == nil {
+		t.Fatal("DoRaw returned nil error")
+	}
+	if strings.Contains(err.Error(), password) || strings.Contains(err.Error(), signature) {
+		t.Fatalf("redirect error leaked Location credential: %v", err)
 	}
 }
 

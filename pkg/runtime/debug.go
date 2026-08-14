@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -18,13 +19,14 @@ const (
 )
 
 type debugTransport struct {
-	inner http.RoundTripper
+	inner                http.RoundTripper
+	sensitiveQueryParams map[string]bool
 }
 
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, req.URL)
+	fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, redactDebugURL(req.URL, d.sensitiveQueryParams))
 	for k, vs := range req.Header {
-		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", ")))
+		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
 	}
 	if req.Body != nil && isTextContent(req.Header.Get("Content-Type")) {
 		body, restored := peekBody(req.Body, maxDebugReqBody)
@@ -44,7 +46,7 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	fmt.Fprintf(os.Stderr, "< %s (%s)\n", resp.Status, elapsed)
 	for k, vs := range resp.Header {
-		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", ")))
+		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
 	}
 	if isTextContent(resp.Header.Get("Content-Type")) {
 		body, restored := peekBody(resp.Body, maxDebugRespBody)
@@ -54,6 +56,60 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	fmt.Fprintln(os.Stderr)
 
 	return resp, nil
+}
+
+func redactDebugURL(u *url.URL, sensitive map[string]bool) string {
+	if u == nil {
+		return ""
+	}
+	redacted := *u
+	redacted.RawQuery = redactDebugQuery(redacted.RawQuery, sensitive)
+	return redacted.Redacted()
+}
+
+func redactDebugQuery(raw string, sensitive map[string]bool) string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == '&' || r == ';' })
+	changed := false
+	for i, part := range parts {
+		name, _, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		decoded, err := url.QueryUnescape(name)
+		if err != nil {
+			decoded = name
+		}
+		if sensitive[strings.ToLower(decoded)] || isSensitiveDebugQueryName(decoded) {
+			parts[i] = name + "=" + url.QueryEscape("***")
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	return strings.Join(parts, "&")
+}
+
+func isSensitiveDebugQueryName(name string) bool {
+	n := sensitiveNameKey(name)
+	switch n {
+	case "authorization", "proxyauthorization", "token", "key", "apikey", "xapikey", "accesstoken", "idtoken", "refreshtoken", "authtoken", "oauthtoken", "bearertoken", "privatekey", "sessiontoken", "securitytoken", "xamzsecuritytoken", "sig":
+		return true
+	}
+	for _, marker := range []string{"secret", "password", "credential", "signature"} {
+		if strings.Contains(n, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactDebugURLString(raw string, sensitive map[string]bool) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid URL>"
+	}
+	return redactDebugURL(parsed, sensitive)
 }
 
 type bodyReader struct {
@@ -75,7 +131,10 @@ func isTextContent(ct string) bool {
 	return false
 }
 
-func redactDebugHeader(name, value string) string {
+func redactDebugHeader(name, value string, sensitive map[string]bool) string {
+	if strings.EqualFold(name, "location") || strings.EqualFold(name, "content-location") {
+		return redactDebugURLString(value, sensitive)
+	}
 	if isSensitiveDebugName(name) {
 		return "***"
 	}
@@ -85,10 +144,10 @@ func redactDebugHeader(name, value string) string {
 func isSensitiveDebugName(name string) bool {
 	n := strings.ToLower(name)
 	switch n {
-	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key":
+	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "sig":
 		return true
 	}
-	for _, marker := range []string{"token", "key", "secret", "password", "credential"} {
+	for _, marker := range []string{"token", "key", "secret", "password", "credential", "signature"} {
 		if strings.Contains(n, marker) {
 			return true
 		}

@@ -97,6 +97,34 @@ func TestDebugTransport_RedactsSensitiveHeaders(t *testing.T) {
 	}
 }
 
+func TestDebugTransport_RedactsQueryCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/jobs?opaque=response-query-secret")
+		w.Header().Set("Content-Location", "https://user:response-userinfo-secret%zz@example.com/jobs?sig=response-malformed-secret")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := captureStderr(t)
+	dt := &debugTransport{inner: http.DefaultTransport, sensitiveQueryParams: map[string]bool{"opaque": true}}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/api?key=debug-key-secret&authorization=debug-authorization-secret&X-Amz-Signature=debug-signature-secret&name=alice", nil)
+	resp, err := dt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	resp.Body.Close()
+
+	out := readStderr(t, r)
+	for _, leaked := range []string{"debug-key-secret", "debug-authorization-secret", "debug-signature-secret", "response-query-secret", "response-malformed-secret", "response-userinfo-secret"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("debug output leaked %q:\n%s", leaked, out)
+		}
+	}
+	if !strings.Contains(out, "name=alice") {
+		t.Fatalf("debug output lost non-sensitive query:\n%s", out)
+	}
+}
+
 func TestDebugTransport_RedactsSensitiveJSONBodies(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

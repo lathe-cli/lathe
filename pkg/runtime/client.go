@@ -25,6 +25,8 @@ type ClientOptions struct {
 	MaxRetries  int
 	UserAgent   string
 	Accept      string
+
+	sensitiveQueryParams map[string]bool
 }
 
 // BaseURL normalizes a user-facing hostname into an absolute URL base.
@@ -64,7 +66,7 @@ func HTTPClient(opts ClientOptions) *http.Client {
 		transport = &retryTransport{inner: transport, maxRetries: maxRetries, debug: opts.Debug, safeMethodsOnly: safeMethodsOnly}
 	}
 	if opts.Debug {
-		transport = &debugTransport{inner: transport}
+		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams}
 	}
 	return &http.Client{
 		Timeout:   timeout,
@@ -173,10 +175,10 @@ func newRequest(ctx context.Context, method, u string, body []byte, contentType 
 
 func doRawFullOnce(req *http.Request, opts ClientOptions) (*RawResult, error) {
 	method := req.Method
-	u := req.URL.String()
+	u := redactDebugURL(req.URL, opts.sensitiveQueryParams)
 	resp, err := HTTPClient(opts).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w", method, u, err)
+		return nil, fmt.Errorf("%s %s: %w", method, u, redactClientError(err, opts.sensitiveQueryParams))
 	}
 	defer resp.Body.Close()
 
@@ -194,6 +196,19 @@ func doRawFullOnce(req *http.Request, opts ClientOptions) (*RawResult, error) {
 		}
 	}
 	return &RawResult{Body: data, StatusCode: resp.StatusCode, Header: resp.Header}, nil
+}
+
+func redactClientError(err error, sensitive map[string]bool) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	redacted := *urlErr
+	redacted.URL = redactDebugURLString(redacted.URL, sensitive)
+	if urlErr.Err != nil && strings.HasPrefix(urlErr.Err.Error(), "failed to parse Location header ") {
+		redacted.Err = errors.New("failed to parse Location header")
+	}
+	return &redacted
 }
 
 func DoRaw(ctx context.Context, hostname, method, path string, body any, opts ClientOptions) ([]byte, error) {
