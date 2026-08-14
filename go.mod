@@ -1,6 +1,6 @@
 module github.com/lathe-cli/lathe
 
-go 1.25.7
+go 1.25.13
 
 require (
 	github.com/lathe-cli/kitup/go v0.1.3

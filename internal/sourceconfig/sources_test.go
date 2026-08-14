@@ -103,6 +103,24 @@ func TestLoad_AcceptsImmutableTag(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsTraversingSourceID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  "../outside":
+    local_path: .
+    backend: openapi3
+    openapi3:
+      files: [api.yaml]
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "source ID") {
+		t.Fatalf("Load error = %v, want unsafe source ID rejection", err)
+	}
+}
+
 func TestLoad_AcceptsLocalPathWithoutPinnedTag(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "specs", "sources.yaml")
@@ -590,6 +608,35 @@ func TestLoad_AcceptsFullSHA(t *testing.T) {
 	}
 	if _, err := Load(path); err != nil {
 		t.Fatalf("Load: %v", err)
+	}
+}
+
+func TestLoad_RejectsProtoEntryThatLooksLikeProtocOption(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sources.yaml")
+	body := `sources:
+  demo:
+    local_path: .
+    backend: proto
+    proto:
+      staging:
+        - from: .
+          to: api
+      entries: ["--descriptor_set_out=/tmp/out.pb"]
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "proto.entries") {
+		t.Fatalf("Load error = %v, want protoc option rejection", err)
+	}
+
+	body = strings.Replace(body, "--descriptor_set_out=/tmp/out.pb", "@args.proto", 1)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("seed response file yaml: %v", err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "proto.entries") {
+		t.Fatalf("Load error = %v, want protoc response file rejection", err)
 	}
 }
 

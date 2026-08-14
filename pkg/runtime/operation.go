@@ -148,6 +148,12 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 		if !operationChanged(input, p) {
 			continue
 		}
+		if p.In == InQuery && isSensitiveStringParam(p) {
+			if clientOpts.sensitiveQueryParams == nil {
+				clientOpts.sensitiveQueryParams = map[string]bool{}
+			}
+			clientOpts.sensitiveQueryParams[strings.ToLower(p.Name)] = true
+		}
 		v, _, err := operationValue(input, p)
 		if err != nil {
 			return "", nil, ClientOptions{}, err
@@ -222,7 +228,7 @@ func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, path strin
 	}
 	return DryRunRequest{
 		Method:  req.Method,
-		URL:     req.URL.String(),
+		URL:     redactDebugURL(req.URL, opts.sensitiveQueryParams),
 		Headers: redactedDryRunHeaders(req.Header),
 		Body:    redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
 		Auth:    dryRunAuthForSpec(s),

@@ -117,6 +117,9 @@ func Load(path string) (*Config, error) {
 	}
 	baseDir := filepath.Dir(path)
 	for name, src := range cfg.Sources {
+		if err := validateSourceID(name); err != nil {
+			return nil, err
+		}
 		src.Name = name
 		if err := validate(src, baseDir); err != nil {
 			return nil, fmt.Errorf("source %q: %w", name, err)
@@ -195,6 +198,11 @@ func validate(s *Source, baseDir string) error {
 		if err := validateRelPathList("proto.entries", s.Proto.Entries); err != nil {
 			return err
 		}
+		for _, entry := range s.Proto.Entries {
+			if strings.HasPrefix(entry, "-") || strings.HasPrefix(entry, "@") {
+				return fmt.Errorf("proto.entries contains protoc control argument %q", entry)
+			}
+		}
 		if err := validateRelPathList("proto.import_roots", s.Proto.ImportRoots); err != nil {
 			return err
 		}
@@ -227,6 +235,16 @@ func validate(s *Source, baseDir string) error {
 		return fmt.Errorf("unknown backend %q", s.Backend)
 	}
 	return rejectForeignBlocks(s)
+}
+
+func validateSourceID(name string) error {
+	if err := ValidateRelPath("source ID", name); err != nil {
+		return err
+	}
+	if name == "." || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("unsafe path source ID: %q", name)
+	}
+	return nil
 }
 
 func validateProtoDependencies(deps []ProtoDependency) error {

@@ -33,8 +33,12 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) error {
 	if findChildCommand(root, service) != nil {
 		return fmt.Errorf("module command %q conflicts with an existing root command", service)
 	}
+	groups, err := buildGroups(service, specs)
+	if err != nil {
+		return err
+	}
 	svc := &cobra.Command{Use: service, Short: service + " API", GroupID: ModuleGroupID}
-	for _, group := range buildGroups(service, specs) {
+	for _, group := range groups {
 		svc.AddCommand(group)
 	}
 	if err := ValidateShortcuts(specs, rootCommandNames(root, svc)); err != nil {
@@ -45,7 +49,10 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) error {
 }
 
 func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
-	groups := buildGroups(service, specs)
+	groups, err := buildGroups(service, specs)
+	if err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, group := range groups {
 		group.GroupID = ModuleGroupID
@@ -65,8 +72,9 @@ func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
 	return mountShortcuts(root, specs)
 }
 
-func buildGroups(service string, specs []CommandSpec) []*cobra.Command {
+func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) {
 	groups := map[string]*cobra.Command{}
+	commandPaths := map[string]*cobra.Command{}
 	ordered := make([]*cobra.Command, 0)
 	for i := range specs {
 		s := specs[i]
@@ -77,10 +85,17 @@ func buildGroups(service string, specs []CommandSpec) []*cobra.Command {
 			ordered = append(ordered, g)
 		}
 		c := buildCmd(s)
+		for _, name := range append([]string{c.Name()}, c.Aliases...) {
+			path := g.Name() + " " + name
+			if existing := commandPaths[path]; existing != nil && existing != c {
+				return nil, fmt.Errorf("command name or alias %q conflicts between %q and %q in group %q", name, existing.Name(), c.Name(), g.Name())
+			}
+			commandPaths[path] = c
+		}
 		AttachCatalogCommand(c, service, s)
 		g.AddCommand(c)
 	}
-	return ordered
+	return ordered, nil
 }
 
 func buildCmd(s CommandSpec) *cobra.Command {
@@ -286,7 +301,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 func redactedDryRunHeaders(headers map[string][]string) map[string]string {
 	out := make(map[string]string, len(headers))
 	for k, vs := range headers {
-		out[k] = redactDebugHeader(k, strings.Join(vs, ", "))
+		out[k] = redactDebugHeader(k, strings.Join(vs, ", "), nil)
 	}
 	return out
 }

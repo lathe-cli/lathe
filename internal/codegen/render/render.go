@@ -140,18 +140,37 @@ func flatPathConflict(specs []runtime.CommandSpec) (string, bool) {
 }
 
 func validateCommandPaths(specs []runtime.CommandSpec) error {
-	seen := map[string]runtime.CommandSpec{}
-	for _, spec := range specs {
+	type commandName struct {
+		spec  runtime.CommandSpec
+		alias bool
+		index int
+	}
+	seen := map[string]commandName{}
+	for specIndex, spec := range specs {
 		group := rootCommandName(spec.Group)
 		use := commandUseName(spec.Use)
 		if group == "" || use == "" {
 			return fmt.Errorf("command %q has empty generated path", commandIdentity(spec))
 		}
-		cmdPath := group + " " + use
-		if prev, ok := seen[cmdPath]; ok {
-			return fmt.Errorf("command path %q conflicts between %s and %s", cmdPath, commandDebugIdentity(prev), commandDebugIdentity(spec))
+		names := append([]string{use}, spec.Aliases...)
+		for i, raw := range names {
+			name := commandUseName(raw)
+			if name == "" {
+				return fmt.Errorf("command %q has empty alias", commandIdentity(spec))
+			}
+			cmdPath := group + " " + name
+			if prev, ok := seen[cmdPath]; ok {
+				if prev.index == specIndex {
+					continue
+				}
+				kind := "command path"
+				if i > 0 || prev.alias {
+					kind = "command alias path"
+				}
+				return fmt.Errorf("%s %q conflicts between %s and %s", kind, cmdPath, commandDebugIdentity(prev.spec), commandDebugIdentity(spec))
+			}
+			seen[cmdPath] = commandName{spec: spec, alias: i > 0, index: specIndex}
 		}
-		seen[cmdPath] = spec
 	}
 	return nil
 }
