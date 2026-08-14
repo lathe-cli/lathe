@@ -1,13 +1,16 @@
 package openapi3
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestParse_Golden(t *testing.T) {
@@ -72,6 +75,121 @@ func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
 	if got := mod.Operations[0].Responses["200"].Schema.Properties["name"].Type; got != "string" {
 		t.Fatalf("property type = %q, want string", got)
 	}
+}
+
+func TestParse_ServerBasePathCompatibility(t *testing.T) {
+	tests := []struct {
+		name          string
+		server        string
+		variables     string
+		wantPath      string
+		wantUse       string
+		wantOperation string
+	}{
+		{
+			name:          "templated absolute URL",
+			server:        "https://{environment}.example.com/api/{version}",
+			variables:     `,"variables":{"environment":{"default":"prod"},"version":{"default":"v3"}}`,
+			wantPath:      "/api/v3/widgets",
+			wantUse:       "get-widgets",
+			wantOperation: "getWidgets",
+		},
+		{
+			name:          "ambiguous scheme-less URL",
+			server:        "api.example.com/v1",
+			wantPath:      "/widgets",
+			wantUse:       "get-widgets",
+			wantOperation: "getWidgets",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := fmt.Sprintf(`{
+  "openapi": "3.0.3",
+  "servers": [{"url": %q%s}],
+  "paths": {
+    "/widgets": {
+      "get": {"responses": {"200": {}}}
+    }
+  }
+}`, tt.server, tt.variables)
+			specs := parseNormalized(t, input)
+			if got := specs[0].PathTpl; got != tt.wantPath {
+				t.Fatalf("path = %q, want %q", got, tt.wantPath)
+			}
+			if got := specs[0].Use; got != tt.wantUse {
+				t.Fatalf("use = %q, want %q", got, tt.wantUse)
+			}
+			if got := specs[0].OperationID; got != tt.wantOperation {
+				t.Fatalf("operation id = %q, want %q", got, tt.wantOperation)
+			}
+		})
+	}
+}
+
+func TestParse_ServerOverridePrecedence(t *testing.T) {
+	input := `{
+  "openapi": "3.0.3",
+  "servers": [{"url": "/api/v1"}],
+  "paths": {
+    "/root": {
+      "get": {"operationId": "Root_Get", "responses": {"200": {}}}
+    },
+    "/health": {
+      "servers": [{"url": "/"}],
+      "get": {"operationId": "Health_Get", "responses": {"200": {}}}
+    },
+    "/widgets": {
+      "servers": [{"url": "/api/v2"}],
+      "get": {
+        "operationId": "Widget_Get",
+        "servers": [{"url": "/api/v3"}],
+        "responses": {"200": {}}
+      },
+      "post": {"operationId": "Widget_Create", "responses": {"200": {}}}
+    }
+  }
+}`
+	want := map[string]string{
+		"Root_Get":      "/api/v1/root",
+		"Health_Get":    "/health",
+		"Widget_Get":    "/api/v3/widgets",
+		"Widget_Create": "/api/v2/widgets",
+	}
+	for _, spec := range parseNormalized(t, input) {
+		if got := spec.PathTpl; got != want[spec.OperationID] {
+			t.Errorf("%s path = %q, want %q", spec.OperationID, got, want[spec.OperationID])
+		}
+		delete(want, spec.OperationID)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing operations: %v", want)
+	}
+}
+
+func parseNormalized(t *testing.T, input string) []runtime.CommandSpec {
+	t.Helper()
+	syncDir := t.TempDir()
+	inputPath := filepath.Join(syncDir, "openapi.json")
+	if err := os.WriteFile(inputPath, []byte(input), 0o644); err != nil {
+		t.Fatalf("seed input: %v", err)
+	}
+
+	src := &sourceconfig.Source{
+		Name: "demo",
+		OpenAPI3: &sourceconfig.OpenAPI3Config{
+			Files: []string{"openapi.json"},
+		},
+	}
+	mod, err := Parse(src, syncDir)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	specs := normalize.Normalize(mod)
+	if len(specs) == 0 {
+		t.Fatal("Normalize produced no commands")
+	}
+	return specs
 }
 
 func TestParse_RejectsOpenAPI31MultiTypeUnion(t *testing.T) {

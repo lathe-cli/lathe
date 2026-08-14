@@ -35,7 +35,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			Short:       pickShort(op),
 			OperationID: opID,
 			Method:      op.Method,
-			PathTpl:     op.Path,
+			PathTpl:     joinBasePath(op.ServerBasePath, op.Path),
 		}
 		for _, pp := range op.Parameters {
 			switch pp.In {
@@ -83,6 +83,14 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 	})
 	disambiguateUse(specs)
 	return specs
+}
+
+func joinBasePath(basePath, operationPath string) string {
+	basePath = strings.TrimRight(basePath, "/")
+	if basePath == "" {
+		return operationPath
+	}
+	return "/" + strings.TrimLeft(basePath, "/") + "/" + strings.TrimLeft(operationPath, "/")
 }
 
 // synthOperationID builds a camelCase id like "getUsersId" from a method and

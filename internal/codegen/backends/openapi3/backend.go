@@ -3,6 +3,7 @@ package openapi3
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,16 @@ type oas3Doc struct {
 	Paths      map[string]*pathItem  `json:"paths" yaml:"paths"`
 	Components *components           `json:"components,omitempty" yaml:"components,omitempty"`
 	Security   []map[string][]string `json:"security,omitempty" yaml:"security,omitempty"`
+	Servers    []server              `json:"servers,omitempty" yaml:"servers,omitempty"`
+}
+
+type server struct {
+	URL       string                    `json:"url" yaml:"url"`
+	Variables map[string]serverVariable `json:"variables,omitempty" yaml:"variables,omitempty"`
+}
+
+type serverVariable struct {
+	Default string `json:"default" yaml:"default"`
 }
 
 type components struct {
@@ -26,6 +37,7 @@ type components struct {
 
 type pathItem struct {
 	Parameters []parameter `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	Servers    *[]server   `json:"servers,omitempty" yaml:"servers,omitempty"`
 	Get        *operation  `json:"get,omitempty" yaml:"get,omitempty"`
 	Post       *operation  `json:"post,omitempty" yaml:"post,omitempty"`
 	Put        *operation  `json:"put,omitempty" yaml:"put,omitempty"`
@@ -42,6 +54,9 @@ type operation struct {
 	RequestBody *requestBody           `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
 	Responses   map[string]response    `json:"responses" yaml:"responses"`
 	Security    *[]map[string][]string `json:"security,omitempty" yaml:"security,omitempty"`
+	Servers     *[]server              `json:"servers,omitempty" yaml:"servers,omitempty"`
+
+	serverBasePath string
 }
 
 type parameter struct {
@@ -158,9 +173,48 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		if err := unmarshalAuto(p, data, &doc); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
+		applyServerBasePaths(&doc, src.Name, p)
 		mergeDoc(all, &doc, src.Name, p)
 	}
 	return toRawIR(src.Name, all), nil
+}
+
+func applyServerBasePaths(doc *oas3Doc, module, origin string) {
+	rootBasePath := resolveServerBasePath(doc.Servers, module, origin)
+	for _, item := range doc.Paths {
+		basePath := rootBasePath
+		if item.Servers != nil {
+			basePath = resolveServerBasePath(*item.Servers, module, origin)
+		}
+		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+			if op == nil {
+				continue
+			}
+			op.serverBasePath = basePath
+			if op.Servers != nil {
+				op.serverBasePath = resolveServerBasePath(*op.Servers, module, origin)
+			}
+		}
+	}
+}
+
+func resolveServerBasePath(servers []server, module, origin string) string {
+	if len(servers) == 0 {
+		return ""
+	}
+	raw := strings.TrimSpace(servers[0].URL)
+	if raw == "" {
+		return ""
+	}
+	for name, variable := range servers[0].Variables {
+		raw = strings.ReplaceAll(raw, "{"+name+"}", variable.Default)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || strings.ContainsAny(raw, "{}") || !u.IsAbs() && !strings.HasPrefix(raw, "/") {
+		fmt.Fprintf(os.Stderr, "warn: %s: unsupported server URL %q in %s (ignored)\n", module, servers[0].URL, origin)
+		return ""
+	}
+	return strings.TrimRight(u.Path, "/")
 }
 
 func unmarshalAuto(path string, data []byte, v any) error {
@@ -257,12 +311,13 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 
 func convertOp(op *operation, method, path string, pathParams []parameter, globalSecurity []map[string][]string) rawir.RawOperation {
 	out := rawir.RawOperation{
-		OperationID: op.OperationID,
-		Summary:     op.Summary,
-		Description: op.Description,
-		Method:      method,
-		Path:        path,
-		Responses:   map[string]*rawir.RawResponse{},
+		OperationID:    op.OperationID,
+		Summary:        op.Summary,
+		Description:    op.Description,
+		Method:         method,
+		Path:           path,
+		ServerBasePath: op.serverBasePath,
+		Responses:      map[string]*rawir.RawResponse{},
 	}
 	if len(op.Tags) > 0 && op.Tags[0] != "" {
 		out.Group = op.Tags[0]
