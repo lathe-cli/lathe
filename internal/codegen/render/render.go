@@ -65,7 +65,11 @@ func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides m
 	if cliName == "" {
 		cliName = name
 	}
-	merged := MergeOverlayModule(specs, overlay.Module{Commands: overrides})
+	mod := overlay.Module{Commands: overrides}
+	if err := ValidateOverlayModule(specs, mod); err != nil {
+		return err
+	}
+	merged := MergeOverlayModule(specs, mod)
 	return renderModuleSpecs(name, cliName, merged)
 }
 
@@ -275,6 +279,71 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 	return merged
 }
 
+func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) error {
+	for _, spec := range specs {
+		override, ok := mod.Commands[spec.Use]
+		if !ok || !overrideMatches(spec, override) || override.Output == nil || override.Output.Streaming == nil {
+			continue
+		}
+		if err := validateStreamingOverride(spec, *override.Output.Streaming); err != nil {
+			return fmt.Errorf("command %q stream policy: %w", spec.Use, err)
+		}
+	}
+	return nil
+}
+
+func validateStreamingOverride(spec runtime.CommandSpec, stream overlay.StreamingOverride) error {
+	if spec.Output.Streaming == nil {
+		return fmt.Errorf("operation is not declared as streaming")
+	}
+	if spec.Output.Streaming.Strategy != "sse" && spec.Output.Streaming.Strategy != "ndjson" {
+		return fmt.Errorf("unsupported strategy %q", spec.Output.Streaming.Strategy)
+	}
+	if stream.Data != "json" {
+		return fmt.Errorf("data must be json")
+	}
+	if stream.Collect == nil {
+		return fmt.Errorf("collect is required")
+	}
+	if spec.Output.Streaming.Strategy == "ndjson" && stream.EventNamePath == "" {
+		return fmt.Errorf("event_name_path is required for ndjson")
+	}
+	if stream.Collect.RequireStop && len(stream.Collect.StopEvents)+len(stream.Collect.PauseEvents)+len(stream.Collect.ErrorEvents) == 0 {
+		return fmt.Errorf("require_stop needs a terminal event")
+	}
+	terminal := map[string]string{}
+	for kind, events := range map[string][]string{
+		"stop": stream.Collect.StopEvents, "pause": stream.Collect.PauseEvents, "error": stream.Collect.ErrorEvents,
+	} {
+		for _, event := range events {
+			if event == "" {
+				return fmt.Errorf("%s event must not be empty", kind)
+			}
+			if previous := terminal[event]; previous != "" {
+				return fmt.Errorf("event %q is both %s and %s", event, previous, kind)
+			}
+			terminal[event] = kind
+		}
+	}
+	for i, field := range stream.Collect.Fields {
+		if len(field.Events) == 0 || field.To == "" {
+			return fmt.Errorf("field %d needs events and to", i)
+		}
+		if (field.From == "") == (field.Value == "") {
+			return fmt.Errorf("field %d needs exactly one of from or value", i)
+		}
+		switch field.Reduce {
+		case "first", "last", "concat", "append":
+		default:
+			return fmt.Errorf("field %d has unsupported reducer %q", i, field.Reduce)
+		}
+	}
+	if stream.Live != nil && (len(stream.Live.Events) == 0 || stream.Live.From == "") {
+		return fmt.Errorf("live needs events and from")
+	}
+	return nil
+}
+
 func overrideMatches(spec runtime.CommandSpec, override overlay.Override) bool {
 	if override.Match.Method != "" && !strings.EqualFold(override.Match.Method, spec.Method) {
 		return false
@@ -302,6 +371,10 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	cloned.Params = append([]runtime.ParamSpec(nil), spec.Params...)
 	for i := range cloned.Params {
 		cloned.Params[i].Enum = append([]string(nil), spec.Params[i].Enum...)
+	}
+	if spec.Output.Streaming != nil {
+		streaming := *spec.Output.Streaming
+		cloned.Output.Streaming = &streaming
 	}
 	return cloned
 }
@@ -401,6 +474,29 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 				spec.Params[j].Deprecated = true
 			}
 		}
+	}
+	if override.Output != nil && override.Output.Streaming != nil {
+		stream := override.Output.Streaming
+		collect := stream.Collect
+		policy := &runtime.StreamPolicy{DataFormat: stream.Data, EventNamePath: stream.EventNamePath}
+		if collect != nil {
+			policy.Collect = &runtime.StreamCollectHint{
+				RequireStop: collect.RequireStop,
+				StopEvents:  append([]string(nil), collect.StopEvents...),
+				PauseEvents: append([]string(nil), collect.PauseEvents...),
+				ErrorEvents: append([]string(nil), collect.ErrorEvents...),
+				Fields:      make([]runtime.StreamFieldRule, 0, len(collect.Fields)),
+			}
+			for _, field := range collect.Fields {
+				policy.Collect.Fields = append(policy.Collect.Fields, runtime.StreamFieldRule{
+					Events: append([]string(nil), field.Events...), From: field.From, Value: field.Value, To: field.To, Reduce: field.Reduce,
+				})
+			}
+		}
+		if stream.Live != nil {
+			policy.Live = &runtime.StreamLiveHint{Events: append([]string(nil), stream.Live.Events...), From: stream.Live.From}
+		}
+		spec.Output.Streaming.Policy = policy
 	}
 }
 
@@ -865,6 +961,45 @@ func streamingHintLiteral(hint *runtime.StreamingHint) string {
 	var b strings.Builder
 	b.WriteString("&runtime.StreamingHint{")
 	writeStringField(&b, "Strategy", hint.Strategy)
+	if hint.Policy != nil {
+		fmt.Fprintf(&b, "Policy: %s,", streamPolicyLiteral(hint.Policy))
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func streamPolicyLiteral(policy *runtime.StreamPolicy) string {
+	var b strings.Builder
+	b.WriteString("&runtime.StreamPolicy{")
+	writeStringField(&b, "DataFormat", policy.DataFormat)
+	writeStringField(&b, "EventNamePath", policy.EventNamePath)
+	if policy.Collect != nil {
+		b.WriteString("Collect: &runtime.StreamCollectHint{")
+		writeBoolField(&b, "RequireStop", policy.Collect.RequireStop)
+		writeStringSliceField(&b, "StopEvents", policy.Collect.StopEvents)
+		writeStringSliceField(&b, "PauseEvents", policy.Collect.PauseEvents)
+		writeStringSliceField(&b, "ErrorEvents", policy.Collect.ErrorEvents)
+		if len(policy.Collect.Fields) > 0 {
+			b.WriteString("Fields: []runtime.StreamFieldRule{")
+			for _, field := range policy.Collect.Fields {
+				b.WriteString("runtime.StreamFieldRule{")
+				writeStringSliceField(&b, "Events", field.Events)
+				writeStringField(&b, "From", field.From)
+				writeStringField(&b, "Value", field.Value)
+				writeStringField(&b, "To", field.To)
+				writeStringField(&b, "Reduce", field.Reduce)
+				b.WriteString("},")
+			}
+			b.WriteString("},")
+		}
+		b.WriteString("},")
+	}
+	if policy.Live != nil {
+		b.WriteString("Live: &runtime.StreamLiveHint{")
+		writeStringSliceField(&b, "Events", policy.Live.Events)
+		writeStringField(&b, "From", policy.Live.From)
+		b.WriteString("},")
+	}
 	b.WriteByte('}')
 	return b.String()
 }
@@ -963,8 +1098,9 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 }
 
 var moduleTmpl = template.Must(template.New("gen").Funcs(template.FuncMap{
-	"schemaLiteral":    schemaLiteral,
-	"stringMapLiteral": stringMapLiteral,
+	"schemaLiteral":      schemaLiteral,
+	"stringMapLiteral":   stringMapLiteral,
+	"outputHintsLiteral": outputHintsLiteral,
 }).Parse(`// Code generated by lathe codegen. DO NOT EDIT.
 
 package {{.Module}}
@@ -1087,22 +1223,7 @@ var Specs = []runtime.CommandSpec{
 			},
 			{{- end}}
 		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
-		Output: runtime.OutputHints{
-			{{- if $op.Output.ListPath}}ListPath: {{printf "%q" $op.Output.ListPath}},{{end}}
-			{{- if $op.Output.DefaultColumns}}DefaultColumns: []string{
-				{{- range $op.Output.DefaultColumns}}{{printf "%q" .}},{{end}}
-			},{{end}}
-			{{- if $op.Output.ResponseMediaType}}ResponseMediaType: {{printf "%q" $op.Output.ResponseMediaType}},{{end}}
-			{{- if $op.Output.Pagination}}Pagination: &runtime.PaginationHint{
-				Strategy: {{printf "%q" $op.Output.Pagination.Strategy}},
-				{{- if $op.Output.Pagination.TokenParam}}TokenParam: {{printf "%q" $op.Output.Pagination.TokenParam}},{{end}}
-				{{- if $op.Output.Pagination.TokenField}}TokenField: {{printf "%q" $op.Output.Pagination.TokenField}},{{end}}
-				{{- if $op.Output.Pagination.LimitParam}}LimitParam: {{printf "%q" $op.Output.Pagination.LimitParam}},{{end}}
-			},{{end}}
-			{{- if $op.Output.Streaming}}Streaming: &runtime.StreamingHint{
-				Strategy: {{printf "%q" $op.Output.Streaming.Strategy}},
-			},{{end}}
-		},
+		Output: {{outputHintsLiteral $op.Output}},
 		{{- end}}
 		{{- if $op.Security}}
 		Security: &runtime.SecurityHint{

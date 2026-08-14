@@ -402,6 +402,39 @@ Command `shortcuts` add root-level commands that execute the same generated
 operation with preset values for existing parameters. Shortcut params may use
 the parameter name or flag name; invocation flags can still override the preset.
 
+For an SSE or NDJSON operation whose event semantics are not described by the
+API spec, an overlay can collect JSON frames into one stable result:
+
+```yaml
+commands:
+  run-job:
+    output:
+      streaming:
+        data: json
+        event_name_path: event
+        collect:
+          require_stop: true
+          stop_events: [done]
+          pause_events: [input_required]
+          error_events: [error]
+          fields:
+            - events: [chunk]
+              from: text
+              to: output
+              reduce: concat
+        live:
+          events: [chunk]
+          from: text
+```
+
+Reducers are fixed to `first`, `last`, `concat`, and `append`. Choose one output
+mode: `-o json` or `-o yaml` collects one document, `-o raw` preserves wire
+events, and `--stream` in the default table mode prints the configured live
+field. A pause event returns exit code 0 with the collected result; workflows
+stop before their next step. Stream
+policies cannot call operations or branch and therefore do not replace the
+workflow DSL.
+
 Run codegen with an overlay directory:
 
 ```sh
@@ -447,6 +480,14 @@ body:
 | `--file path.json` | Load the request body from a JSON file. |
 | `--set key.path=value` | Build JSON from repeated key/value assignments. |
 | `--set-str key.path=value` | Build JSON while forcing the value to remain a string. |
+
+### Streaming Outputs
+
+OpenAPI and Swagger streaming media types produce raw incremental output with
+`-o raw`. When a stream collection overlay is present, structured formats
+return the collected document; an optional `--stream` flag in the default table
+mode prints only the configured live field as frames arrive. The complete policy
+is inspectable at `output.streaming.policy` in `commands show ... --json`.
 
 ## Architecture
 

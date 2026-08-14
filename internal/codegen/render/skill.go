@@ -522,6 +522,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	b.WriteString("- Do not guess flags or request body shape from command names.\n")
 	b.WriteString("- Do not execute directly from search results; confirm with `commands show` first.\n")
 	b.WriteString("- Prefer `-o json` for machine-readable command output unless the user asks for human-readable output.\n")
+	b.WriteString("- For collected streams, choose one mode: `-o json` for one stable document, `--stream` in the default output mode when catalog `output.streaming.policy.live` is present, or `-o raw` for wire events.\n")
 	b.WriteString("- Use `--file`, `--set`, or `--set-str` for JSON request bodies according to `commands show` body requirements.\n")
 	b.WriteString("- For sensitive flags, prefer safe modes from `flags[].input_modes`: `--<flag>-env`, `--<flag>-file`, or `--<flag>-stdin`.\n")
 	return b.String()
@@ -555,7 +556,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `body`: request body requirement and media type.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
 	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
-	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints.\n")
+	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints; a streaming policy describes collection, terminal outcomes, and optional live projection.\n")
 	b.WriteString("- `notes`, `prerequisites`, and `known_errors`: overlay-provided operation context that is not inferred from the API spec.\n\n")
 	b.WriteString("## Command Detail\n\n")
 	fmt.Fprintf(&b, "Run `%s commands show <path...> --json` before executing an unfamiliar command. This is the source of truth for flags, body, auth, HTTP path, and output hints.\n\n", cli)
@@ -574,7 +575,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `--set key.path=value`: build JSON with type inference for booleans, null, integers, and floats.\n")
 	b.WriteString("- `--set-str key.path=value`: build JSON while forcing the value to remain a string.\n\n")
 	b.WriteString("## Output\n\n")
-	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`.\n\n")
+	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`. For collected streams, choose one mode: JSON or YAML for one document, `--stream` in the default output mode when `output.streaming.policy.live` is present, or raw for wire events.\n\n")
 	b.WriteString("## Auth\n\n")
 	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
@@ -985,7 +986,14 @@ func outputSummary(out runtime.OutputHints) string {
 		parts = append(parts, "pagination `"+out.Pagination.Strategy+"`")
 	}
 	if out.Streaming != nil {
-		parts = append(parts, "streaming `"+out.Streaming.Strategy+"`")
+		streaming := "streaming `" + out.Streaming.Strategy + "`"
+		if out.Streaming.Policy != nil {
+			streaming += ", collected"
+			if out.Streaming.Policy.Live != nil {
+				streaming += ", live `--stream`"
+			}
+		}
+		parts = append(parts, streaming)
 	}
 	return strings.Join(parts, "; ")
 }

@@ -108,6 +108,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	var maxPages int
 	var waitPoll bool
 	var dryRun bool
+	var liveStream bool
 
 	cmd := &cobra.Command{
 		Use:     s.Use,
@@ -116,6 +117,13 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		Long:    s.Long,
 		Example: s.Example,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if liveStream && format != "table" {
+				return fmt.Errorf("live stream output does not support -o %s", format)
+			}
+			if liveStream && waitPoll {
+				return fmt.Errorf("live stream output does not support wait polling")
+			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
 				return err
 			}
@@ -150,7 +158,13 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			}
 			clientOpts.UserAgent = cmd.Root().Use
 
-			result, err := InvokeOperation(cmd.Context(), s, OperationInput{
+			output := operationOutput{}
+			if s.Output.Streaming != nil && format == "raw" && !waitPoll {
+				output.raw = cmd.OutOrStdout()
+			} else if liveStream && format == "table" {
+				output.live = cmd.OutOrStdout()
+			}
+			result, err := invokeOperation(cmd.Context(), s, OperationInput{
 				Values:         vals,
 				Changed:        operationChangedFlags(cmd, s.Params),
 				FileBody:       fileBody,
@@ -164,15 +178,17 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				PaginateAll: paginateAll,
 				MaxPages:    maxPages,
 				Wait:        waitPoll,
-			})
+			}, output)
 			if err != nil {
 				return err
 			}
 			if result.DryRun != nil {
 				return writeDryRun(*result.DryRun, cmd.OutOrStdout())
 			}
-			format, _ := cmd.Root().PersistentFlags().GetString("output")
-			return FormatOutput(result.Data, format, os.Stdout, s.Output)
+			if output.raw != nil || output.live != nil {
+				return nil
+			}
+			return FormatOutput(result.Data, format, cmd.OutOrStdout(), s.Output)
 		},
 	}
 
@@ -204,6 +220,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	}
 	if s.Method == "POST" || s.Method == "PUT" || s.Method == "DELETE" || s.Method == "PATCH" {
 		cmd.Flags().BoolVar(&waitPoll, controlFlagName(cmd, "wait"), false, "poll until long-running operation completes")
+	}
+	if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Live != nil {
+		cmd.Flags().BoolVar(&liveStream, controlFlagName(cmd, "stream"), false, "print configured stream fields as they arrive (requires -o table)")
 	}
 	cmd.Flags().BoolVar(&dryRun, controlFlagName(cmd, "dry-run"), false, "print resolved request JSON without sending it")
 	cmd.Hidden = s.Hidden

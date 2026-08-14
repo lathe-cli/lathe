@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 12
+const CatalogSchemaVersion = 13
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -142,7 +142,8 @@ type CatalogPagination struct {
 }
 
 type CatalogStreaming struct {
-	Strategy string `json:"strategy"`
+	Strategy string        `json:"strategy"`
+	Policy   *StreamPolicy `json:"policy,omitempty"`
 }
 
 type SearchResult struct {
@@ -534,7 +535,7 @@ func catalogStreaming(s *StreamingHint) *CatalogStreaming {
 	if s == nil {
 		return nil
 	}
-	return &CatalogStreaming{Strategy: s.Strategy}
+	return &CatalogStreaming{Strategy: s.Strategy, Policy: s.Policy}
 }
 
 func catalogAuth(security *SecurityHint) CatalogAuth {

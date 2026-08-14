@@ -38,7 +38,11 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 				DefaultColumns:    []string{"id", "name"},
 				ResponseMediaType: "application/json",
 				Pagination:        &PaginationHint{Strategy: "cursor", TokenParam: "page_token", TokenField: "next_page_token", LimitParam: "limit"},
-				Streaming:         &StreamingHint{Strategy: "sse"},
+				Streaming: &StreamingHint{Strategy: "sse", Policy: &StreamPolicy{
+					DataFormat: "json", EventNamePath: "kind",
+					Collect: &StreamCollectHint{RequireStop: true, StopEvents: []string{"done"}},
+					Live:    &StreamLiveHint{Events: []string{"chunk"}, From: "text"},
+				}},
 			},
 			Security:      &SecurityHint{Scopes: []string{"users:read"}},
 			Notes:         []string{"Use the canonical user ID."},
@@ -106,6 +110,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if cmd.Output.Streaming == nil || cmd.Output.Streaming.Strategy != "sse" {
 		t.Fatalf("streaming = %+v", cmd.Output.Streaming)
+	}
+	if cmd.Output.Streaming.Policy == nil || cmd.Output.Streaming.Policy.Collect == nil || !cmd.Output.Streaming.Policy.Collect.RequireStop {
+		t.Fatalf("streaming policy = %+v", cmd.Output.Streaming.Policy)
 	}
 	if !reflect.DeepEqual(cmd.Notes, []string{"Use the canonical user ID."}) {
 		t.Fatalf("notes = %#v", cmd.Notes)
@@ -458,8 +465,8 @@ func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
 	}
 
 	catalog := BuildCatalog(root, CatalogOptions{})
-	if catalog.CatalogSchemaVersion != 12 {
-		t.Fatalf("schema version = %d, want 12", catalog.CatalogSchemaVersion)
+	if catalog.CatalogSchemaVersion != 13 {
+		t.Fatalf("schema version = %d, want 13", catalog.CatalogSchemaVersion)
 	}
 	var step *CatalogWorkflowStep
 	for i, entry := range catalog.Commands {

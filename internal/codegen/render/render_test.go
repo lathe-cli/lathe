@@ -473,6 +473,40 @@ func TestMergeOverlayModule_BulkDefaultsDoNotReplaceSpecDefaults(t *testing.T) {
 	}
 }
 
+func TestMergeOverlayModule_StreamPolicy(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group: "Runs", Use: "run", Method: "POST", PathTpl: "/runs",
+		Output: runtime.OutputHints{Streaming: &runtime.StreamingHint{Strategy: "sse"}},
+	}}
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"run": {Output: &overlay.OutputOverride{Streaming: &overlay.StreamingOverride{
+			Data: "json", EventNamePath: "kind",
+			Collect: &overlay.StreamCollect{
+				RequireStop: true, StopEvents: []string{"done"},
+				Fields: []overlay.StreamFieldRule{{Events: []string{"chunk"}, From: "text", To: "answer", Reduce: "concat"}},
+			},
+			Live: &overlay.StreamLive{Events: []string{"chunk"}, From: "text"},
+		}}},
+	}}
+	if err := ValidateOverlayModule(specs, mod); err != nil {
+		t.Fatalf("ValidateOverlayModule: %v", err)
+	}
+	merged := MergeOverlayModule(specs, mod)
+	policy := merged[0].Output.Streaming.Policy
+	if policy == nil || policy.Collect == nil || policy.Collect.Fields[0].Reduce != "concat" || policy.Live == nil {
+		t.Fatalf("policy = %#v", policy)
+	}
+	if specs[0].Output.Streaming.Policy != nil {
+		t.Fatal("merge mutated source spec")
+	}
+
+	bad := specs
+	bad[0].Output.Streaming = nil
+	if err := ValidateOverlayModule(bad, mod); err == nil || !strings.Contains(err.Error(), "not declared as streaming") {
+		t.Fatalf("validation error = %v", err)
+	}
+}
+
 func TestRenderModule_NilOverrides(t *testing.T) {
 	chdirWithGoMod(t)
 
