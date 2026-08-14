@@ -357,10 +357,17 @@ func convertOp(op *operation, method, path string, pathParams []parameter, globa
 			rs.Schema = convertSchema(mt.Schema)
 			rs.MediaType = "application/json"
 		} else {
-			for ct, mt := range resp.Content {
-				rs.Schema = convertSchema(mt.Schema)
-				rs.MediaType = ct
-				break
+			mediaTypes := make([]string, 0, len(resp.Content))
+			for mediaType := range resp.Content {
+				if mediaType != "" {
+					mediaTypes = append(mediaTypes, mediaType)
+				}
+			}
+			sort.Strings(mediaTypes)
+			if len(mediaTypes) > 0 {
+				mediaType := mediaTypes[0]
+				rs.Schema = convertSchema(resp.Content[mediaType].Schema)
+				rs.MediaType = mediaType
 			}
 		}
 		out.Responses[code] = rs

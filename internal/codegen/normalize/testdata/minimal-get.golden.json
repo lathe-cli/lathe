@@ -42,12 +42,7 @@
       "ListPath": "",
       "DefaultColumns": null,
       "ResponseMediaType": "",
-      "Pagination": {
-        "Strategy": "cursor",
-        "TokenParam": "",
-        "TokenField": "",
-        "LimitParam": "limit"
-      },
+      "Pagination": null,
       "Streaming": null
     },
     "Security": null

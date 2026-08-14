@@ -2,6 +2,8 @@ package normalize
 
 import (
 	"fmt"
+	"mime"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,7 +68,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			spec.Output.DefaultColumns = defaultColumns(itemRef, mod.Schemas)
 		}
 		spec.Output.ResponseMediaType = deriveResponseMediaType(op)
-		spec.Output.Pagination = derivePagination(op)
+		spec.Output.Pagination = derivePagination(op, mod.Schemas)
 		spec.Output.Streaming = deriveStreaming(op)
 		applyRawOutputHints(&spec, op.Output)
 		spec.Security = deriveSecurity(op)
@@ -475,11 +477,11 @@ func helpText(p rawir.RawParameter) string {
 }
 
 func deriveList(op rawir.RawOperation, defs map[string]*rawir.RawSchema) (string, string) {
-	r, ok := op.Responses["200"]
-	if !ok || r == nil || r.Schema == nil {
+	schema := compatibleResponseSchema(op, defs)
+	if schema == nil {
 		return "", ""
 	}
-	s := rawir.Resolve(r.Schema, defs)
+	s := rawir.Resolve(schema, defs)
 	if s == nil {
 		return "", ""
 	}
@@ -659,13 +661,35 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 }
 
 func deriveResponseMediaType(op rawir.RawOperation) string {
-	if r, ok := op.Responses["200"]; ok && r != nil && r.MediaType != "" {
-		return r.MediaType
+	responses := successResponses(op)
+	if len(responses) == 0 {
+		return ""
 	}
-	if len(op.Produces) > 0 {
-		return op.Produces[0]
+	if r, ok := op.Responses["200"]; ok {
+		if r != nil && r.MediaType != "" {
+			return r.MediaType
+		}
+		if len(op.Produces) > 0 {
+			return op.Produces[0]
+		}
+		return ""
 	}
-	return ""
+
+	mediaType := ""
+	for _, response := range responses {
+		mediaTypes := responseMediaTypes(op, response)
+		if len(mediaTypes) != 1 {
+			return ""
+		}
+		if mediaType == "" {
+			mediaType = mediaTypes[0]
+			continue
+		}
+		if mediaType != mediaTypes[0] {
+			return ""
+		}
+	}
+	return mediaType
 }
 
 var paginationTokenParams = map[string]bool{
@@ -685,8 +709,12 @@ var paginationTokenFields = map[string]bool{
 	"cursor": true,
 }
 
-func derivePagination(op rawir.RawOperation) *runtime.PaginationHint {
+func derivePagination(op rawir.RawOperation, defs map[string]*rawir.RawSchema) *runtime.PaginationHint {
 	if op.Method != "GET" {
+		return nil
+	}
+	schema := compatibleResponseSchema(op, defs)
+	if schema == nil {
 		return nil
 	}
 	var tokenParam, limitParam string
@@ -711,9 +739,13 @@ func derivePagination(op rawir.RawOperation) *runtime.PaginationHint {
 	}
 
 	var tokenField string
-	r, ok := op.Responses["200"]
-	if ok && r != nil && r.Schema != nil && r.Schema.Properties != nil {
-		for k := range r.Schema.Properties {
+	if schema = rawir.Resolve(schema, defs); schema != nil {
+		keys := make([]string, 0, len(schema.Properties))
+		for k := range schema.Properties {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
 			if paginationTokenFields[k] {
 				tokenField = k
 				break
@@ -736,17 +768,114 @@ var streamingMediaTypes = map[string]string{
 }
 
 func deriveStreaming(op rawir.RawOperation) *runtime.StreamingHint {
-	for _, ct := range op.Produces {
-		if s, ok := streamingMediaTypes[ct]; ok {
-			return &runtime.StreamingHint{Strategy: s}
+	responses := successResponses(op)
+	if len(responses) == 0 {
+		return nil
+	}
+	strategy := ""
+	for _, response := range responses {
+		mediaTypes := responseMediaTypes(op, response)
+		if len(mediaTypes) == 0 {
+			return nil
+		}
+		for _, mediaType := range mediaTypes {
+			current := streamingStrategy(mediaType)
+			if current == "" {
+				return nil
+			}
+			if strategy == "" {
+				strategy = current
+				continue
+			}
+			if strategy != current {
+				return nil
+			}
 		}
 	}
-	if r, ok := op.Responses["200"]; ok && r != nil && r.MediaType != "" {
-		if s, ok := streamingMediaTypes[r.MediaType]; ok {
-			return &runtime.StreamingHint{Strategy: s}
+	return &runtime.StreamingHint{Strategy: strategy}
+}
+
+func successResponses(op rawir.RawOperation) []*rawir.RawResponse {
+	if response, ok := op.Responses["200"]; ok {
+		return []*rawir.RawResponse{response}
+	}
+	codes := make([]string, 0, len(op.Responses))
+	for code := range op.Responses {
+		if len(code) != 3 {
+			continue
+		}
+		status, err := strconv.Atoi(code)
+		if err == nil && status >= 200 && status <= 299 {
+			codes = append(codes, code)
 		}
 	}
-	return nil
+	sort.Strings(codes)
+	responses := make([]*rawir.RawResponse, 0, len(codes))
+	for _, code := range codes {
+		responses = append(responses, op.Responses[code])
+	}
+	return responses
+}
+
+func responseMediaTypes(op rawir.RawOperation, response *rawir.RawResponse) []string {
+	if response != nil && response.MediaType != "" {
+		return []string{response.MediaType}
+	}
+	seen := map[string]bool{}
+	var mediaTypes []string
+	for _, mediaType := range op.Produces {
+		if mediaType != "" && !seen[mediaType] {
+			seen[mediaType] = true
+			mediaTypes = append(mediaTypes, mediaType)
+		}
+	}
+	return mediaTypes
+}
+
+func compatibleResponseSchema(op rawir.RawOperation, defs map[string]*rawir.RawSchema) *rawir.RawSchema {
+	responses := successResponses(op)
+	if len(responses) == 0 {
+		return nil
+	}
+	var schema *rawir.RawSchema
+	var normalized *runtime.SchemaSpec
+	for _, response := range responses {
+		if response == nil || response.Schema == nil {
+			return nil
+		}
+		for _, mediaType := range responseMediaTypes(op, response) {
+			if !isJSONMediaType(mediaType) || streamingStrategy(mediaType) != "" {
+				return nil
+			}
+		}
+		current := runtimeSchema(response.Schema, defs, map[string]bool{})
+		if schema == nil {
+			schema = response.Schema
+			normalized = current
+			continue
+		}
+		if !reflect.DeepEqual(normalized, current) {
+			return nil
+		}
+	}
+	return schema
+}
+
+func isJSONMediaType(mediaType string) bool {
+	mediaType = baseMediaType(mediaType)
+	return mediaType == "application/json" || strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json")
+}
+
+func streamingStrategy(mediaType string) string {
+	return streamingMediaTypes[baseMediaType(mediaType)]
+}
+
+func baseMediaType(mediaType string) string {
+	base, _, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(base)
 }
 
 func deriveSecurity(op rawir.RawOperation) *runtime.SecurityHint {
