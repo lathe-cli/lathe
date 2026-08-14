@@ -386,7 +386,7 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 			DefaultColumns:    []string{"id", "name"},
 			ResponseMediaType: "application/vnd.demo+json",
 		},
-		Security: &SecurityHint{Public: true},
+		Security: &SecurityHint{Scopes: []string{"users:write"}},
 	}})
 	root.SetArgs([]string{
 		"demo", "users", "create-user",
@@ -460,7 +460,7 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 	if envVar["key"] != "MANUAL_DRY_RUN" || envVar["value"] != "***" {
 		t.Fatalf("envVar = %#v", envVar)
 	}
-	if out.Auth.Required || !out.Auth.Public {
+	if !out.Auth.Required || out.Auth.Public {
 		t.Fatalf("auth = %+v", out.Auth)
 	}
 	if out.Output.ListPath != "data.items" || out.Output.ResponseMediaType != "application/vnd.demo+json" || !reflect.DeepEqual(out.Output.DefaultColumns, []string{"id", "name"}) {
