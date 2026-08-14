@@ -475,8 +475,8 @@ func helpText(p rawir.RawParameter) string {
 }
 
 func deriveList(op rawir.RawOperation, defs map[string]*rawir.RawSchema) (string, string) {
-	r, ok := op.Responses["200"]
-	if !ok || r == nil || r.Schema == nil {
+	r := successfulResponse(op.Responses)
+	if r == nil || r.Schema == nil {
 		return "", ""
 	}
 	s := rawir.Resolve(r.Schema, defs)
@@ -659,7 +659,7 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 }
 
 func deriveResponseMediaType(op rawir.RawOperation) string {
-	if r, ok := op.Responses["200"]; ok && r != nil && r.MediaType != "" {
+	if r := successfulResponse(op.Responses); r != nil && r.MediaType != "" {
 		return r.MediaType
 	}
 	if len(op.Produces) > 0 {
@@ -711,8 +711,8 @@ func derivePagination(op rawir.RawOperation) *runtime.PaginationHint {
 	}
 
 	var tokenField string
-	r, ok := op.Responses["200"]
-	if ok && r != nil && r.Schema != nil && r.Schema.Properties != nil {
+	r := successfulResponse(op.Responses)
+	if r != nil && r.Schema != nil && r.Schema.Properties != nil {
 		for k := range r.Schema.Properties {
 			if paginationTokenFields[k] {
 				tokenField = k
@@ -741,12 +741,29 @@ func deriveStreaming(op rawir.RawOperation) *runtime.StreamingHint {
 			return &runtime.StreamingHint{Strategy: s}
 		}
 	}
-	if r, ok := op.Responses["200"]; ok && r != nil && r.MediaType != "" {
+	if r := successfulResponse(op.Responses); r != nil && r.MediaType != "" {
 		if s, ok := streamingMediaTypes[r.MediaType]; ok {
 			return &runtime.StreamingHint{Strategy: s}
 		}
 	}
 	return nil
+}
+
+func successfulResponse(responses map[string]*rawir.RawResponse) *rawir.RawResponse {
+	if response, ok := responses["200"]; ok {
+		return response
+	}
+	status := 300
+	var selected *rawir.RawResponse
+	for code, response := range responses {
+		candidate, err := strconv.Atoi(code)
+		if err != nil || candidate < 200 || candidate >= status {
+			continue
+		}
+		status = candidate
+		selected = response
+	}
+	return selected
 }
 
 func deriveSecurity(op rawir.RawOperation) *runtime.SecurityHint {

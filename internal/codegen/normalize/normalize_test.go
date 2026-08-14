@@ -138,7 +138,7 @@ func listResponse() *rawir.RawModule {
 			Method:      "GET",
 			Path:        "/items",
 			Responses: map[string]*rawir.RawResponse{
-				"200": {Schema: envelope},
+				"201": {Schema: envelope},
 			},
 		}},
 	}
@@ -334,9 +334,9 @@ func responseMediaType() *rawir.RawModule {
 			Parameters: []rawir.RawParameter{
 				{Name: "id", In: "path", Required: true, Type: "string"},
 			},
-			Produces: []string{"application/pdf"},
 			Responses: map[string]*rawir.RawResponse{
-				"200": {MediaType: "application/pdf"},
+				"201": {MediaType: "application/pdf"},
+				"202": {MediaType: "application/zip"},
 			},
 		}},
 	}
