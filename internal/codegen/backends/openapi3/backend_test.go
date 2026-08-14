@@ -77,6 +77,51 @@ func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
 	}
 }
 
+func TestParse_ResponseContentSelectionIsDeterministic(t *testing.T) {
+	syncDir := t.TempDir()
+	input := `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/exports": {
+      "get": {
+        "operationId": "Export_Get",
+        "responses": {
+          "201": {
+            "content": {
+              "text/plain": {"schema": {"type": "string"}},
+              "application/xml": {
+                "schema": {"type": "object", "properties": {"id": {"type": "string"}}}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(input), 0o644); err != nil {
+		t.Fatalf("seed input: %v", err)
+	}
+	src := &sourceconfig.Source{
+		Name:     "demo",
+		OpenAPI3: &sourceconfig.OpenAPI3Config{Files: []string{"openapi.json"}},
+	}
+
+	for i := 0; i < 100; i++ {
+		mod, err := Parse(src, syncDir)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		response := mod.Operations[0].Responses["201"]
+		if response.MediaType != "application/xml" {
+			t.Fatalf("iteration %d: media type = %q, want application/xml", i, response.MediaType)
+		}
+		if response.Schema == nil || response.Schema.Type != "object" || response.Schema.Properties["id"] == nil {
+			t.Fatalf("iteration %d: schema = %#v, want application/xml schema", i, response.Schema)
+		}
+	}
+}
+
 func TestParse_ServerBasePathCompatibility(t *testing.T) {
 	tests := []struct {
 		name          string
