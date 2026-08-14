@@ -214,7 +214,7 @@ func resolveServerBasePath(servers []server, module, origin string) string {
 		fmt.Fprintf(os.Stderr, "warn: %s: unsupported server URL %q in %s (ignored)\n", module, servers[0].URL, origin)
 		return ""
 	}
-	return strings.TrimRight(u.Path, "/")
+	return strings.TrimRight(u.EscapedPath(), "/")
 }
 
 func unmarshalAuto(path string, data []byte, v any) error {

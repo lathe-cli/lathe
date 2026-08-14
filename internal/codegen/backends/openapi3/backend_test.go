@@ -101,6 +101,20 @@ func TestParse_ServerBasePathCompatibility(t *testing.T) {
 			wantUse:       "get-widgets",
 			wantOperation: "getWidgets",
 		},
+		{
+			name:          "encoded path separator",
+			server:        "https://example.com/api%2Fv1",
+			wantPath:      "/api%2Fv1/widgets",
+			wantUse:       "get-widgets",
+			wantOperation: "getWidgets",
+		},
+		{
+			name:          "encoded query delimiter",
+			server:        "/api%3Ftenant",
+			wantPath:      "/api%3Ftenant/widgets",
+			wantUse:       "get-widgets",
+			wantOperation: "getWidgets",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
