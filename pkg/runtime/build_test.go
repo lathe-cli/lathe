@@ -1316,6 +1316,31 @@ func TestRuntimeBodySchema_IntegerUsesNumericValue(t *testing.T) {
 	}
 }
 
+func TestRuntimeBodySchema_EnumNumbersUseNumericValue(t *testing.T) {
+	for _, tc := range []struct {
+		schema string
+		value  string
+		valid  bool
+	}{
+		{`{"enum":[2]}`, `2.0`, true},
+		{`{"enum":[{"values":[2]}]}`, `{"values":[2e0]}`, true},
+		{`{"enum":[2]}`, `2.5`, false},
+	} {
+		schema, err := decodeJSON([]byte(tc.schema))
+		if err != nil {
+			t.Fatalf("decode schema %s: %v", tc.schema, err)
+		}
+		value, err := decodeJSON([]byte(tc.value))
+		if err != nil {
+			t.Fatalf("decode value %s: %v", tc.value, err)
+		}
+		err = validateRuntimeJSONSchema(schema, value, "$", "$schema")
+		if (err == nil) != tc.valid {
+			t.Errorf("validate %s against %s: error = %v, valid = %v", tc.value, tc.schema, err, tc.valid)
+		}
+	}
+}
+
 func TestBuild_PaginationFlagsAttached(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:   "Items",

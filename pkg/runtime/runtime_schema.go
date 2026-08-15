@@ -245,7 +245,7 @@ func validateRuntimeJSONSchema(schema, value any, valuePath, schemaPath string) 
 		}
 		matched := false
 		for _, candidate := range values {
-			if reflect.DeepEqual(candidate, value) {
+			if runtimeJSONEqual(candidate, value) {
 				matched = true
 				break
 			}
@@ -320,6 +320,45 @@ func validateRuntimeJSONSchema(schema, value any, valuePath, schemaPath string) 
 		}
 	}
 	return nil
+}
+
+func runtimeJSONEqual(left, right any) bool {
+	if leftNumber, ok := left.(json.Number); ok {
+		rightNumber, ok := right.(json.Number)
+		if !ok {
+			return false
+		}
+		leftRat, leftOK := new(big.Rat).SetString(leftNumber.String())
+		rightRat, rightOK := new(big.Rat).SetString(rightNumber.String())
+		return leftOK && rightOK && leftRat.Cmp(rightRat) == 0
+	}
+	switch left := left.(type) {
+	case []any:
+		right, ok := right.([]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for i := range left {
+			if !runtimeJSONEqual(left[i], right[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		right, ok := right.(map[string]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for key, value := range left {
+			rightValue, ok := right[key]
+			if !ok || !runtimeJSONEqual(value, rightValue) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(left, right)
+	}
 }
 
 func runtimeJSONTypeMatches(typeName string, value any) bool {

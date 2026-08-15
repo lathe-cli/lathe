@@ -571,6 +571,11 @@ func TestRenderModule_RuntimeBodySchema(t *testing.T) {
 			t.Fatalf("%s schema operation accepted", method)
 		}
 	}
+	requiresBody := preflight
+	requiresBody.RequestBody = &runtime.RequestBody{Required: true, MediaType: "application/json"}
+	if err := ValidateOverlayModule([]runtime.CommandSpec{requiresBody, run}, overlay.Module{Commands: overrides}); err == nil {
+		t.Fatal("schema operation with required request body accepted")
+	}
 	run.Params[0].Required = false
 	if err := ValidateOverlayModule([]runtime.CommandSpec{preflight, run}, overlay.Module{Commands: overrides}); err == nil || !strings.Contains(err.Error(), "optional target parameter") {
 		t.Fatalf("validation error = %v", err)

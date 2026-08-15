@@ -350,6 +350,9 @@ func validateRuntimeSchemaOverride(specs []runtime.CommandSpec, target runtime.C
 	if source.Method != "GET" {
 		return fmt.Errorf("schema operation %q must use GET", configured.OperationID)
 	}
+	if source.RequestBody != nil && source.RequestBody.Required {
+		return fmt.Errorf("schema operation %q must not require a request body", configured.OperationID)
+	}
 	if source.Output.Streaming != nil || !jsonMediaType(source.Output.ResponseMediaType) {
 		return fmt.Errorf("schema operation %q must return non-streaming JSON", configured.OperationID)
 	}
