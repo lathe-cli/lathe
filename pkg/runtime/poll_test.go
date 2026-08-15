@@ -107,6 +107,9 @@ func TestPollUntilDone_RejectsCrossHostAbsoluteLocation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cross-host polling location") {
 		t.Fatalf("PollUntilDone error = %v, want cross-host polling location", err)
 	}
+	if got := ClassifyError(err).Code; got != CodeAPIError {
+		t.Fatalf("error code = %q, want %q", got, CodeAPIError)
+	}
 	if strings.Contains(err.Error(), querySecret) || strings.Contains(err.Error(), password) {
 		t.Fatalf("PollUntilDone error leaked Location credential: %v", err)
 	}
@@ -180,6 +183,9 @@ func TestPollUntilDone_Timeout(t *testing.T) {
 	_, err := PollUntilDone(context.Background(), srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 2*time.Second)
 	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+	if got := ClassifyError(err).Code; got != CodeAPIError {
+		t.Fatalf("error code = %q, want %q", got, CodeAPIError)
 	}
 }
 

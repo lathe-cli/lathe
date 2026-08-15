@@ -3,6 +3,7 @@ package runtime
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,14 +17,14 @@ var errStreamTerminal = errors.New("stream terminal event")
 func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *string) ([]byte, error) {
 	policy := hint.Policy
 	if policy.DataFormat != "json" {
-		return nil, fmt.Errorf("unsupported stream data format %q", policy.DataFormat)
+		return nil, newAPIError(fmt.Errorf("unsupported stream data format %q", policy.DataFormat), 0)
 	}
 	collected := map[string]any{}
 	stopped := false
 	handle := func(transportEvent string, data []byte) error {
 		var payload any
 		if err := json.Unmarshal(data, &payload); err != nil {
-			return NewLatheError(CodeAPIError, ExitAPIError, fmt.Errorf("decode %s stream event: %w", hint.Strategy, err))
+			return newAPIError(fmt.Errorf("decode %s stream event: %w", hint.Strategy, err), 0)
 		}
 		event := transportEvent
 		if event == "" && policy.EventNamePath != "" {
@@ -38,7 +39,7 @@ func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *st
 			value, ok := streamFieldValue(payload, field)
 			if ok {
 				if err := reduceStreamField(collected, field, value); err != nil {
-					return NewLatheError(CodeAPIError, ExitAPIError, err)
+					return newAPIError(err, 0)
 				}
 			}
 		}
@@ -50,7 +51,7 @@ func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *st
 			}
 		}
 		if slices.Contains(policy.Collect.ErrorEvents, event) {
-			return NewLatheError(CodeAPIError, ExitAPIError, streamEventError(event, payload))
+			return newAPIError(streamEventError(event, payload), 0)
 		}
 		if slices.Contains(policy.Collect.PauseEvents, event) {
 			*outcome = OperationOutcomePaused
@@ -71,13 +72,20 @@ func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *st
 	case "ndjson":
 		err = readNDJSON(r, handle)
 	default:
-		err = fmt.Errorf("unsupported stream strategy %q", hint.Strategy)
+		err = newAPIError(fmt.Errorf("unsupported stream strategy %q", hint.Strategy), 0)
 	}
 	if err != nil && !errors.Is(err, errStreamTerminal) {
-		return nil, err
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		var apiErr *LatheError
+		if errors.As(err, &apiErr) {
+			return nil, err
+		}
+		return nil, newAPIError(err, 0)
 	}
 	if policy.Collect.RequireStop && !stopped {
-		return nil, NewLatheError(CodeAPIError, ExitAPIError, fmt.Errorf("%s stream ended without a terminal event", hint.Strategy))
+		return nil, newAPIError(fmt.Errorf("%s stream ended without a terminal event", hint.Strategy), 0)
 	}
 	return json.Marshal(collected)
 }

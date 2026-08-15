@@ -2,6 +2,7 @@ package lathe
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,12 +26,26 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	config.Bind(m)
 
 	cmd := &cobra.Command{
-		Use:          m.CLI.Name,
-		Short:        m.CLI.Short,
-		Long:         agentHint(m.CLI.Name, m.CLI.Short),
-		Version:      versionInfo(),
+		Use:     m.CLI.Name,
+		Short:   m.CLI.Short,
+		Long:    agentHint(m.CLI.Name, m.CLI.Short),
+		Version: versionInfo(),
+		Args:    runtime.UsageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if !slices.Contains(runtime.FormatterNames(), format) {
+				return runtime.UsageError(cmd, fmt.Errorf("unsupported output format"))
+			}
+			return nil
+		},
 		SilenceUsage: true,
 	}
+	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		return runtime.UsageError(cmd, err)
+	})
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.SetVersionTemplate("{{.Use}} {{.Version}}\n")
 	cmd.PersistentFlags().String("hostname", "", fmt.Sprintf("Server hostname (overrides $%s)", m.CLI.HostEnv))
@@ -63,6 +78,10 @@ func metaCmd(m *config.Manifest) *cobra.Command {
 		Use:    metaCommandName,
 		Short:  "Lathe control commands",
 		Hidden: true,
+		Args:   runtime.UsageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 	cmd.AddCommand(versionCmd())
 	cmd.AddCommand(verifyCmd(m))

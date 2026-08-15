@@ -115,6 +115,15 @@ func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 	return OperationResult{Data: data, Outcome: outcome}, nil
 }
 
+func validateOperationInput(s CommandSpec, input OperationInput) error {
+	_, body, _, err := resolveOperationRequest(s, input, ClientOptions{})
+	if err != nil {
+		return err
+	}
+	_, _, err = encodeRequestBody(body)
+	return err
+}
+
 func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts ClientOptions) (string, any, ClientOptions, error) {
 	if err := validateRequiredOperationParams(s, input); err != nil {
 		return "", nil, ClientOptions{}, err

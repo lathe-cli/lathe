@@ -324,7 +324,7 @@ design.
 ```
 
 A boolean `continue_on_error: true` is rejected. `ClassifyError`
-(`pkg/runtime/errors.go:52`) sorts errors into four classes and a boolean
+(`pkg/runtime/errors.go:52`) sorts errors into stable classes and a boolean
 swallows all of them, including `CodeGeneral` — which covers reference and
 body-construction failures, i.e. builder bugs in the DSL that must surface
 immediately.

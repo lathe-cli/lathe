@@ -68,19 +68,30 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 		Long:    spec.Long,
 		Example: spec.Example,
 		Hidden:  spec.Hidden,
+		Args:    UsageArgs(cobra.NoArgs),
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := cmd.ValidateRequiredFlags(); err != nil {
+				return UsageError(cmd, err)
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if _, ok := formatters[format]; !ok {
+				return UsageError(cmd, fmt.Errorf("unsupported output format"))
+			}
 			if err := resolveSafeInputFlags(cmd, spec.Params, vals); err != nil {
-				return err
+				return UsageError(cmd, err)
 			}
 			changed := operationChangedFlags(cmd, spec.Params)
 			if err := validateRequiredParams(spec.Params, false, changed); err != nil {
-				return err
+				return UsageError(cmd, err)
 			}
 			if err := validateOperationEnums(CommandSpec{Params: spec.Params}, OperationInput{
 				Values:  vals,
 				Changed: changed,
 			}); err != nil {
-				return err
+				return UsageError(cmd, err)
 			}
 			result, data, err := executeWorkflow(cmd, spec, vals)
 			if err != nil {
@@ -93,7 +104,6 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 					return marshalErr
 				}
 			}
-			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			return FormatOutput(data, format, cmd.OutOrStdout(), spec.Output)
 		},
 	}
@@ -149,6 +159,9 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 				continue
 			}
 			return fail(err)
+		}
+		if err := validateOperationInput(step.Operation, input); err != nil {
+			return fail(UsageError(cmd, err))
 		}
 
 		var hostname string

@@ -38,7 +38,8 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) error {
 	if err != nil {
 		return err
 	}
-	svc := &cobra.Command{Use: service, Short: service + " API", GroupID: ModuleGroupID}
+	svc := helpCommand(service, service+" API")
+	svc.GroupID = ModuleGroupID
 	for _, group := range groups {
 		svc.AddCommand(group)
 	}
@@ -81,7 +82,7 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 		s := specs[i]
 		g, ok := groups[s.Group]
 		if !ok {
-			g = &cobra.Command{Use: strings.ToLower(s.Group), Short: s.Group + " operations"}
+			g = helpCommand(strings.ToLower(s.Group), s.Group+" operations")
 			groups[s.Group] = g
 			ordered = append(ordered, g)
 		}
@@ -97,6 +98,17 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 		g.AddCommand(c)
 	}
 	return ordered, nil
+}
+
+func helpCommand(use, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  UsageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
 }
 
 func buildCmd(s CommandSpec) *cobra.Command {
@@ -118,28 +130,58 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		Short:   s.Short,
 		Long:    s.Long,
 		Example: s.Example,
+		Args:    UsageArgs(cobra.NoArgs),
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := cmd.ValidateRequiredFlags(); err != nil {
+				return UsageError(cmd, err)
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if _, ok := formatters[format]; !ok {
+				return UsageError(cmd, fmt.Errorf("unsupported output format"))
+			}
 			if liveStream && format != "table" {
-				return fmt.Errorf("live stream output does not support -o %s", format)
+				return UsageError(cmd, fmt.Errorf("live stream output does not support -o %s", format))
 			}
 			if liveStream && waitPoll {
-				return fmt.Errorf("live stream output does not support wait polling")
+				return UsageError(cmd, fmt.Errorf("live stream output does not support wait polling"))
 			}
 			changed := operationChangedFlags(cmd, s.Params)
 			if err := bindPositionalArgs(cmd, args, positionals, changed); err != nil {
-				return err
+				return UsageError(cmd, err)
 			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
-				return err
+				return UsageError(cmd, err)
 			}
 			if err := validateRequiredParams(s.Params, s.RequestBody != nil, changed); err != nil {
-				return err
+				return UsageError(cmd, err)
+			}
+
+			hasFile := bodyFileFlag != "" && cmd.Flags().Changed(bodyFileFlag)
+			var fileBody []byte
+			var err error
+			if hasFile {
+				fileBody, err = ReadBody(bodyFile)
+				if err != nil {
+					return UsageError(cmd, err)
+				}
+			}
+			input := OperationInput{
+				Values:         vals,
+				Changed:        changed,
+				FileBody:       fileBody,
+				HasFile:        hasFile,
+				BodySets:       bodySets,
+				BodyStringSets: bodyStringSets,
+			}
+			if err := validateOperationInput(s, input); err != nil {
+				return UsageError(cmd, err)
 			}
 
 			var hostname string
 			var clientOpts ClientOptions
-			var err error
 			refreshAuth := !dryRun
 			if dryRun || (s.Security != nil && s.Security.Public) {
 				hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
@@ -148,15 +190,6 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			}
 			if err != nil {
 				return err
-			}
-
-			hasFile := bodyFileFlag != "" && cmd.Flags().Changed(bodyFileFlag)
-			var fileBody []byte
-			if hasFile {
-				fileBody, err = ReadBody(bodyFile)
-				if err != nil {
-					return err
-				}
 			}
 
 			if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
@@ -170,14 +203,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			} else if liveStream && format == "table" {
 				output.live = cmd.OutOrStdout()
 			}
-			result, err := invokeOperation(cmd.Context(), s, OperationInput{
-				Values:         vals,
-				Changed:        changed,
-				FileBody:       fileBody,
-				HasFile:        hasFile,
-				BodySets:       bodySets,
-				BodyStringSets: bodyStringSets,
-			}, OperationOptions{
+			result, err := invokeOperation(cmd.Context(), s, input, OperationOptions{
 				Hostname:    hostname,
 				Client:      clientOpts,
 				DryRun:      dryRun,
@@ -201,7 +227,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		for _, p := range positionals {
 			cmd.Use += " [" + p.Argument + "]"
 		}
-		cmd.Args = cobra.MaximumNArgs(len(positionals))
+		cmd.Args = UsageArgs(cobra.MaximumNArgs(len(positionals)))
 	}
 	configureParamFlagAliases(cmd, s.Params)
 

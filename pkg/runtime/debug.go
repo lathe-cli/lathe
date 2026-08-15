@@ -1,21 +1,14 @@
 package runtime
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
-)
-
-const (
-	maxDebugReqBody  = 1024
-	maxDebugRespBody = 4096
 )
 
 type debugTransport struct {
@@ -25,35 +18,18 @@ type debugTransport struct {
 }
 
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, redactDebugURL(req.URL, d.sensitiveQueryParams))
-	for k, vs := range req.Header {
-		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
-	}
-	if req.Body != nil && isTextContent(req.Header.Get("Content-Type")) {
-		body, restored := peekBody(req.Body, maxDebugReqBody)
-		req.Body = restored
-		dumpBody(os.Stderr, ">", redactDebugBody(req.Header.Get("Content-Type"), body), maxDebugReqBody)
-	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "> %s request\n\n", req.Method)
 
 	start := time.Now()
 	resp, err := d.inner.RoundTrip(req)
 	elapsed := time.Since(start)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "< error: %v (%s)\n\n", err, elapsed)
+		fmt.Fprintf(os.Stderr, "< request failed (%s)\n\n", elapsed)
 		return nil, err
 	}
 
-	fmt.Fprintf(os.Stderr, "< %s (%s)\n", resp.Status, elapsed)
-	for k, vs := range resp.Header {
-		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
-	}
-	if isTextContent(resp.Header.Get("Content-Type")) && (!d.streaming || resp.StatusCode < 200 || resp.StatusCode >= 300) {
-		body, restored := peekBody(resp.Body, maxDebugRespBody)
-		resp.Body = restored
-		dumpBody(os.Stderr, "<", redactDebugBody(resp.Header.Get("Content-Type"), body), maxDebugRespBody)
-	}
+	fmt.Fprintf(os.Stderr, "< HTTP %d (%s)\n", resp.StatusCode, elapsed)
 	fmt.Fprintln(os.Stderr)
 
 	return resp, nil
@@ -111,25 +87,6 @@ func redactDebugURLString(raw string, sensitive map[string]bool) string {
 		return "<invalid URL>"
 	}
 	return redactDebugURL(parsed, sensitive)
-}
-
-type bodyReader struct {
-	io.Reader
-	io.Closer
-}
-
-func isTextContent(ct string) bool {
-	if ct == "" {
-		return false
-	}
-	mt, _, _ := mime.ParseMediaType(ct)
-	switch {
-	case strings.HasPrefix(mt, "text/"):
-		return true
-	case mt == "application/json", mt == "application/xml", mt == "application/x-www-form-urlencoded":
-		return true
-	}
-	return false
 }
 
 func redactDebugHeader(name, value string, sensitive map[string]bool) string {
@@ -242,26 +199,4 @@ func redactDebugText(s string) string {
 		s = strings.ReplaceAll(s, field, name+"=***")
 	}
 	return s
-}
-
-func peekBody(body io.ReadCloser, max int) ([]byte, io.ReadCloser) {
-	peeked, err := io.ReadAll(io.LimitReader(body, int64(max)+1))
-	restored := bodyReader{Reader: io.MultiReader(bytes.NewReader(peeked), body), Closer: body}
-	if err != nil {
-		return nil, restored
-	}
-	return peeked, restored
-}
-
-func dumpBody(w io.Writer, prefix string, body []byte, max int) {
-	if len(body) == 0 {
-		return
-	}
-	if len(body) > max {
-		fmt.Fprintf(w, "%s [body at least %d bytes, showing first %d]\n", prefix, len(body), max)
-		fmt.Fprintln(w, string(body[:max]))
-	} else {
-		fmt.Fprintf(w, "%s [body %d bytes]\n", prefix, len(body))
-		fmt.Fprintln(w, string(body))
-	}
 }

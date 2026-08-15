@@ -25,18 +25,16 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if attempt > 0 {
 			wait := retryBackoff(attempt, resp)
 			if t.debug {
-				reason := "backoff"
-				if resp != nil {
-					if ra := resp.Header.Get("Retry-After"); ra != "" {
-						reason = "Retry-After=" + ra
-					}
-				}
-				fmt.Fprintf(os.Stderr, "[retry %d/%d] %s - waiting %s (%s)\n", attempt, t.maxRetries, resp.Status, wait, reason)
+				fmt.Fprintf(os.Stderr, "[retry %d/%d] HTTP %d - waiting %s\n", attempt, t.maxRetries, resp.StatusCode, wait)
 			}
 			if t.sleepFn != nil {
 				t.sleepFn(wait)
 			} else {
-				time.Sleep(wait)
+				select {
+				case <-time.After(wait):
+				case <-req.Context().Done():
+					return nil, req.Context().Err()
+				}
 			}
 			if req.GetBody != nil {
 				req.Body, err = req.GetBody()
