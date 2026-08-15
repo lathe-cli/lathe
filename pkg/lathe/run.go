@@ -34,6 +34,11 @@ func Run(opts RunOptions) int {
 func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	go func() {
+		<-ctx.Done()
+		// Restore the default so a second interrupt can terminate context-unaware reads.
+		stop()
+	}()
 
 	m, err := config.Load(opts.Manifest)
 	if err != nil {
