@@ -370,8 +370,14 @@ func validateRuntimeSchemaSource(target, source runtime.CommandSpec, binding *ov
 			return fmt.Errorf("param %q has invalid reference %q", key, value)
 		}
 		if isRef {
-			if _, count := paramByNameOrFlag(target.Params, name); count != 1 {
+			targetIndex, count := paramByNameOrFlag(target.Params, name)
+			if count != 1 {
 				return fmt.Errorf("target param %q is missing or ambiguous", name)
+			}
+			sourceParam := source.Params[sourceIndex]
+			targetParam := target.Params[targetIndex]
+			if sourceParam.Required && sourceParam.Default == "" && !targetParam.Required && targetParam.Default == "" {
+				return fmt.Errorf("required source param %q maps optional target param %q", sourceParam.Name, targetParam.Name)
 			}
 		}
 	}

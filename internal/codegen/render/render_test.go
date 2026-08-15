@@ -389,6 +389,23 @@ func TestMergeOverlayModule_RuntimeSchema(t *testing.T) {
 		t.Fatalf("duplicate mapping error = %v", err)
 	}
 
+	optionalTarget := []runtime.CommandSpec{cloneCommandSpec(specs[0]), cloneCommandSpec(specs[1])}
+	optionalTarget[0].Params[1].Required = true
+	optionalTarget[1].Params = append(optionalTarget[1].Params, runtime.ParamSpec{Name: "mode", Flag: "mode", In: runtime.InQuery, GoType: "string"})
+	optionalMapping := overlay.Module{Commands: map[string]overlay.Override{
+		"run-app": {Body: &overlay.BodyOverride{RuntimeSchema: &overlay.RuntimeSchemaOverride{
+			OperationID:  "describeApp",
+			ResponsePath: "input_schema",
+			Params: map[string]string{
+				"app_id": "${params.app-id}",
+				"fields": "${params.mode}",
+			},
+		}}},
+	}}
+	if err := ValidateOverlayModule(optionalTarget, optionalMapping); err == nil || !strings.Contains(err.Error(), "optional target param") {
+		t.Fatalf("optional target mapping error = %v", err)
+	}
+
 	for name, mutate := range map[string]func(*runtime.CommandSpec){
 		"non-GET":   func(source *runtime.CommandSpec) { source.Method = "HEAD" },
 		"body":      func(source *runtime.CommandSpec) { source.RequestBody = &runtime.RequestBody{} },
