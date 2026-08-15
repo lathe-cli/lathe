@@ -140,6 +140,9 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 				continue
 			}
 			path = strings.Replace(path, "{"+p.Name+"}", url.PathEscape(operationStringValue(v)), 1)
+			if isSensitiveStringParam(p) {
+				clientOpts.sensitivePath = true
+			}
 			continue
 		case InHeader:
 			if !operationChanged(input, p) {
@@ -282,7 +285,7 @@ func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, path strin
 	}
 	return DryRunRequest{
 		Method:  req.Method,
-		URL:     redactDebugURL(req.URL, opts.sensitiveQueryParams),
+		URL:     redactDebugURL(req.URL, opts.sensitiveQueryParams, opts.sensitivePath),
 		Headers: redactedDryRunHeaders(req.Header),
 		Body:    redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
 		Auth:    dryRunAuthForSpec(s),

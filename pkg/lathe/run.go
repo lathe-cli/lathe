@@ -40,37 +40,40 @@ func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 		// Restore the default so a second interrupt can terminate context-unaware reads.
 		stop()
 	}()
+	format := requestedOutputFormat(args)
 
 	m, err := config.Load(opts.Manifest)
 	if err != nil {
-		return runtime.FormatError(err, "table", stderr)
+		return runtime.FormatError(err, format, stderr)
 	}
 
 	setVersionInfo(opts)
 
 	root := NewApp(m)
 	root.SetContext(ctx)
-	seedOutputFormat(root, args)
+	_ = root.PersistentFlags().Set("output", format)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 
 	if opts.Mount != nil {
 		if err := opts.Mount(root); err != nil {
-			return runtime.FormatError(err, "table", stderr)
+			return runtime.FormatError(err, format, stderr)
 		}
 	}
 
 	return runtime.Execute(root)
 }
 
-func seedOutputFormat(root *cobra.Command, args []string) {
+func requestedOutputFormat(args []string) string {
 	flags := pflag.NewFlagSet("output", pflag.ContinueOnError)
 	flags.ParseErrorsAllowlist.UnknownFlags = true
+	flags.BoolP("help", "h", false, "")
 	format := flags.StringP("output", "o", "", "")
 	if err := flags.Parse(args); err == nil && flags.Changed("output") {
-		_ = root.PersistentFlags().Set("output", *format)
+		return *format
 	}
+	return "table"
 }
 
 func setVersionInfo(opts RunOptions) {

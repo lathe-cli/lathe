@@ -99,12 +99,15 @@ func restoreVersionInfo(t *testing.T) {
 
 func TestRunReportsInvalidManifest(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run(RunOptions{Manifest: []byte("cli: {}\n")}, []string{"--help"}, &stdout, &stderr)
+	code := run(RunOptions{Manifest: []byte("cli: {}\n")}, []string{"--help", "-o", "json"}, &stdout, &stderr)
 	if code != runtime.ExitGeneral {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitGeneral)
 	}
-	if !strings.Contains(stderr.String(), "cli.name is required") {
-		t.Fatalf("stderr missing manifest error: %q", stderr.String())
+	var envelope struct {
+		Error runtime.LatheError `json:"error"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || !strings.Contains(envelope.Error.Message, "cli.name is required") {
+		t.Fatalf("manifest error = %+v, decode = %v, stderr = %q", envelope.Error, err, stderr.String())
 	}
 }
 
@@ -115,12 +118,15 @@ func TestRunReportsMountError(t *testing.T) {
 		Mount: func(*cobra.Command) error {
 			return errors.New("mount failed")
 		},
-	}, []string{"--help"}, &stdout, &stderr)
+	}, []string{"--help", "-o", "json"}, &stdout, &stderr)
 	if code != runtime.ExitGeneral {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitGeneral)
 	}
-	if !strings.Contains(stderr.String(), "mount failed") {
-		t.Fatalf("stderr missing mount error: %q", stderr.String())
+	var envelope struct {
+		Error runtime.LatheError `json:"error"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || envelope.Error.Message != "mount failed" {
+		t.Fatalf("mount error = %+v, decode = %v, stderr = %q", envelope.Error, err, stderr.String())
 	}
 }
 

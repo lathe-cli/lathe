@@ -42,7 +42,7 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 	}
 	opts.checkRedirect = func(req *http.Request, _ []*http.Request) error {
 		if !strings.EqualFold(req.URL.Scheme, baseURL.Scheme) || !strings.EqualFold(req.URL.Hostname(), baseURL.Hostname()) || port(req.URL) != port(baseURL) {
-			return fmt.Errorf("cross-host polling redirect %q", redactDebugURL(req.URL, opts.sensitiveQueryParams))
+			return fmt.Errorf("cross-host polling redirect %q", redactDebugURL(req.URL, opts.sensitiveQueryParams, opts.sensitivePath))
 		}
 		return nil
 	}
@@ -56,11 +56,11 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 
 		loc, err := url.Parse(location)
 		if err != nil {
-			return nil, fmt.Errorf("parse polling location: %w", redactClientError(err, opts.sensitiveQueryParams))
+			return nil, fmt.Errorf("parse polling location: %w", redactClientError(err, opts.sensitiveQueryParams, opts.sensitivePath))
 		}
 		resolved := baseURL.ResolveReference(loc)
 		if !strings.EqualFold(resolved.Scheme, baseURL.Scheme) || !strings.EqualFold(resolved.Hostname(), baseURL.Hostname()) || port(resolved) != port(baseURL) {
-			return nil, fmt.Errorf("cross-host polling location %q", redactDebugURLString(location, opts.sensitiveQueryParams))
+			return nil, fmt.Errorf("cross-host polling location %q", redactDebugURLString(location, opts.sensitiveQueryParams, opts.sensitivePath))
 		}
 		location = resolved.RequestURI()
 		r, err := DoRawFull(ctx, hostname, "GET", location, nil, opts)

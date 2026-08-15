@@ -28,13 +28,14 @@ var (
 type debugTransport struct {
 	inner                http.RoundTripper
 	sensitiveQueryParams map[string]bool
+	sensitivePath        bool
 	streaming            bool
 }
 
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, redactDebugURL(req.URL, d.sensitiveQueryParams))
+	fmt.Fprintf(os.Stderr, "> %s %s\n", req.Method, redactDebugURL(req.URL, d.sensitiveQueryParams, d.sensitivePath))
 	for k, vs := range req.Header {
-		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
+		fmt.Fprintf(os.Stderr, "> %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams, d.sensitivePath))
 	}
 	if req.Body != nil && isTextContent(req.Header.Get("Content-Type")) {
 		body, restored := peekBody(req.Body, maxDebugReqBody)
@@ -54,7 +55,7 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	fmt.Fprintf(os.Stderr, "< %s (%s)\n", resp.Status, elapsed)
 	for k, vs := range resp.Header {
-		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams))
+		fmt.Fprintf(os.Stderr, "< %s: %s\n", k, redactDebugHeader(k, strings.Join(vs, ", "), d.sensitiveQueryParams, d.sensitivePath))
 	}
 	if isTextContent(resp.Header.Get("Content-Type")) && (!d.streaming || resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		body, restored := peekBody(resp.Body, maxDebugRespBody)
@@ -66,11 +67,15 @@ func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func redactDebugURL(u *url.URL, sensitive map[string]bool) string {
+func redactDebugURL(u *url.URL, sensitive map[string]bool, sensitivePath bool) string {
 	if u == nil {
 		return ""
 	}
 	redacted := *u
+	if sensitivePath {
+		redacted.Path = "/***"
+		redacted.RawPath = ""
+	}
 	redacted.RawQuery = redactDebugQuery(redacted.RawQuery, sensitive)
 	return redacted.Redacted()
 }
@@ -112,12 +117,12 @@ func isSensitiveDebugQueryName(name string) bool {
 	return false
 }
 
-func redactDebugURLString(raw string, sensitive map[string]bool) string {
+func redactDebugURLString(raw string, sensitive map[string]bool, sensitivePath bool) string {
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return "<invalid URL>"
 	}
-	return redactDebugURL(parsed, sensitive)
+	return redactDebugURL(parsed, sensitive, sensitivePath)
 }
 
 type bodyReader struct {
@@ -139,9 +144,9 @@ func isTextContent(ct string) bool {
 	return false
 }
 
-func redactDebugHeader(name, value string, sensitive map[string]bool) string {
+func redactDebugHeader(name, value string, sensitive map[string]bool, sensitivePath bool) string {
 	if strings.EqualFold(name, "location") || strings.EqualFold(name, "content-location") {
-		return redactDebugURLString(value, sensitive)
+		return redactDebugURLString(value, sensitive, sensitivePath)
 	}
 	if isSensitiveDebugName(name) {
 		return "***"
@@ -267,7 +272,7 @@ func isDebugEnvVarContainer(name string) bool {
 func redactDebugText(s string) string {
 	s = redactAuthorization(s)
 	s = debugURLPattern.ReplaceAllStringFunc(s, func(raw string) string {
-		return redactDebugURLString(raw, nil)
+		return redactDebugURLString(raw, nil, false)
 	})
 	matches := debugAssignmentPrefix.FindAllStringIndex(s, -1)
 	for i := len(matches) - 1; i >= 0; i-- {

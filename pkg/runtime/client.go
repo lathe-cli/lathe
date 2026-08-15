@@ -32,6 +32,7 @@ type ClientOptions struct {
 	Accept      string
 
 	sensitiveQueryParams map[string]bool
+	sensitivePath        bool
 	checkRedirect        func(*http.Request, []*http.Request) error
 }
 
@@ -76,7 +77,7 @@ func httpClient(opts ClientOptions, streaming bool) *http.Client {
 		transport = &retryTransport{inner: transport, maxRetries: maxRetries, debug: opts.Debug, safeMethodsOnly: safeMethodsOnly}
 	}
 	if opts.Debug {
-		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams, streaming: streaming}
+		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams, sensitivePath: opts.sensitivePath, streaming: streaming}
 	}
 	return &http.Client{
 		Timeout:       timeout,
@@ -267,10 +268,10 @@ func newRequest(ctx context.Context, method, u string, body []byte, contentType 
 
 func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
 	method := req.Method
-	u := redactDebugURL(req.URL, opts.sensitiveQueryParams)
+	u := redactDebugURL(req.URL, opts.sensitiveQueryParams, opts.sensitivePath)
 	resp, err := httpClient(opts, consume != nil).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w", method, u, redactClientError(err, opts.sensitiveQueryParams))
+		return nil, fmt.Errorf("%s %s: %w", method, u, redactClientError(err, opts.sensitiveQueryParams, opts.sensitivePath))
 	}
 	defer resp.Body.Close()
 
@@ -301,13 +302,13 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 	return &RawResult{Body: data, StatusCode: resp.StatusCode, Header: resp.Header}, nil
 }
 
-func redactClientError(err error, sensitive map[string]bool) error {
+func redactClientError(err error, sensitive map[string]bool, sensitivePath bool) error {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) {
 		return err
 	}
 	redacted := *urlErr
-	redacted.URL = redactDebugURLString(redacted.URL, sensitive)
+	redacted.URL = redactDebugURLString(redacted.URL, sensitive, sensitivePath)
 	if urlErr.Err != nil && strings.HasPrefix(urlErr.Err.Error(), "failed to parse Location header ") {
 		redacted.Err = errors.New("failed to parse Location header")
 	}

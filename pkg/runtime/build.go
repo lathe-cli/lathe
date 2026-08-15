@@ -354,7 +354,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 func redactedDryRunHeaders(headers map[string][]string) map[string]string {
 	out := make(map[string]string, len(headers))
 	for k, vs := range headers {
-		out[k] = redactDebugHeader(k, strings.Join(vs, ", "), nil)
+		out[k] = redactDebugHeader(k, strings.Join(vs, ", "), nil, false)
 	}
 	return out
 }

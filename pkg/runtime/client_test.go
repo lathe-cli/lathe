@@ -111,6 +111,33 @@ func TestInvokeOperation_RedactsQueryCredentialFromHTTPError(t *testing.T) {
 	}
 }
 
+func TestInvokeOperation_RedactsPathCredentialFromHTTPError(t *testing.T) {
+	const secret = "path-error-secret"
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := InvokeOperation(context.Background(), CommandSpec{
+		Method: "POST", PathTpl: "/reset/{token}",
+		Params: []ParamSpec{{Name: "token", Flag: "token", In: InPath, GoType: "string"}},
+	}, OperationInput{
+		Values: map[string]any{"token": secret}, Changed: map[string]bool{"token": true},
+	}, OperationOptions{Hostname: srv.URL, Client: ClientOptions{MaxRetries: -1}})
+	if err == nil {
+		t.Fatal("InvokeOperation returned nil error")
+	}
+	if gotPath != "/reset/"+secret {
+		t.Fatalf("server path = %q", gotPath)
+	}
+	classified := ClassifyError(err)
+	if strings.Contains(err.Error()+classified.URL, secret) || strings.Contains(classified.URL, "/reset/") {
+		t.Fatalf("path credential was not redacted: err=%v url=%q", err, classified.URL)
+	}
+}
+
 func TestInvokeOperation_RedactsQueryCredentialFromTransportError(t *testing.T) {
 	const secret = "transport-error-secret"
 	_, err := InvokeOperation(context.Background(), CommandSpec{
