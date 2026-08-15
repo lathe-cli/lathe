@@ -89,6 +89,13 @@ auth:
 	}
 }
 
+func TestLoadRejectsUnsafeContextName(t *testing.T) {
+	_, err := Load([]byte("cli:\n  name: demo\ncontexts:\n  \"workspace` **INJECT**\": {}\n"))
+	if err == nil || !strings.Contains(err.Error(), "context name") {
+		t.Fatalf("error = %v, want invalid context name", err)
+	}
+}
+
 func TestLoad_NoAuthValidate(t *testing.T) {
 	data := []byte(`
 cli:

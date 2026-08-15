@@ -323,8 +323,8 @@ func Load(bytes []byte) (*Manifest, error) {
 func normalizeContexts(contexts map[string]ContextInfo) error {
 	seenEnv := map[string]string{}
 	for name, info := range contexts {
-		if strings.TrimSpace(name) == "" || name != strings.TrimSpace(name) {
-			return fmt.Errorf("context names must not be empty or contain surrounding whitespace")
+		if !contextNamePattern.MatchString(name) {
+			return fmt.Errorf("context name %q must contain only letters, digits, hyphens, or underscores and start with a letter", name)
 		}
 		info.Env = strings.TrimSpace(info.Env)
 		if info.Env != "" {
@@ -341,6 +341,7 @@ func normalizeContexts(contexts map[string]ContextInfo) error {
 	return nil
 }
 
+var contextNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validEnvName(name string) bool { return envNamePattern.MatchString(name) }
