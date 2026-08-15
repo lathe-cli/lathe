@@ -607,7 +607,7 @@ func newContextStatus(m *config.Manifest) *cobra.Command {
 			if err := validateContextOutput(cmd); err != nil {
 				return err
 			}
-			hostname, entry, err := selectedHostEntry(cmd)
+			hostname, entry, err := selectedHostEntry(cmd, false)
 			if err != nil {
 				return err
 			}
@@ -657,7 +657,7 @@ func newContextSet(m *config.Manifest) *cobra.Command {
 			if value == "" {
 				return runtime.UsageError(cmd, errors.New("context value must not be empty"))
 			}
-			hostname, _, err := selectedHostEntry(cmd)
+			hostname, _, err := selectedHostEntry(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -682,7 +682,7 @@ func newContextUnset(m *config.Manifest) *cobra.Command {
 			if _, ok := m.Contexts[name]; !ok {
 				return runtime.UsageError(cmd, fmt.Errorf("unknown context %q", name))
 			}
-			hostname, _, err := selectedHostEntry(cmd)
+			hostname, _, err := selectedHostEntry(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -694,7 +694,7 @@ func newContextUnset(m *config.Manifest) *cobra.Command {
 	}
 }
 
-func selectedHostEntry(cmd *cobra.Command) (string, config.HostEntry, error) {
+func selectedHostEntry(cmd *cobra.Command, requireStored bool) (string, config.HostEntry, error) {
 	hostname, err := runtime.ResolveHost(cmd)
 	if err != nil {
 		return "", config.HostEntry{}, err
@@ -704,7 +704,7 @@ func selectedHostEntry(cmd *cobra.Command) (string, config.HostEntry, error) {
 		return "", config.HostEntry{}, err
 	}
 	entry, ok := hosts.Get(hostname)
-	if !ok {
+	if !ok && requireStored {
 		return "", config.HostEntry{}, runtime.NewNotAuthenticatedError()
 	}
 	return hostname, entry, nil

@@ -198,7 +198,8 @@ func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T)
 		}
 	}
 	config.Bind(m)
-	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	configDir := t.TempDir()
+	t.Setenv("DEMO_CONFIG_DIR", configDir)
 	hosts, err := config.LoadHosts()
 	if err != nil {
 		t.Fatal(err)
@@ -236,6 +237,18 @@ func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T)
 	if !strings.Contains(out, `"value": "org-env"`) || !strings.Contains(out, `"source": "env"`) {
 		t.Fatalf("status = %s", out)
 	}
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	out, err = run("auth", "context", "status")
+	if err != nil {
+		t.Fatalf("environment-only status: %v", err)
+	}
+	if !strings.Contains(out, `"value": "org-env"`) || !strings.Contains(out, `"source": "env"`) {
+		t.Fatalf("environment-only status = %s", out)
+	}
+	if _, err := run("auth", "context", "unset", "organization"); err == nil || runtime.ClassifyError(err).Code != runtime.CodeNotAuthenticated {
+		t.Fatalf("environment-only unset error = %v", err)
+	}
+	t.Setenv("DEMO_CONFIG_DIR", configDir)
 	if _, err := run("auth", "context", "set", "workspace", "ws-2"); err == nil || runtime.ClassifyError(err).Code != runtime.CodeUsage {
 		t.Fatalf("server-managed set error = %v", err)
 	}

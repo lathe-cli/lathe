@@ -336,6 +336,7 @@ func TestMergeOverlayModule_RuntimeSchema(t *testing.T) {
 			Group: "Apps", Use: "describe-app", OperationID: "describeApp", Method: "GET", PathTpl: "/apps/{app_id}", DefaultHostname: "https://api.example.com",
 			Params: []runtime.ParamSpec{
 				{Name: "app_id", Flag: "app-id", In: runtime.InPath, GoType: "string", Required: true},
+				{Name: "workspace_id", Flag: "workspace-id", In: runtime.InQuery, GoType: "string", Required: true, Context: "workspace"},
 				{Name: "fields", Flag: "fields", In: runtime.InQuery, GoType: "string"},
 			},
 			Output:   runtime.OutputHints{ResponseMediaType: "application/json"},
@@ -394,7 +395,7 @@ func TestMergeOverlayModule_RuntimeSchema(t *testing.T) {
 	}
 
 	optionalTarget := []runtime.CommandSpec{cloneCommandSpec(specs[0]), cloneCommandSpec(specs[1])}
-	optionalTarget[0].Params[1].Required = true
+	optionalTarget[0].Params[2].Required = true
 	optionalTarget[1].Params = append(optionalTarget[1].Params, runtime.ParamSpec{Name: "mode", Flag: "mode", In: runtime.InQuery, GoType: "string"})
 	optionalMapping := overlay.Module{Commands: map[string]overlay.Override{
 		"run-app": {Body: &overlay.BodyOverride{RuntimeSchema: &overlay.RuntimeSchemaOverride{

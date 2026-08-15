@@ -382,7 +382,7 @@ func validateRuntimeSchemaSource(target, source runtime.CommandSpec, binding *ov
 		}
 	}
 	for i, param := range source.Params {
-		if param.Required && param.Default == "" && !mapped[i] {
+		if param.Required && param.Default == "" && param.Context == "" && !mapped[i] {
 			return fmt.Errorf("required source param %q is not mapped", param.Name)
 		}
 	}
