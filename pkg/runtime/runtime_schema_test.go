@@ -60,10 +60,12 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 		Params: []ParamSpec{
 			appID,
 			{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"},
+			{Name: "selected_workspace", Flag: "selected-workspace", In: InQuery, GoType: "string"},
 			{Name: "fields", Flag: "fields", In: InQuery, GoType: "string"},
 			{Name: "mode", Flag: "mode", In: InQuery, GoType: "[]string"},
 		},
-		Output: OutputHints{ResponseMediaType: "application/json"},
+		SetContext: &ContextSetHint{Name: "workspace", Param: "selected_workspace"},
+		Output:     OutputHints{ResponseMediaType: "application/json"},
 	}
 	target := CommandSpec{
 		OperationID: "runApp",
@@ -80,9 +82,10 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 				Operation:    source,
 				ResponsePath: "input_schema",
 				Params: map[string]string{
-					"app_id": "${params.app_id}",
-					"fields": "input_schema",
-					"mode":   "${params.mode}",
+					"app_id":             "${params.app_id}",
+					"fields":             "input_schema",
+					"mode":               "${params.mode}",
+					"selected_workspace": "ws-mutated",
 				},
 			},
 		},
@@ -101,6 +104,14 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 	}
 	if schemaHits.Load() != 1 || targetHits.Load() != 0 {
 		t.Fatalf("invalid body hits = schema:%d target:%d", schemaHits.Load(), targetHits.Load())
+	}
+	hosts, err = config.LoadHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := hosts.Get(srv.URL)
+	if entry.Contexts["workspace"] != "ws-1" {
+		t.Fatalf("schema preflight persisted context = %#v", entry.Contexts)
 	}
 
 	valid := baseInput

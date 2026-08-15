@@ -25,6 +25,7 @@ func validateRuntimeSchemaBody(ctx context.Context, target CommandSpec, input Op
 	if err != nil {
 		return runtimeSchemaUsageError(err)
 	}
+	source.SetContext = nil
 	sourceHostname := ""
 	if needsStoredContext(source, sourceInput) {
 		sourceHostname = opts.Hostname

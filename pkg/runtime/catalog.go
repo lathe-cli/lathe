@@ -119,10 +119,11 @@ type CatalogBody struct {
 }
 
 type CatalogRuntimeSchema struct {
-	OperationID  string            `json:"operation_id"`
-	HTTP         CatalogHTTP       `json:"http"`
-	ResponsePath string            `json:"response_path,omitempty"`
-	Params       map[string]string `json:"params,omitempty"`
+	OperationID  string                  `json:"operation_id"`
+	HTTP         CatalogHTTP             `json:"http"`
+	ResponsePath string                  `json:"response_path,omitempty"`
+	Params       map[string]string       `json:"params,omitempty"`
+	Contexts     []CatalogContextBinding `json:"contexts,omitempty"`
 }
 
 type CatalogFlag struct {
@@ -432,6 +433,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 				},
 				ResponsePath: binding.ResponsePath,
 				Params:       copyStringMap(binding.Params),
+				Contexts:     catalogContextBindings(binding.Operation.Params),
 			}
 		}
 	}

@@ -564,7 +564,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `http`: HTTP method and path template.\n")
 	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host selected after explicit `--hostname` and `$%s`; when present it is used before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, input modes, and help.\n")
-	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source.\n")
+	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source, including its active-context prerequisites.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
 	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
 	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints; a streaming policy describes collection, terminal outcomes, and optional live projection.\n")

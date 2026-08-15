@@ -10,6 +10,9 @@ import (
 )
 
 func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
+	config.Bind(&config.Manifest{CLI: config.CLIInfo{Name: "myctl"}, Contexts: map[string]config.ContextInfo{
+		"workspace": {Env: "MYCTL_WORKSPACE_ID"},
+	}})
 	root := newRootWithModuleGroup()
 	mustBuild(t, root, "demo", []CommandSpec{
 		{
@@ -39,7 +42,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 				MediaType: "application/json",
 				Schema:    &SchemaSpec{Type: "object", Properties: map[string]*SchemaSpec{"name": {Type: "string"}}},
 				RuntimeSchema: &RuntimeSchemaSpec{
-					Operation:    CommandSpec{OperationID: "describeUser", Method: "GET", PathTpl: "/users/{id}", DefaultHostname: "api.example.com"},
+					Operation: CommandSpec{OperationID: "describeUser", Method: "GET", PathTpl: "/users/{id}", DefaultHostname: "api.example.com", Params: []ParamSpec{
+						{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"},
+					}},
 					ResponsePath: "input_schema",
 					Params:       map[string]string{"id": "${params.user_id}"},
 				},
@@ -110,6 +115,10 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if cmd.Body.RuntimeSchema == nil || cmd.Body.RuntimeSchema.OperationID != "describeUser" || cmd.Body.RuntimeSchema.HTTP.PathTemplate != "/users/{id}" || cmd.Body.RuntimeSchema.ResponsePath != "input_schema" || cmd.Body.RuntimeSchema.Params["id"] != "${params.user_id}" {
 		t.Fatalf("runtime schema = %+v", cmd.Body.RuntimeSchema)
 	}
+	contexts := cmd.Body.RuntimeSchema.Contexts
+	if len(contexts) != 1 || contexts[0].Name != "workspace" || contexts[0].Env != "MYCTL_WORKSPACE_ID" || !reflect.DeepEqual(contexts[0].Precedence, []string{"flag", "env", "stored"}) {
+		t.Fatalf("runtime schema contexts = %#v", contexts)
+	}
 	if len(cmd.Flags) != 2 {
 		t.Fatalf("flags = %d, want 2", len(cmd.Flags))
 	}
@@ -155,7 +164,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if roundTrip.Commands[0].Body.Schema.Properties["name"].Type != "string" {
 		t.Fatalf("round-trip body schema = %+v", roundTrip.Commands[0].Body.Schema)
 	}
-	if roundTrip.Commands[0].Body.RuntimeSchema == nil || roundTrip.Commands[0].Body.RuntimeSchema.OperationID != "describeUser" {
+	if roundTrip.Commands[0].Body.RuntimeSchema == nil || roundTrip.Commands[0].Body.RuntimeSchema.OperationID != "describeUser" || !reflect.DeepEqual(roundTrip.Commands[0].Body.RuntimeSchema.Contexts, contexts) {
 		t.Fatalf("round-trip runtime schema = %+v", roundTrip.Commands[0].Body.RuntimeSchema)
 	}
 	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
