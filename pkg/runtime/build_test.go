@@ -1181,6 +1181,8 @@ func TestBuild_RuntimeBodySchemaPreflightsAndValidatesBeforeTarget(t *testing.T)
 		{name: "wrong type", sets: []string{"query=hello", "inputs.industry=health", "inputs.count=many"}, wantCode: CodeUsage},
 		{name: "invalid enum", sets: []string{"query=hello", "inputs.industry=health", "inputs.tier=trial"}, wantCode: CodeUsage},
 		{name: "unsupported schema", sets: []string{"query=hello", "inputs.industry=health"}, wantCode: CodeAPIError, schema: `{"type":"object","properties":{"unused":{"type":"string","pattern":"secret"}}}`},
+		{name: "null properties", sets: []string{"query=hello"}, wantCode: CodeAPIError, schema: `{"type":"object","properties":null}`},
+		{name: "null required", sets: []string{"query=hello"}, wantCode: CodeAPIError, schema: `{"type":"object","required":null}`},
 	}
 
 	for _, tc := range tests {
@@ -1249,8 +1251,10 @@ func TestBuild_RuntimeBodySchemaPreflightsAndValidatesBeforeTarget(t *testing.T)
 				if err != nil {
 					t.Fatalf("Execute: %v", err)
 				}
-			} else if err == nil || ClassifyError(err).Code != tc.wantCode {
-				t.Fatalf("error = %v, code = %q, want %q", err, ClassifyError(err).Code, tc.wantCode)
+			} else if err == nil {
+				t.Fatalf("error = nil, want code %q", tc.wantCode)
+			} else if code := ClassifyError(err).Code; code != tc.wantCode {
+				t.Fatalf("error = %v, code = %q, want %q", err, code, tc.wantCode)
 			}
 			if preflightHits != 1 {
 				t.Fatalf("preflight hits = %d, want 1", preflightHits)
@@ -1337,6 +1341,22 @@ func TestRuntimeBodySchema_EnumNumbersUseNumericValue(t *testing.T) {
 		err = validateRuntimeJSONSchema(schema, value, "$", "$schema")
 		if (err == nil) != tc.valid {
 			t.Errorf("validate %s against %s: error = %v, valid = %v", tc.value, tc.schema, err, tc.valid)
+		}
+	}
+}
+
+func TestRuntimeBodySchema_LengthBoundsUseNumericValue(t *testing.T) {
+	for _, tc := range []struct {
+		bound string
+		valid bool
+	}{{"2.0", true}, {"2e0", true}, {"2.5", false}} {
+		schema, err := decodeJSON([]byte(`{"type":"string","minLength":` + tc.bound + `}`))
+		if err != nil {
+			t.Fatalf("decode minLength %s: %v", tc.bound, err)
+		}
+		err = validateRuntimeSchemaDefinition(schema, "$schema")
+		if (err == nil) != tc.valid {
+			t.Errorf("validate minLength %s: error = %v, valid = %v", tc.bound, err, tc.valid)
 		}
 	}
 }

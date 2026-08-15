@@ -139,6 +139,39 @@ func TestInvokeOperation_RedactsQueryCredentialFromTransportError(t *testing.T) 
 	}
 }
 
+func TestRuntimeBodySchema_RedactsMappedSensitiveQuery(t *testing.T) {
+	const secret = "runtime-schema-secret"
+	var gotSecret string
+	source := CommandSpec{
+		Method: "GET", PathTpl: "/schema",
+		Params: []ParamSpec{{Name: "id", Flag: "id", In: InQuery, GoType: "string"}},
+	}
+	target := CommandSpec{
+		Params: []ParamSpec{{Name: "password", Flag: "password", In: InQuery, GoType: "string", Format: "password"}},
+		RequestBody: &RequestBody{RuntimeSchema: &RuntimeSchemaSource{
+			Operation: source, ResponsePath: "schema", Params: map[string]string{"id": "${params.password}"},
+		}},
+	}
+	err := validateRuntimeRequestBody(context.Background(), target, OperationInput{
+		Values: map[string]any{"password": secret}, Changed: map[string]bool{"password": true},
+	}, map[string]any{}, OperationOptions{Hostname: "example.com", Client: ClientOptions{
+		MaxRetries: -1,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotSecret = req.URL.Query().Get("id")
+			return nil, errors.New("dial failed")
+		}),
+	}})
+	if err == nil {
+		t.Fatal("runtime schema request returned nil error")
+	}
+	if gotSecret != secret {
+		t.Fatalf("runtime schema query = %q", gotSecret)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("runtime schema error leaked mapped credential: %v", err)
+	}
+}
+
 func TestDoRaw_RedactsMalformedRedirectLocation(t *testing.T) {
 	const password = "redirect-userinfo-secret"
 	const signature = "redirect-signature-secret"

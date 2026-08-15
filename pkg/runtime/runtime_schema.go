@@ -26,11 +26,11 @@ func validateRuntimeRequestBody(ctx context.Context, target CommandSpec, input O
 	if source.Operation.Output.Streaming != nil || source.Operation.RequestBody != nil && source.Operation.RequestBody.RuntimeSchema != nil {
 		return newAPIError(fmt.Errorf("runtime schema operation must be non-streaming and non-recursive"), 0)
 	}
-	sourceInput, err := runtimeSchemaOperationInput(target, input, source)
+	sourceOperation, sourceInput, err := runtimeSchemaOperationInput(target, input, source)
 	if err != nil {
 		return newAPIError(err, 0)
 	}
-	result, err := InvokeOperation(ctx, source.Operation, sourceInput, OperationOptions{Hostname: opts.Hostname, Client: opts.Client})
+	result, err := InvokeOperation(ctx, sourceOperation, sourceInput, OperationOptions{Hostname: opts.Hostname, Client: opts.Client})
 	if err != nil {
 		return err
 	}
@@ -56,35 +56,45 @@ func validateRuntimeRequestBody(ctx context.Context, target CommandSpec, input O
 	return nil
 }
 
-func runtimeSchemaOperationInput(target CommandSpec, input OperationInput, source *RuntimeSchemaSource) (OperationInput, error) {
+func runtimeSchemaOperationInput(target CommandSpec, input OperationInput, source *RuntimeSchemaSource) (CommandSpec, OperationInput, error) {
+	operation := source.Operation
+	operation.Params = append([]ParamSpec(nil), source.Operation.Params...)
 	out := OperationInput{Values: map[string]any{}, Changed: map[string]bool{}}
 	for key, expression := range source.Params {
 		param, ok := findOperationParam(source.Operation.Params, key)
 		if !ok {
-			return OperationInput{}, fmt.Errorf("runtime schema parameter %q does not exist", key)
+			return CommandSpec{}, OperationInput{}, fmt.Errorf("runtime schema parameter %q does not exist", key)
 		}
 		value := any(expression)
 		if ref, ok := runtimeSchemaParamRef(expression); ok {
 			targetParam, found := findOperationParam(target.Params, ref)
 			if !found {
-				return OperationInput{}, fmt.Errorf("runtime schema target parameter %q does not exist", ref)
+				return CommandSpec{}, OperationInput{}, fmt.Errorf("runtime schema target parameter %q does not exist", ref)
 			}
 			resolved, changed, err := operationValue(input, targetParam)
 			if err != nil {
-				return OperationInput{}, err
+				return CommandSpec{}, OperationInput{}, err
 			}
 			if !changed {
 				if !param.Required || param.Default != "" {
 					continue
 				}
-				return OperationInput{}, fmt.Errorf("runtime schema target parameter %q is not set", ref)
+				return CommandSpec{}, OperationInput{}, fmt.Errorf("runtime schema target parameter %q is not set", ref)
+			}
+			if param.In == InQuery && isSensitiveStringParam(targetParam) {
+				for i := range operation.Params {
+					if operation.Params[i].Name == param.Name {
+						operation.Params[i].Format = "password"
+						break
+					}
+				}
 			}
 			value = resolved
 		}
 		out.Values[param.Name] = value
 		out.Changed[param.Name] = true
 	}
-	return out, nil
+	return operation, out, nil
 }
 
 func runtimeSchemaParamRef(value string) (string, bool) {
@@ -156,7 +166,7 @@ func validateRuntimeSchemaDefinition(schema any, path string) error {
 			return fmt.Errorf("%s.type is unsupported", path)
 		}
 	}
-	properties, err := schemaObject(object["properties"], path+".properties")
+	properties, err := schemaObject(object, "properties", path+".properties")
 	if err != nil {
 		return err
 	}
@@ -165,7 +175,7 @@ func validateRuntimeSchemaDefinition(schema any, path string) error {
 			return err
 		}
 	}
-	if _, err := schemaStringArray(object["required"], path+".required"); err != nil {
+	if _, err := schemaStringArray(object, "required", path+".required"); err != nil {
 		return err
 	}
 	if additional, exists := object["additionalProperties"]; exists {
@@ -276,11 +286,11 @@ func validateRuntimeJSONSchema(schema, value any, valuePath, schemaPath string) 
 		}
 	}
 	if objectValue, ok := value.(map[string]any); ok {
-		properties, err := schemaObject(object["properties"], schemaPath+".properties")
+		properties, err := schemaObject(object, "properties", schemaPath+".properties")
 		if err != nil {
 			return err
 		}
-		required, err := schemaStringArray(object["required"], schemaPath+".required")
+		required, err := schemaStringArray(object, "required", schemaPath+".required")
 		if err != nil {
 			return err
 		}
@@ -401,8 +411,9 @@ func runtimeJSONTypeSupported(typeName string) bool {
 	}
 }
 
-func schemaObject(value any, path string) (map[string]any, error) {
-	if value == nil {
+func schemaObject(schema map[string]any, keyword, path string) (map[string]any, error) {
+	value, exists := schema[keyword]
+	if !exists {
 		return nil, nil
 	}
 	object, ok := value.(map[string]any)
@@ -412,8 +423,9 @@ func schemaObject(value any, path string) (map[string]any, error) {
 	return object, nil
 }
 
-func schemaStringArray(value any, path string) ([]string, error) {
-	if value == nil {
+func schemaStringArray(schema map[string]any, keyword, path string) ([]string, error) {
+	value, exists := schema[keyword]
+	if !exists {
 		return nil, nil
 	}
 	array, ok := value.([]any)
@@ -436,9 +448,13 @@ func schemaNonNegativeInt(value any, path string) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("%s must be a non-negative integer", path)
 	}
-	parsed, err := number.Int64()
-	if err != nil || parsed < 0 {
+	parsed, ok := new(big.Rat).SetString(number.String())
+	if !ok || !parsed.IsInt() || parsed.Sign() < 0 || !parsed.Num().IsInt64() {
 		return 0, fmt.Errorf("%s must be a non-negative integer", path)
 	}
-	return int(parsed), nil
+	integer := parsed.Num().Int64()
+	if int64(int(integer)) != integer {
+		return 0, fmt.Errorf("%s must be a non-negative integer", path)
+	}
+	return int(integer), nil
 }
