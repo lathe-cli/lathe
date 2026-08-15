@@ -564,10 +564,12 @@ func TestRenderModule_RuntimeBodySchema(t *testing.T) {
 		}
 	}
 
-	bad := preflight
-	bad.Method = "POST"
-	if err := ValidateOverlayModule([]runtime.CommandSpec{bad, run}, overlay.Module{Commands: overrides}); err == nil || !strings.Contains(err.Error(), "read-only") {
-		t.Fatalf("validation error = %v", err)
+	for _, method := range []string{"POST", "HEAD"} {
+		bad := preflight
+		bad.Method = method
+		if err := ValidateOverlayModule([]runtime.CommandSpec{bad, run}, overlay.Module{Commands: overrides}); err == nil {
+			t.Fatalf("%s schema operation accepted", method)
+		}
 	}
 	run.Params[0].Required = false
 	if err := ValidateOverlayModule([]runtime.CommandSpec{preflight, run}, overlay.Module{Commands: overrides}); err == nil || !strings.Contains(err.Error(), "optional target parameter") {

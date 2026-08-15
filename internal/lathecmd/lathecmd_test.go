@@ -290,6 +290,80 @@ func TestRunCodegen_CommandPathFlatRewritesGeneratedExamples(t *testing.T) {
 	}
 }
 
+func TestRunCodegen_RuntimeSchemaInheritsDefaultHostname(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "specs/sources.yaml", `sources:
+  acme:
+    repo_url: https://example.com/acme.git
+    pinned_tag: v1.0.0
+    backend: openapi3
+    default_hostname: api.example.com
+    openapi3:
+      files: [openapi.yaml]
+`)
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /apps/{app_id}:
+    get:
+      operationId: Apps_Describe
+      tags: [Apps]
+      parameters:
+        - name: app_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: {type: object}
+  /apps/{app_id}:run:
+    post:
+      operationId: Apps_Run
+      tags: [Apps]
+      parameters:
+        - name: app_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: {type: object}
+`)
+	writeCodegenFile(t, "overlays/acme.yaml", `commands:
+  run:
+    body:
+      runtime_schema:
+        operation_id: Apps_Describe
+        response_path: input_schema
+        params:
+          app_id: ${params.app_id}
+`)
+
+	if err := RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache", "-overlay", "overlays"}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	generated := readCodegenFile(t, "internal/generated/acme/acme_gen.go")
+	start := strings.Index(generated, "RuntimeSchema:")
+	if start < 0 {
+		t.Fatalf("generated module missing runtime schema:\n%s", generated)
+	}
+	runtimeSchema := generated[start:]
+	end := strings.Index(runtimeSchema, "ResponsePath:")
+	if end < 0 || !strings.Contains(runtimeSchema[:end], `DefaultHostname: "api.example.com"`) {
+		t.Fatalf("embedded runtime schema operation missing default hostname:\n%s", generated)
+	}
+}
+
 func TestRunCodegen_UsesSkillConfigFromManifest(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

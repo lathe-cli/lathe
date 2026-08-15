@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"reflect"
 	"strings"
 	"unicode/utf8"
@@ -19,8 +20,8 @@ var runtimeSchemaAnnotations = map[string]bool{
 
 func validateRuntimeRequestBody(ctx context.Context, target CommandSpec, input OperationInput, body any, opts OperationOptions) error {
 	source := target.RequestBody.RuntimeSchema
-	if source.Operation.Method != "GET" && source.Operation.Method != "HEAD" {
-		return newAPIError(fmt.Errorf("runtime schema operation must be read-only"), 0)
+	if source.Operation.Method != "GET" {
+		return newAPIError(fmt.Errorf("runtime schema operation must use GET"), 0)
 	}
 	if source.Operation.Output.Streaming != nil || source.Operation.RequestBody != nil && source.Operation.RequestBody.RuntimeSchema != nil {
 		return newAPIError(fmt.Errorf("runtime schema operation must be non-streaming and non-recursive"), 0)
@@ -337,7 +338,11 @@ func runtimeJSONTypeMatches(typeName string, value any) bool {
 		return ok
 	case "integer":
 		number, ok := value.(json.Number)
-		return ok && !strings.ContainsAny(number.String(), ".eE")
+		if !ok {
+			return false
+		}
+		rat, ok := new(big.Rat).SetString(number.String())
+		return ok && rat.IsInt()
 	case "boolean":
 		_, ok := value.(bool)
 		return ok

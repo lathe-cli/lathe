@@ -417,7 +417,7 @@ commands:
           fields: input_schema
 ```
 
-The schema operation must be a visible, non-streaming `GET` or `HEAD` in the
+The schema operation must be a visible, non-streaming `GET` in the
 same module, use the same hostname, return JSON, and require no more auth than
 the target. Parameter mappings use source parameter names or flags; values are
 literals or exact `${params.<target-name-or-flag>}` references. Before the

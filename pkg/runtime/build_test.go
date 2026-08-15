@@ -1299,6 +1299,23 @@ func TestBuild_RuntimeBodySchemaDryRunDoesNotPreflight(t *testing.T) {
 	}
 }
 
+func TestRuntimeBodySchema_IntegerUsesNumericValue(t *testing.T) {
+	schema := map[string]any{"type": "integer"}
+	for _, tc := range []struct {
+		literal string
+		valid   bool
+	}{{"2.0", true}, {"2e0", true}, {"2.5", false}} {
+		value, err := decodeJSON([]byte(tc.literal))
+		if err != nil {
+			t.Fatalf("decode %s: %v", tc.literal, err)
+		}
+		err = validateRuntimeJSONSchema(schema, value, "$", "$schema")
+		if (err == nil) != tc.valid {
+			t.Errorf("validate %s: error = %v, valid = %v", tc.literal, err, tc.valid)
+		}
+	}
+}
+
 func TestBuild_PaginationFlagsAttached(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:   "Items",
