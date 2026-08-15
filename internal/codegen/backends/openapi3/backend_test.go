@@ -76,6 +76,84 @@ func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
 	if got := mod.Operations[0].Responses["200"].Schema.Properties["name"].Type; got != "string" {
 		t.Fatalf("property type = %q, want string", got)
 	}
+	if !mod.Operations[0].Responses["200"].Schema.Properties["name"].Nullable {
+		t.Fatal("nullable type array lost nullability")
+	}
+}
+
+func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
+	input := `{
+  "openapi": "3.1.0",
+  "paths": {
+    "/widgets": {
+      "post": {
+        "operationId": "Widget_Create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nickname": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                  "choice": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                  "exclusive_null": {"oneOf": [{"type": ["string", "null"]}, {"type": "null"}]},
+                  "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
+                  "freeform": {"type": "object", "additionalProperties": true},
+                  "closed": {"type": "object", "additionalProperties": false},
+                  "related": {"anyOf": [{"$ref": "#/components/schemas/Base"}, {"type": "null"}]},
+                  "extended": {
+                    "$ref": "#/components/schemas/Base",
+                    "properties": {"id": {"type": "string", "nullable": true}}
+                  },
+                  "composed": {"allOf": [
+                    {"type": "object", "properties": {"id": {"type": "string"}}},
+                    {"type": "object", "properties": {"name": {"type": "string"}}}
+                  ]}
+                }
+              }
+            }
+          }
+        },
+        "responses": {"201": {}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Base": {"type": "object", "properties": {"id": {"type": "string"}}}
+    }
+  }
+}`
+	schema := parseNormalized(t, input)[0].RequestBody.Schema
+	if nickname := schema.Properties["nickname"]; nickname.Type != "string" || !nickname.Nullable {
+		t.Fatalf("nickname = %#v, want nullable string", nickname)
+	}
+	if choice := schema.Properties["choice"]; len(choice.OneOf) != 2 || choice.OneOf[0].Type != "string" || choice.OneOf[1].Type != "integer" {
+		t.Fatalf("choice = %#v, want string/integer oneOf", choice)
+	}
+	if exclusive := schema.Properties["exclusive_null"]; len(exclusive.OneOf) != 2 || !exclusive.OneOf[0].Nullable || exclusive.OneOf[1].Type != "null" {
+		t.Fatalf("exclusive_null = %#v, want both oneOf branches", exclusive)
+	}
+	metadata := schema.Properties["metadata"].AdditionalProperties
+	if metadata == nil || metadata.Schema == nil || metadata.Schema.Type != "string" {
+		t.Fatalf("metadata additionalProperties = %#v, want string schema", metadata)
+	}
+	if freeform := schema.Properties["freeform"].AdditionalProperties; freeform == nil || !freeform.Allowed || freeform.Schema != nil {
+		t.Fatalf("freeform additionalProperties = %#v, want true", freeform)
+	}
+	if closed := schema.Properties["closed"].AdditionalProperties; closed == nil || closed.Allowed || closed.Schema != nil {
+		t.Fatalf("closed additionalProperties = %#v, want false", closed)
+	}
+	if related := schema.Properties["related"]; !related.Nullable || related.Properties["id"] == nil || related.Properties["id"].Type != "string" {
+		t.Fatalf("related = %#v, want expanded nullable Base", related)
+	}
+	extended := schema.Properties["extended"]
+	if extended == nil || len(extended.AllOf) != 2 || extended.AllOf[0] == nil || extended.AllOf[1] == nil || extended.AllOf[0].Properties["id"] == nil || extended.AllOf[0].Properties["id"].Nullable || extended.AllOf[1].Properties["id"] == nil || !extended.AllOf[1].Properties["id"].Nullable {
+		t.Fatalf("extended = %#v, want referenced and sibling constraints", extended)
+	}
+	if composed := schema.Properties["composed"]; len(composed.AllOf) != 2 || composed.AllOf[0].Properties["id"].Type != "string" || composed.AllOf[1].Properties["name"].Type != "string" {
+		t.Fatalf("composed = %#v, want both allOf branches", composed)
+	}
 }
 
 func TestParse_MultipartBodyFields(t *testing.T) {

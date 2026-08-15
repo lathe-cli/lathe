@@ -1,8 +1,12 @@
 package runtime
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
 
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 type CommandSpec struct {
 	Group           string
@@ -78,11 +82,46 @@ type RequestBody struct {
 }
 
 type SchemaSpec struct {
-	Ref        string                 `json:"ref,omitempty"`
-	Type       string                 `json:"type,omitempty"`
-	Properties map[string]*SchemaSpec `json:"properties,omitempty"`
-	Required   []string               `json:"required,omitempty"`
-	Items      *SchemaSpec            `json:"items,omitempty"`
+	Ref                  string                    `json:"ref,omitempty"`
+	Type                 string                    `json:"type,omitempty"`
+	Nullable             bool                      `json:"nullable,omitempty"`
+	Properties           map[string]*SchemaSpec    `json:"properties,omitempty"`
+	Required             []string                  `json:"required,omitempty"`
+	Items                *SchemaSpec               `json:"items,omitempty"`
+	AnyOf                []*SchemaSpec             `json:"anyOf,omitempty"`
+	OneOf                []*SchemaSpec             `json:"oneOf,omitempty"`
+	AllOf                []*SchemaSpec             `json:"allOf,omitempty"`
+	AdditionalProperties *AdditionalPropertiesSpec `json:"additionalProperties,omitempty"`
+}
+
+type AdditionalPropertiesSpec struct {
+	Allowed bool
+	Schema  *SchemaSpec
+}
+
+func (s AdditionalPropertiesSpec) MarshalJSON() ([]byte, error) {
+	if s.Schema != nil {
+		return json.Marshal(s.Schema)
+	}
+	return json.Marshal(s.Allowed)
+}
+
+func (s *AdditionalPropertiesSpec) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if bytes.Equal(data, []byte("true")) || bytes.Equal(data, []byte("false")) {
+		s.Schema = nil
+		return json.Unmarshal(data, &s.Allowed)
+	}
+	if len(data) == 0 || data[0] != '{' {
+		return fmt.Errorf("additionalProperties must be a boolean or schema")
+	}
+	var schema SchemaSpec
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return err
+	}
+	s.Allowed = false
+	s.Schema = &schema
+	return nil
 }
 
 type OutputHints struct {
