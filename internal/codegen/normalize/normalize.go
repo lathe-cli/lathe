@@ -707,45 +707,29 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 	if s == nil {
 		return nil
 	}
-	var out *runtime.SchemaSpec
-	if s.Ref != "" {
-		if visited[s.Ref] {
-			out = &runtime.SchemaSpec{Ref: s.Ref}
-		} else if resolved := rawir.Resolve(s, defs); resolved != nil {
+	if s.Ref != "" && !visited[s.Ref] {
+		if resolved := rawir.Resolve(s, defs); resolved != nil {
 			next := copyVisited(visited)
 			next[s.Ref] = true
-			out = runtimeSchema(resolved, defs, next)
+			base := runtimeSchema(resolved, defs, next)
+			if rawSchemaHasRefSiblings(s) {
+				sibling := *s
+				sibling.Ref = ""
+				return &runtime.SchemaSpec{AllOf: []*runtime.SchemaSpec{base, runtimeSchema(&sibling, defs, visited)}}
+			}
+			base.Nullable = base.Nullable || s.Nullable
+			return base
 		}
 	}
-	if out == nil {
-		out = &runtime.SchemaSpec{}
-	}
-	if s.Ref != "" && rawir.Resolve(s, defs) == nil {
-		out.Ref = s.Ref
-	}
-	if s.Type != "" {
-		out.Type = s.Type
-	}
-	out.Nullable = out.Nullable || s.Nullable
+	out := &runtime.SchemaSpec{Ref: s.Ref, Type: s.Type, Nullable: s.Nullable}
 	if len(s.Properties) > 0 {
-		if out.Properties == nil {
-			out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
-		}
+		out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
 		for k, v := range s.Properties {
 			out.Properties[k] = runtimeSchema(v, defs, visited)
 		}
 	}
 	if len(s.Required) > 0 {
-		seen := make(map[string]bool)
-		for _, name := range out.Required {
-			seen[name] = true
-		}
-		for _, name := range s.Required {
-			if !seen[name] {
-				out.Required = append(out.Required, name)
-				seen[name] = true
-			}
-		}
+		out.Required = append([]string(nil), s.Required...)
 	}
 	if s.Items != nil {
 		out.Items = runtimeSchema(s.Items, defs, visited)
@@ -766,6 +750,10 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 		}
 	}
 	return out
+}
+
+func rawSchemaHasRefSiblings(s *rawir.RawSchema) bool {
+	return s.Type != "" || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
 }
 
 func runtimeSchemas(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) []*runtime.SchemaSpec {

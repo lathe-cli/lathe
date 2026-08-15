@@ -100,6 +100,10 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
                   "freeform": {"type": "object", "additionalProperties": true},
                   "closed": {"type": "object", "additionalProperties": false},
                   "related": {"anyOf": [{"$ref": "#/components/schemas/Base"}, {"type": "null"}]},
+                  "extended": {
+                    "$ref": "#/components/schemas/Base",
+                    "properties": {"id": {"type": "string", "nullable": true}}
+                  },
                   "composed": {"allOf": [
                     {"type": "object", "properties": {"id": {"type": "string"}}},
                     {"type": "object", "properties": {"name": {"type": "string"}}}
@@ -138,6 +142,10 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	}
 	if related := schema.Properties["related"]; !related.Nullable || related.Properties["id"] == nil || related.Properties["id"].Type != "string" {
 		t.Fatalf("related = %#v, want expanded nullable Base", related)
+	}
+	extended := schema.Properties["extended"]
+	if extended == nil || len(extended.AllOf) != 2 || extended.AllOf[0] == nil || extended.AllOf[1] == nil || extended.AllOf[0].Properties["id"] == nil || extended.AllOf[0].Properties["id"].Nullable || extended.AllOf[1].Properties["id"] == nil || !extended.AllOf[1].Properties["id"].Nullable {
+		t.Fatalf("extended = %#v, want referenced and sibling constraints", extended)
 	}
 	if composed := schema.Properties["composed"]; len(composed.AllOf) != 2 || composed.AllOf[0].Properties["id"].Type != "string" || composed.AllOf[1].Properties["name"].Type != "string" {
 		t.Fatalf("composed = %#v, want both allOf branches", composed)
