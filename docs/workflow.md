@@ -1,320 +1,167 @@
 # Workflow Commands
 
-Status: implemented v0.
-
-## Purpose
-
-Workflow commands let a CLI builder publish a normal command whose
-implementation is a deterministic sequence of generated API operations.
-
-The user-facing command should look like any other Cobra command:
-
-```sh
-mycli doctor -o json
-mycli deploy --app-id app_123
-```
-
-The workflow DSL is a builder-facing codegen input. It compiles into named
-commands, and end users should not need to know a workflow DSL exists.
-
-## Boundary
-
-Workflow commands sit between generated API operations and handwritten custom Go:
-
-- Use a workflow command when behavior is a linear composition of generated API
-  operations.
-- Keep handwritten Go when behavior needs local environment checks, custom
-  target resolution, non-API IO, build metadata, interactive prompts, or other
-  imperative logic.
-- Keep overlays and source config for shaping individual generated API commands.
-
-The first version is API-only. A Mosoo-style `doctor` command that checks target
-resolution, local credential stores, build metadata, and raw HTTP reachability is
-not fully covered by v0 unless those checks are exposed as generated API
-operations. It can remain custom Go until diagnostic primitives are designed.
-
-## Non-Goals
-
-The first version does not support:
-
-- Rollback or compensation.
-- `if` / `else` blocks, loops, parallel steps, or workflow-specific retry
-  policy. Steps can be guarded individually with `when`; see Conditional Steps.
-- Shell commands or external actions.
-- Dynamic plugins or remote extension code.
-- A public `GeneratedApp` or workflow engine ABI.
-- Local diagnostic primitives.
-- Workflow-level dry-run.
-
-## Failure Semantics
-
-Workflow commands run steps in order and stop at the first failure.
-
-If step N fails, steps 1 through N-1 may already have changed remote state.
-Lathe does not roll them back. API specifications do not provide a universal
-undo contract, so automatic rollback would be a false transaction.
-
-The current runtime returns a `WorkflowError` with the failed step ID and the
-completed step summary. If `output.from` is omitted, successful workflows output
-a small JSON step summary:
-
-```json
-{"status":"ok","steps":[{"id":"health","status":"ok"}]}
-```
+Workflow commands are generated root commands that run an ordered sequence of
+generated API operations. Use them for API-only composition; use handwritten Go
+when the command needs local IO, shell execution, interactive prompts, or other
+imperative behavior.
 
 ## Configuration
 
-Workflow configuration lives in `cli.yaml` under `workflow`:
+Declare workflows in `cli.yaml`:
 
 ```yaml
 workflow:
   version: 1
   commands:
-    - use: doctor
-      short: Check CLI API readiness
+    - use: deploy
+      short: Deploy an application
       inputs:
         - name: app_id
           flag: app-id
           type: string
           required: true
-          help: App ID to inspect
       steps:
         - id: app
           uses: console.Apps_Get
           params:
             appId: ${input.app_id}
-        - id: deployment
-          uses: console.Apps_DeploymentStatus
+        - id: deploy
+          uses: console.Deployments_Create
           params:
             appId: ${input.app_id}
+          set:
+            input.region: us-east-1
       output:
-        from: ${steps.deployment}
+        from: ${steps.deploy}
 ```
 
-`commands[].use` is mounted as a root command. The example above produces
-`mycli doctor`.
+`use` must be one root command name. Codegen rejects conflicts with generated
+modules, shortcuts, other workflows, and the reserved roots `__lathe`,
+`auth`, `commands`, `help`, `login`, `search`, `skill`, and `update`.
 
-## Operation References
+Workflow inputs become Cobra flags. Supported types are `string`, `int64`,
+`float64`, `bool`, and their slice forms. Inputs also support the normal
+`required`, `default`, `enum`, `format`, and `deprecated` metadata.
 
-Each step uses one generated API operation. The recommended reference form is:
+## Operation references
+
+Each step names one generated operation. Prefer the stable source and
+`operationId` form:
 
 ```yaml
-uses: <source>.<operationId>
+uses: console.Apps_Get
 ```
 
-For example, a source named `console` with `operationId: Apps_Get` is referenced
-as `console.Apps_Get`.
-
-Lathe also accepts generated command-path references for specs with awkward
-operation IDs:
+Generated command paths are also accepted:
 
 ```yaml
 uses: console apps get
 uses: console.apps.get
 ```
 
-Ambiguous references fail at codegen time.
+Unknown or ambiguous operations fail during codegen.
 
-## Inputs And References
-
-Workflow inputs become normal command flags.
-
-```yaml
-inputs:
-  - name: tenant_id
-    flag: tenant
-    type: string
-    required: true
-```
-
-Supported input types are `string`, `int64`, `float64`, `bool`, and the matching
-slice forms `[]string`, `[]int64`, `[]float64`, `[]bool`.
+## Values and request bodies
 
 References use `${...}`:
 
-- `${input.tenant_id}` reads a workflow input.
-- `${steps.health}` reads the full JSON output of a prior step.
-- `${steps.health.data.id}` reads a dotted path from a prior JSON output.
+- `${input.app_id}` reads a workflow input.
+- `${steps.app}` reads a prior step's complete output.
+- `${steps.app.data.id}` reads a dotted JSON path.
 
-Step IDs must not contain dots. References to unknown inputs or later steps fail
-at codegen time.
+Step IDs cannot contain dots. References to unknown inputs, unknown paths, or
+later steps fail validation or execution.
 
-## Step Parameters And Bodies
-
-`params` maps workflow values into the target operation's parameters by
-operation parameter name or flag name. Codegen validates every key.
-
-```yaml
-steps:
-  - id: app
-    uses: console.Apps_Get
-    params:
-      appId: ${input.app_id}
-```
-
-JSON request bodies can be built with `set` and `set_str`, matching generated
-API command body flags:
+`params` uses the operation parameter name or generated flag name. Context-bound
+parameters still resolve through the active CLI context before the operation is
+invoked.
 
 ```yaml
-steps:
-  - id: create
-    uses: console.Apps_Create
-    set:
-      input.name: ${input.name}
-      input.replicas: "3"
-    set_str:
-      input.label: ${input.label}
+params:
+  appId: ${input.app_id}
 ```
 
-## Conditional Steps
-
-A step can be guarded with `when`. Conditions are joined with AND; values within
-one condition are joined with OR.
+Build JSON bodies with the same assignment model as generated operation
+commands:
 
 ```yaml
-steps:
-  - id: label
-    uses: console.Apps_SetLabel
-    when:
-      - value: ${input.label}
-        operator: notin
-        values: [""]
-    params:
-      appId: ${input.app_id}
+set:
+  input.name: ${input.name}
+  input.replicas: "3"
+set_str:
+  input.label: ${input.label}
 ```
 
-`operator` is `in` or `notin` and is required. Comparison is string comparison,
-so `values: [404]` and `values: ["404"]` are equivalent.
+`set` applies the same scalar type inference as the generated `--set` flag;
+`set_str` always writes a string.
 
-A reference that does not resolve evaluates to the empty string inside `when`,
-which makes `notin [""]` the way to ask whether an optional input was provided.
+## Conditional steps
 
-A step whose condition is false is `skipped`: no request is sent, and no host or
-credential loading happens for it. A later step that references a skipped step
-is skipped as well, transitively. If `output.from` references a skipped step,
-the command emits the step summary instead of failing.
+`when` guards a step. Conditions on one step are ANDed; values within one
+condition are ORed.
 
-Because every `${steps.<id>}` reference names one specific step, conditions
-cannot express branch convergence — a step reading `${steps.deploy_gpu.id}` is
-skipped whenever the CPU branch ran instead. Guarded steps should either be
-terminal or belong to branches that never rejoin.
-
-There is no `else`. Two complementary conditions express a two-way branch, and
-Lathe does not check that they are mutually exclusive or exhaustive.
-
-## Output
-
-If `output.from` is set, the command outputs that referenced value using the
-normal `-o` formatter.
-
-If `output.from` is omitted, the command outputs the workflow step summary.
-
-## Runtime Model
-
-Workflow commands call the same operation path as generated Cobra API commands.
-They do not shell out to the CLI.
-
-Generated API commands are thin Cobra adapters around:
-
-```go
-InvokeOperation(ctx, spec, input, opts) (result, error)
+```yaml
+when:
+  - value: ${input.region}
+    operator: in
+    values: [us-east-1, eu-west-1]
+  - value: ${input.label}
+    operator: notin
+    values: [""]
 ```
 
-The invoker owns:
+Only `in` and `notin` are supported. Comparisons use normalized string
+values, so unquoted scalar values are valid. A missing reference inside a
+condition contributes an empty string; a reference to a skipped step propagates
+the skip.
 
-- Parameter validation and enum checks.
-- Request path, query, header, form, and body construction.
-- Auth and host behavior equivalent to generated API commands.
-- Dry-run request resolution for generated API commands.
-- Pagination and wait behavior.
-- Output bytes and HTTP errors.
+A false condition sends no request and performs no host or credential loading.
+Any later step that reads the skipped step is also skipped. If `output.from`
+points to a skipped step, Lathe returns the step summary.
 
-The generated workflow command owns:
+There is no `else` or branch merge. Complementary conditions can form two
+branches, but Lathe does not prove they are exclusive or exhaustive.
 
-- Step ordering.
-- Input interpolation.
-- Reading JSON fields from prior step outputs.
-- Fail-fast behavior.
+## Execution and output
 
-## Generated Output
+Steps run in declaration order through `runtime.InvokeOperation`, the same
+request path used by generated API commands. Parameter validation, request
+construction, contexts, auth, runtime-schema validation, HTTP execution, and
+stream collection therefore keep the operation contract.
 
-Codegen emits workflow commands as static generated Go:
+Execution is fail-fast:
 
-```text
-internal/generated/workflows/workflows_gen.go
-```
+- A failed step returns `WorkflowError` with the step ID and completed summary.
+- Successful earlier remote changes are not rolled back.
+- A skipped step has status `skipped`.
+- A configured stream pause stops the workflow successfully, returns that
+  step's collected data, and exits `0`; later steps do not run.
+- Any other successful step has status `ok`.
 
-The generated package mounts workflow commands through `generated.Mount` after
-generated API modules and before bundled Skill commands.
-
-Workflow command names are reserved root command names. Codegen rejects
-conflicts with:
-
-- Lathe framework commands: `auth`, `commands`, `search`, `update`, `skill`,
-  and `__lathe`.
-- Generated module names.
-- Generated shortcuts.
-- Other workflow commands.
-
-## Catalog Contract
-
-Workflow commands are discoverable through the runtime catalog, but they do not
-pretend to be single API operations.
-
-Operation commands use:
+Without `output.from`, Lathe returns a step summary:
 
 ```json
-{"kind":"operation"}
+{"status":"ok","steps":[{"id":"app","status":"ok"},{"id":"deploy","status":"ok"}]}
 ```
 
-Workflow commands use:
+With `output.from`, it formats the referenced value with the workflow's normal
+`-o` output handling.
 
-```json
-{
-  "kind": "workflow",
-  "path": ["doctor"],
-  "workflow": {
-    "dsl": "lathe.workflow.v1",
-    "output_from": "${steps.deployment}",
-    "steps": [
-      {
-        "id": "app",
-        "operation_id": "Apps_Get",
-        "http": {"method": "GET", "path_template": "/apps/{appId}"}
-      }
-    ]
-  }
-}
-```
+## Generated and agent-facing contracts
 
-The catalog schema version is `12` for this contract. Conditional steps carry
-their conditions in catalog JSON, so an agent can tell a step is guarded without
-running it:
+Codegen writes `internal/generated/workflows/workflows_gen.go` and mounts it
+through `generated.Mount`. Workflow commands appear in the runtime catalog as
+`kind=workflow` with `lathe.workflow.v1` metadata. Generated binaries attach
+the `workflow.dsl` capability, and `__lathe verify --json` adds the
+`workflow_contract` check.
 
-```json
-{
-  "id": "label",
-  "operation_id": "Apps_SetLabel",
-  "http": {"method": "POST", "path_template": "/apps/{appId}/label"},
-  "when": [{"value": "${input.label}", "operator": "notin", "values": [""]}]
-}
-```
+Use the running binary's `commands schema --json` result as the current catalog
+version; do not hard-code an old version in integrations.
 
-Generated binaries with workflow commands also attach capability:
+## Deliberate limits
 
-```text
-workflow.dsl
-```
-
-## Verification
-
-`__lathe verify --json` adds a `workflow_contract` check when workflows are
-compiled in:
-
-- At least one workflow command is present when `workflow.dsl` is attached.
-- Every workflow command appears in catalog JSON as `kind=workflow`.
-- Every workflow command has workflow metadata.
-- Every workflow step has an ID and operation HTTP metadata.
-- Every step condition has a value, a valid operator, and at least one value.
-
-The verify report schema does not change.
+Workflows do not provide rollback, loops, parallelism, workflow-specific retry
+or accepted-status policy, shell commands, local IO, plugins, or
+workflow-level dry-run. Workflow steps do not expose operation-command controls
+such as `--all`, `--max-pages`, or `--wait`. A non-success HTTP response stops
+the workflow.

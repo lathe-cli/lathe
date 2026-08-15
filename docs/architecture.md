@@ -1,314 +1,171 @@
 # Architecture
 
-How lathe turns an API spec into a CLI, the packages involved, and the contracts between them. For user-facing usage, see [../README.md](../README.md).
+This document owns Lathe's system boundaries, package responsibilities, and
+invariants. Configuration and command usage belong in [CLI usage](cli-usage.md);
+serialized compatibility belongs in [Machine contracts](contracts.md).
 
-## Prime idea
+## System Model
 
-> The spec is input. The CLI is output. Humans curate the edges; code fills the middle.
-
-## Two-phase model
-
-lathe has two disjoint phases. They share types (`runtime.CommandSpec`) but run at different times and in different binaries.
+Lathe has a codegen phase and a runtime phase. The generated Go packages are the
+compile-time seam between them.
 
 ```mermaid
 flowchart LR
-    subgraph codegen["Codegen-time (in the template repo)"]
-        direction TB
-        S1[specs/sources.yaml] --> S2[lathe specsync]
-        S2 --> S3[lathe codegen]
-        S3 --> S4[internal/generated/*]
+    subgraph codegen["Codegen time"]
+        Sources["specs/sources.yaml"]
+        Policy["cli.yaml + overlays + Skill includes"]
+        Sync["specsync"]
+        Parse["backend parsers"]
+        Normalize["raw IR -> runtime specs"]
+        App["internal codegen app"]
+        Generate["generated Go + Agent Skill"]
+
+        Sources --> Sync --> Parse --> Normalize --> App --> Generate
+        Policy --> App
     end
 
-    subgraph runtime["Runtime (in the end-user's shell)"]
-        direction TB
-        R1[go build] --> R2[single binary]
-        R2 --> R3[cobra command tree]
-        R3 --> R4[HTTP request]
-        R4 --> R5[formatted output]
+    subgraph runtime["Generated CLI runtime"]
+        Build["go build"]
+        Mount["generated.Mount"]
+        CLI["Cobra command tree + catalog"]
+        Invoke["runtime.InvokeOperation"]
+        API["HTTP API"]
+
+        Build --> Mount --> CLI --> Invoke --> API
     end
 
-    S4 -.compiled into.-> R1
-
-    style codegen fill:#eef2ff,stroke:#4338ca
-    style runtime fill:#ecfdf5,stroke:#047857
+    Generate --> Build
 ```
 
-The seam is `internal/generated/<module>/<module>_gen.go` — a `[]runtime.CommandSpec` literal per module. Everything above the seam is a build concern; everything below is a user concern.
+Codegen reads API specs and project configuration. Runtime executes only
+compiled declarations; it never reads raw specs, overlays, or sync cache state.
 
-## Codegen pipeline
+## Codegen Pipeline
 
-```mermaid
-flowchart TD
-    A[specs/sources.yaml] -->|sourceconfig.Load| B[Config]
-    B --> C{backend?}
+1. `internal/sourceconfig` loads `specs/sources.yaml`.
+2. `internal/specsync` checks out immutable Git inputs or stages an explicit
+   `local_path`, then records `sync-state.yaml`.
+3. One backend under `internal/codegen/backends/` parses Swagger 2.0, OpenAPI 3,
+   protobuf with `google.api.http`, or policy-curated GraphQL into
+   `rawir.RawModule`.
+4. `internal/codegen/normalize` projects backend facts into
+   `[]runtime.CommandSpec`.
+5. `internal/overlay` applies supported codegen-time overrides.
+6. `internal/lathecmd` collects modules, workflows, and optional Skill output in
+   `internal/codegen/app.App`, validates the composition, then renders owned
+   outputs.
 
-    C -->|swagger| D1[specsync.syncSwagger]
-    C -->|openapi3| D3[specsync.syncOpenAPI3]
-    C -->|proto| D2[specsync.syncProto]
-    C -->|graphql| D4[specsync.syncGraphQL]
+The main generated outputs are:
 
-    D1 --> E1[.cache/specs-sync/mod/*.swagger.json]
-    D3 --> E3[.cache/specs-sync/mod/*.yaml / *.json]
-    D2 --> E2[.cache/specs-sync/mod/*.proto + deps]
-    D4 --> E4[.cache/specs-sync/mod/*.graphql]
-
-    E1 -->|swagger.Parse| F[rawir.RawModule]
-    E3 -->|openapi3.Parse| F
-    E2 -->|proto.Parse| F
-    E4 -->|graphql.Parse| F
-
-    F -->|normalize.Normalize| G["[]runtime.CommandSpec"]
-    H[internal/overlay/&lt;mod&gt;.yaml] -->|overlay.LoadDir| I[Overrides]
-    I -->|merge| G
-
-    G -->|render.RenderModule| J[internal/generated/mod/mod_gen.go]
-
-    style F fill:#fef3c7,stroke:#b45309
-    style G fill:#fef3c7,stroke:#b45309
-    style J fill:#dcfce7,stroke:#16a34a
+```text
+internal/generated/<module>/<module>_gen.go
+internal/generated/workflows/workflows_gen.go   # when workflows exist
+internal/generated/modules_gen.go
+internal/generated/skillbundle/                 # when skill.bundle is enabled
+<skill.root>/<cli-name>/                         # when Skill generation is enabled
 ```
 
-Backends fan in to a single raw IR (`rawir.RawModule`). `normalize` projects it
-onto `CommandSpec`. `render` is a pure template emit.
+`<module>_gen.go` contains compiled API operation specs. `workflows_gen.go`
+contains compiled workflow specs. `modules_gen.go` exposes `generated.Mount`,
+which mounts API modules, workflows, then bundled capabilities in a stable
+order. `generated.MountModules` remains a compatibility alias.
 
-### Raw IR vs runtime spec
-
-Two IRs exist on purpose. `rawir` preserves backend-adjacent detail (schemas, refs, per-response shape) needed for normalization decisions (list-path detection, column picking). `runtime.CommandSpec` is the minimal declarative form the runner needs. The boundary is enforced by the package graph: nothing under `pkg/runtime` imports `internal/codegen/**`.
-
-### Why multiple backends, one IR
-
-| Concern | Swagger backend | OpenAPI 3 backend | Proto backend | GraphQL backend |
-|---|---|---|---|---|
-| Grouping | operation's first `tag` | operation's first `tag` | `service` name | `graphql.groups` policy, else source name |
-| Operation ID | `operationId` | `operationId` | `rpc` name | source name + root field name |
-| Path / method | operation object | operation object | `google.api.http` annotation | fixed `POST /graphql` |
-| Body schema | `requestBody` | `requestBody` (with `$ref` rewrite) | input message | static `{query, variables}` template |
-| Response schema | first 2xx response | first 2xx response | output message | generated selection set plus `graphql.output` policy |
-
-All normalized into the same `RawOperation` fields. By the time a spec reaches
-`normalize.Normalize`, the origin is irrelevant.
-
-## Package layout
-
-```mermaid
-graph TD
-    subgraph cmd["cmd/ — binaries"]
-        C1[cmd/lathe]
-    end
-
-    subgraph internal["internal/ — codegen-only"]
-        I0[lathecmd]
-        I1[specsync]
-        I2[sourceconfig]
-        I3[codegen/backends/swagger]
-        I3b[codegen/backends/openapi3]
-        I4[codegen/backends/proto]
-        I4b[codegen/backends/graphql]
-        I5[codegen/normalize]
-        I6[codegen/rawir]
-        I7[codegen/render]
-        I8[overlay]
-    end
-
-    subgraph pkg["pkg/ — library (compiled into downstream CLI)"]
-        P1[pkg/config]
-        P2[pkg/runtime]
-        P3[pkg/lathe]
-        P4[internal/auth]
-    end
-
-    C1 --> I0
-    I0 --> I1
-    I0 --> I2
-    I0 --> I3
-    I0 --> I3b
-    I0 --> I4
-    I0 --> I4b
-    I0 --> I5
-    I0 --> I7
-    I0 --> I8
-
-    I3 --> I6
-    I3b --> I6
-    I4 --> I6
-    I4b --> I6
-    I5 --> I6
-    I5 --> P2
-    I7 --> P2
-    I7 --> I8
-
-    P3 --> P1
-    P3 --> P2
-    P3 --> P4
-    P4 --> P1
-
-    style pkg fill:#ecfdf5,stroke:#047857
-    style internal fill:#eef2ff,stroke:#4338ca
-    style cmd fill:#fef3c7,stroke:#b45309
-```
-
-### Responsibilities
+## Package Ownership
 
 | Package | Phase | Responsibility |
 |---|---|---|
-| `cmd/lathe` | codegen | Single binary entrypoint for `specsync`, `codegen`, and `bootstrap`. |
-| `internal/lathecmd` | codegen | Resolves CLI flags and orchestrates: sync specs, load sources, verify sync state, parse, normalize, render. |
-| `internal/sourceconfig` | codegen | Parse `specs/sources.yaml`. Supports immutable Git sources (`repo_url` + `pinned_tag`) and local working-tree sources (`local_path`). |
-| `internal/specsync` | codegen | For Git sources, `git clone --filter=blob:none` and checkout the pinned ref. For local sources, stage files directly from `local_path`. Writes `sync-state.yaml`. |
-| `internal/codegen/backends/swagger` | codegen | Parse `*.swagger.json` → `RawModule`. Merges multiple files; first-seen wins on duplicates. |
-| `internal/codegen/backends/openapi3` | codegen | Parse OpenAPI 3.x YAML/JSON → `RawModule`. Rewrites `$ref`; inherits path-level parameters. |
-| `internal/codegen/backends/proto` | codegen | Parse staged `.proto` tree → `RawModule`. Only RPCs with `google.api.http` become operations. |
-| `internal/codegen/backends/graphql` | codegen | Parse staged SDL plus `graphql:` policy → `RawModule`. Emits `POST /graphql` operations with baked query templates and variable params. |
-| `internal/codegen/rawir` | codegen | Backend-agnostic raw types (`RawModule`, `RawOperation`, `RawSchema`). Includes `$ref` resolution. |
-| `internal/codegen/normalize` | codegen | Semantic projection: groups, `Short`, list path, default columns, method-ordering for determinism. |
-| `internal/codegen/render` | codegen | `text/template` → gofmt'd Go. Emits per-module `_gen.go` and top-level `modules_gen.go`. |
-| `internal/overlay` | codegen | Load `internal/overlay/<module>.yaml`. Baked into `CommandSpec` at codegen time. Runtime never sees overlays. |
-| `internal/auth` | runtime | `auth login/logout/status`. Calls the configured validate endpoint. |
-| `pkg/config` | runtime | `Manifest` (CLI identity) and `Hosts` (per-hostname credentials). `Bind(m)` seeds package-level helpers. |
-| `pkg/runtime` | runtime | `CommandSpec` IR, `Build`, body builder, HTTP client with retry, `Authenticator` interface, `Formatter` registry, `LatheError`, schema version contract. |
-| `pkg/lathe` | runtime | `Run(opts)` standard generated-CLI entrypoint; `NewApp(m)` for advanced root command composition. |
+| `cmd/lathe` | codegen | Generator executable entrypoint for `init`, `skill`, `specsync`, `codegen`, `bootstrap`, and `version`. |
+| `internal/lathecmd` | codegen | Command routing and orchestration; resolves flags, builds the generated app, and owns workflow normalization. |
+| `internal/sourceconfig` | codegen | Validates Git and local spec source declarations. |
+| `internal/specsync` | codegen | Stages source files and validates sync state. |
+| `internal/codegen/backends/*` | codegen | Converts one supported spec format into raw IR. |
+| `internal/codegen/rawir` | codegen | Backend-neutral facts needed before runtime normalization. |
+| `internal/codegen/normalize` | codegen | Produces deterministic runtime operation specs. |
+| `internal/overlay` | codegen | Parses supported command, group, parameter, context, body, and output overrides. |
+| `internal/codegen/app` | codegen | Collects and validates modules, workflows, and Skill capabilities before writing output. |
+| `internal/codegen/render` | codegen | Renders generated Go and Agent Skill files. |
+| `internal/projectinit` | codegen | Implements the `lathe init` starter contract and Git postconditions. |
+| `internal/latheskill` | distribution | Embeds Lathe's own Agent Skill. |
+| `pkg/config` | runtime | Loads the embedded manifest and persists per-host credentials and active contexts. |
+| `pkg/runtime` | runtime | Builds operation/workflow commands, catalog data, requests, auth, body handling, pagination, streaming, polling, output, and stable errors. |
+| `internal/auth` | runtime | Implements `auth login`, `logout`, `status`, and context commands. |
+| `pkg/lathe` | runtime | Provides the generated-CLI entrypoint, framework commands, version/update support, and `__lathe verify`. |
 
-## Spec lifecycle
+`internal/**` is implementation-only. `pkg/**` is linked by downstream generated
+CLIs and is therefore a compatibility-sensitive surface.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Declared: edit specs/sources.yaml
-    Declared --> SourceReady: lathe specsync\n(git checkout or local_path)
-    SourceReady --> Staged: backend-specific staging\n(.cache/specs-sync/&lt;mod&gt;/)
-    Staged --> Parsed: backend.Parse\n→ RawModule
-    Parsed --> Normalized: normalize.Normalize\n→ []CommandSpec
-    Normalized --> Polished: overlay merge\n(optional)
-    Polished --> Emitted: render.RenderModule\n→ internal/generated/&lt;mod&gt;/&lt;mod&gt;_gen.go
-    Emitted --> Compiled: go build
-    Compiled --> Runnable: ./bin/&lt;name&gt; &lt;mod&gt; &lt;cmd&gt;
-    Runnable --> [*]
+## Runtime Request Path
 
-    Declared --> Declared: bump pinned_tag/local_path\n→ restart cycle
-```
-
-Each transition is idempotent and cache-checked. `specsync.VerifyState` rejects a stale cache where `sync-state.yaml` does not match the source mode, `pinned_tag`, or resolved `local_path`.
-
-## Overlay merge matrix
-
-Overlays apply at codegen-time. The runtime has no overlay types. This matrix shows what each field's value source is and whether overlay can modify it.
-
-### CommandSpec level
-
-| IR field | Spec source | Overlay | Priority |
-|---|---|---|---|
-| `Use` | `operationId`-derived | rename | overlay > spec |
-| `Group` | `tags[0]` / service name | override | overlay > spec |
-| `GroupShort` | — | set by final group name | overlay-only |
-| `Short` | `summary` / first comment | override | overlay > spec |
-| `Long` | `description` / comment block | override | overlay > spec |
-| `Aliases` | — | append | overlay-only |
-| `Example`, `Examples` | — | set | overlay-only |
-| `Notes`, `Prerequisites`, `KnownErrors` | — | set | overlay-only |
-| `Method`, `PathTpl`, `HasBody` | spec | locked | spec-only |
-| `OperationID` | `operationId` | — | spec-only |
-| `Hidden` | `x-cli-hidden` | bool | overlay > spec |
-| `Deprecated` | `deprecated` / proto option | bool + message | overlay > spec |
-| `Security` | `security` / proto option | override (post-v0.1) | overlay > spec |
-| `RequestBody.MediaType` | `consumes[0]` | override | overlay > spec |
-| `RequestBody.RuntimeSchema` | — | read-only schema operation, response path, and parameter mapping | overlay-only |
-| `Output.Streaming.Policy` | streaming media type supplies transport only | JSON event collection and live projection | overlay > spec transport |
-| `Ignore` (command filter) | — | bool | overlay-only |
-
-### ParamSpec level
-
-| IR field | Spec source | Overlay | Priority |
-|---|---|---|---|
-| `Name` | spec | locked | spec-only |
-| `Flag` | kebab-derived; old snake spelling remains an accepted alias | rename | overlay > spec |
-| `Argument` | — | `param.argument`; ordered by the source parameter list | overlay-only |
-| `In` | spec | locked | spec-only |
-| `GoType` | `type` / `format` | narrowing only (post-v0.1) | overlay > spec |
-| `Help` | description / comment | override | overlay > spec |
-| `Required` | `required` / path rule | tighten optional → required | overlay > spec |
-| `Default` | spec or overlay | value | command overlay > spec > bulk overlay |
-| `Enum`, `Format` | spec | override (post-v0.1) | overlay > spec |
-| `Deprecated` | `param.deprecated` | bool; `param.hidden` is a legacy alias | overlay > spec |
-
-Two restricted-override rules: **`Required`** may only tighten (optional → required), never relax. **`GoType`** may only narrow (e.g. `string` → typed enum), never widen.
-
-Command `ignore` drops an operation during codegen, so it is absent from the generated CLI and catalog. Command `hidden` keeps the operation generated but hides it from normal help, search, and catalog output; `--include-hidden` can still inspect it. Parameter `hidden` does not hide a flag; it is retained only as a legacy spelling for `deprecated: true`. Prefer `deprecated: true` for parameter overlays.
-
-Module overlays may also define `defaults.pagination` with `match_commands` glob patterns and a param-value map. Bulk defaults only fill existing generated params with an empty default; they do not create params and do not replace defaults supplied by the upstream spec. A command-specific `commands.<use>.params.<name>.default` is applied afterward and wins over both spec and bulk defaults.
-
-GraphQL exposure, grouping, output hints, and selection-set policy live in
-`specs/sources.yaml`, not overlays. Those settings decide which commands exist
-and what query document they send, so they are durable source inputs rather than
-post-generation polish. Overlays can still rename, hide, annotate, or document
-the already-generated GraphQL commands.
-
-## Runtime request lifecycle
+Generated API commands and workflow steps share `runtime.InvokeOperation`.
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant Shell
-    participant Root as cobra root
-    participant Runner as runtime.Build
-    participant Host as hosts.yml / $NAME_HOST
-    participant Body as body builder
-    participant HTTP
-    participant Out as output formatter
+    participant Command as "Cobra command or workflow step"
+    participant Context as "active context resolver"
+    participant Host as "host and auth loader"
+    participant Body as "request builder"
+    participant Schema as "optional runtime schema preflight"
+    participant Client as "HTTP runtime"
+    participant Output as "formatter"
 
-    Shell->>Root: acmectl iam create-user --email alice@example.com
-    Root->>Runner: dispatched to generated module cmd
-    Runner->>Host: ResolveHost(--hostname, $NAME_HOST, hosts.yml)
-    alt exactly one host && no flag
-        Host-->>Runner: auto-selected host
-    else multiple hosts, no flag, no env
-        Host-->>Runner: ErrAmbiguousHost
-    else --hostname or env
-        Host-->>Runner: selected host + credentials
+    Command->>Context: resolve explicit flag, env, stored context
+    Command->>Host: select hostname and credentials
+    Command->>Body: build path, query, headers, form, and body
+    opt body.runtime_schema
+        Command->>Schema: fetch and validate JSON Schema
     end
-
-    Runner->>Body: assemble body (--file, --set dotted.paths, --set-str dotted.paths)
-    Body-->>Runner: JSON payload
-
-    Runner->>HTTP: method + PathTpl(params) + body + auth header
-    HTTP-->>Runner: response
-
-    Runner->>Out: format(-o table|json|yaml|raw, OutputHints)
-    Out-->>Shell: stdout
+    Command->>Client: invoke operation
+    Client->>Output: return or stream result
 ```
 
-Three pieces of state cross the boundary:
+`--dry-run` resolves the request without network access and skips runtime-schema
+fetching. Normal execution can paginate, poll long-running operations, collect
+configured streams, and persist a declared active context only after a
+successful completed operation.
 
-1. **Manifest** (immutable, from `cli.yaml` embedded at build time) — CLI identity and auth shape.
-2. **Hosts** (mutable, `~/.config/<name>/hosts.yml`) — per-hostname credentials. No "current host" stored.
-3. **Flags** (transient) — `--hostname`, `--output`, plus operation-specific flags.
+## Capability Composition
 
-## Extension points
+Lathe composes first-party capabilities at generation time; it does not load
+runtime plugins.
 
-| Extension | Built-in | Planned |
-|---|---|---|
-| Transport | Retry with exponential backoff, `Retry-After`, User-Agent. `WithTransport` injection. | Tracing, rate-limit middleware. |
-| Authenticator | `Bearer` / `NoAuth`. Selectable per host via `ClientOptions.Auth`. | API key, mTLS, SigV4, OAuth-refresh. |
-| Formatter | `table`, `json`, `yaml`, `raw`. `RegisterFormatter(name, f)`. | JMESPath, CSV, user templates. |
-| Post-processor | Cursor-based pagination (`--all`, `--max-pages`), LRO polling (202 + Location). | Link header, offset-based pagination. |
+- `skill.bundle: true` embeds the generated Skill, pins Kitup dependencies, and
+  mounts `<cli> skill install`.
+- `workflow.commands` renders workflow specs and mounts them as normal root
+  commands.
+- `catalog.cli.capabilities` records compiled capabilities such as
+  `skill.bundle` and `workflow.dsl`.
+- `__lathe verify --json` adds capability-specific checks when those features
+  are present.
 
-Each extension is an injection point. The core works with a zero-config `CommandSpec`.
+There is no public generated-app ABI, remote extension loader, or third-party
+codegen hook. External Go code can still be linked by a downstream application,
+but it is outside Lathe's generated capability contract.
 
-## Design invariants
+## Invariants
 
-These are structural, not stylistic. Violating any means the architecture breaks.
+1. `pkg/runtime` does not import `internal/codegen/**`.
+2. Git sources require an immutable `pinned_tag`; `local_path` sources
+   intentionally follow the referenced working tree. The two modes cannot be
+   mixed within one source entry, but one manifest may contain entries of both
+   kinds.
+3. `sync-state.yaml` must match the declared source mode, pinned ref, or resolved
+   local path before codegen proceeds.
+4. Backends converge on one raw IR and one runtime operation model. Backend
+   details do not branch the runtime.
+5. Overlays are merged at codegen time. Runtime packages do not know overlay
+   syntax or file locations.
+6. Generated output is static Go and Skill data. Building or running a generated
+   CLI does not invoke codegen or require spec tooling.
+7. Host selection is per invocation. Active account contexts are stored under a
+   selected host; they do not create an ambient global host.
+8. API commands, workflow steps, catalog entries, generated Skills, and verify
+   checks must describe the same compiled command surface.
+9. Generated files are outputs. Change specs, `cli.yaml`, or overlays, then
+   regenerate instead of editing generated code.
 
-1. **`pkg/runtime` does not import `internal/codegen/**`.** The runtime cannot know how a `CommandSpec` was produced. This is what makes "three backends, one IR" real rather than aspirational.
-2. **Git sources require `pinned_tag`; local sources require `local_path`.** `sourceconfig.Load` rejects floating refs (`HEAD`, `main`, `refs/heads/*`) for Git sources and rejects configs that mix `local_path` with `repo_url` or `pinned_tag`. Relative `local_path` values resolve from `specs/sources.yaml`.
-3. **Codegen is never invoked at `go build` time.** Downstream consumers need no Go toolchain tags, build flags, or network access to install.
-4. **Overlays bake at codegen-time.** The runtime has no overlay concept. This keeps `pkg/runtime` small and overlay bugs from being runtime bugs.
-5. **No ambient "current host".** The host is a per-invocation input. This mirrors `gh` and avoids the "oops, wrong cluster" class of bug.
-6. **`sync-state.yaml` guards the cache.** `lathe codegen` refuses a cache that doesn't match the source mode, pinned tag, or resolved local path. Stale generation fails loud, not silent.
-7. **Static codegen.** Downstream binaries carry no spec parser. The generated file is a pure data literal.
-8. **Single Go binary.** No `protoc`, `buf`, or other toolchain at install time. `go install` is the install path.
+## Related Contracts
 
-## Where to look next
-
-- **Using the CLI** — [../README.md](../README.md)
-- **Contributing** — [../CONTRIBUTING.md](../CONTRIBUTING.md)
-- **Runtime IR** — [../pkg/runtime/spec.go](../pkg/runtime/spec.go)
-- **Raw IR** — [../internal/codegen/rawir/types.go](../internal/codegen/rawir/types.go)
-- **Example overlay** — [../examples/overlay/example.yaml](../examples/overlay/example.yaml)
+- [CLI usage](cli-usage.md)
+- [Machine contracts](contracts.md)
+- [Workflow commands](workflow.md)
+- [Application initializer](lathe-init-design.md)

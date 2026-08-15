@@ -33,6 +33,7 @@ For every API-facing behavior change:
 1. Update the application implementation.
 2. Update `openapi/openapi.yaml` in the same change.
 3. Run the check command returned by `lathe init`.
-4. Commit the regenerated `internal/generated/`, `skills/<cli-name>/`, and `cmd/<cli-name>/cli.yaml` outputs with the feature.
+4. Run `<cli-name> __lathe verify --json` before broader command acceptance.
+5. When a commit is requested, include the regenerated `internal/generated/`, `skills/<cli-name>/`, and `cmd/<cli-name>/cli.yaml` outputs with the feature.
 
 Do not hand-edit generated files. Use the generated CLI as the main acceptance surface. Before guessing commands or flags, run `<cli-name> search "<intent>" --json`, then `<cli-name> commands show <path...> --json`.

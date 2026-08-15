@@ -1,63 +1,65 @@
 # Lathe CLI Usage
 
-Lathe ships one generator binary: `lathe`.
+This is the canonical operator guide for the `lathe` generator and generated
+CLIs. Architecture belongs in [Architecture](architecture.md); serialized
+compatibility belongs in [Machine contracts](contracts.md).
 
-Use it in a target CLI repository that owns:
+## Generator Commands
 
-- `go.mod`: the downstream module path for generated internal package imports.
-- `cli.yaml`: the generated CLI identity and auth behavior.
-- `specs/sources.yaml`: declared upstream or local API specs.
-- `cmd/<cli-name>/main.go`: the thin runtime entrypoint for the generated CLI.
+| Command | Purpose |
+|---|---|
+| `lathe init` | Create a CLI-first application repository from a supported starter. |
+| `lathe skill install` | Install Lathe's bundled Agent Skill. |
+| `lathe specsync` | Stage declared API specs and record sync state. |
+| `lathe codegen` | Generate Go command packages and optional Skill output. |
+| `lathe bootstrap` | Run `specsync` and `codegen` in sequence. |
+| `lathe version` | Print generator version metadata. |
 
-The normal path is:
-
-```sh
-go mod init example.com/acme   # skip when go.mod already exists
-lathe bootstrap
-go mod tidy
-go build -o bin/<cli-name> ./cmd/<cli-name>
-```
-
-`lathe bootstrap` is equivalent to:
-
-```sh
-lathe specsync
-lathe codegen
-```
+Use `lathe <command> --help` for the current flags. Application initialization
+has a separate [starter contract and maintenance guide](lathe-init-design.md).
 
 ## Install
 
-Download the archive for your platform from the latest GitHub release, unpack
-it, and place `lathe` on your `PATH`.
+Download the archive for your platform from the
+[latest release](https://github.com/lathe-cli/lathe/releases/latest), unpack it,
+and put `lathe` on `PATH`.
 
-From a source checkout of this repository, build a local snapshot with Go:
+From this repository:
 
 ```sh
-go build -o bin/lathe ./cmd/lathe
+make build
 ./bin/lathe version
 ```
 
-Use the built binary as `lathe`, or pass its path explicitly in examples.
-Release-shaped snapshots are built by the release workflow with Goreleaser.
+## Target Repository
 
-## Initialize the Go Module
+A generated CLI repository owns:
 
-Lathe codegen reads the target repository's module path when it renders
-`internal/generated/modules_gen.go`. If the target repository does not already
-have `go.mod`, initialize it before running `lathe bootstrap`:
+- `go.mod`: downstream module path used by generated imports.
+- `cli.yaml`: CLI identity and runtime capability configuration.
+- `specs/sources.yaml`: declared Git or local API sources.
+- Optional overlay files.
+- `cmd/<cli-name>/main.go`: thin runtime entrypoint.
+
+The normal build path is:
 
 ```sh
-go mod init example.com/acme
+go mod init example.com/acme   # skip when go.mod exists
+lathe bootstrap
+go mod tidy
+go build -o bin/acmectl ./cmd/acmectl
+bin/acmectl __lathe verify --json
 ```
 
-## Configure the Generated CLI
+## `cli.yaml`
 
-Create `cli.yaml` in the target repository:
+### CLI and Auth
 
 ```yaml
 cli:
   name: acmectl
-  short: "Command-line tool for Acme services"
+  short: Command-line tool for Acme services
+  command_path: auto
 
 auth:
   default_type: apikey
@@ -74,7 +76,9 @@ auth:
       client_id: acmectl
       device_code: ${device_code}
     poll_response:
-      access_token: token
+      access_token: data.token
+      contexts:
+        organization: data.organization_id
   validate:
     method: GET
     path: /api/v1/whoami
@@ -86,267 +90,32 @@ auth:
       fallback_field: data.email
 ```
 
-The `cli.name` value becomes the generated binary name and root command name.
-`cli.command_path` defaults to `auto`: a single source module uses
-`<cli> <group> <operation>` when its groups do not conflict with root commands,
-and multiple modules use `<cli> <module> <group> <operation>`. Set it to
-`namespaced` to always keep the module segment, or `flat` to require the single
-module flat path and fail codegen on root command conflicts.
+`cli.command_path` supports:
 
-`auth.login.type: oauth_device` enables `auth login --device-auth` and
-`auth login --auth-type oauth`. In an interactive terminal the verification
-URL opens in a browser by default; use `--no-browser` for a manual flow.
+- `auto` (default): flatten one safe module; namespace multiple modules.
+- `namespaced`: always retain the module segment.
+- `flat`: require one module and fail on root-command conflicts.
 
-`start_request` and `poll_request` replace the default JSON request bodies.
-Values may be literals or the exact placeholders `${hostname}`, `${provider}`,
-`${device_label}`, and, in `poll_request`, `${device_code}`. Empty placeholder
-values are omitted. `poll_response` maps runtime fields to JSON paths; omitted
-entries use `access_token`, `refresh_token`, `expires_in`, `status`, `error`,
-`user.email`, and `user.name`. The start response uses the standard device
-fields (`device_code`, `verification_uri`, optional `user_code`, `interval`,
-and `expires_in`). `refresh_path` remains standard OAuth and is optional; when
-present, generated commands refresh expired bearer tokens before execution.
+`auth.default_type` is `bearer`, `apikey`, `basic`, or `oauth`.
+`oauth` requires `auth.login.type: oauth_device`. Interactive device login
+opens the verification URL by default; `--no-browser` keeps the flow manual.
+Expired OAuth bearer credentials refresh before execution when
+`refresh_path` and a refresh token are available. `start_request` and
+`poll_request` replace the default JSON bodies; values may be literals or the
+supported `${hostname}`, `${provider}`, `${device_label}`, and poll-only
+`${device_code}` placeholders. `poll_response` maps dot-separated response
+paths for status, errors, tokens, expiry, user identity, and declared contexts.
+Omitted mappings use the standard OAuth field names.
 
-`auth.default_type` controls `auth login` when `--auth-type` is omitted and
-defaults to `bearer`; `oauth` requires an `auth.login` block. For API key login,
-`auth.api_key_header` replaces the `X-API-Key` default, including
-non-interactive `--with-token` login. The header is resolved at login time and
-stored in `hosts.yml`, so hosts logged in before the value changed keep their
-previous header until the next `auth login`.
+`auth.validate` proves that saved credentials work. `assert.field` resolves a
+dot-separated JSON path; it and display paths require JSON. `non_empty: true`
+rejects an empty field, or checks the raw response body when no field is set.
+With neither an assertion nor display paths, any successful response is
+accepted, including non-JSON.
 
-`auth.validate.assert.field` requires a dot-separated JSON response path;
-numeric path segments index arrays. Add `non_empty: true` to reject empty
-values. With no field, `non_empty: true` checks the raw response body, including
-plain-text endpoints. Display paths accept JSON scalar leaves.
+### Active Contexts
 
-With neither `assert` nor a `display` path, `auth.validate` only proves the
-request succeeded and no longer requires a JSON response body. Endpoints that
-return 200 for anonymous callers need `assert` to reject invalid credentials.
-
-To customize generated Skill output, add an optional top-level `skill` block:
-
-```yaml
-skill:
-  root: skills
-  include: internal/skill-include
-  bundle: true
-```
-
-The optional `skill.root` value controls where generated Skill files are written;
-set it to `""` to disable Skill generation. The optional `skill.include` value
-points at repo-local Skill resources merged into generated Skill files. The
-include path must stay outside `skill.root`. Set `skill.bundle: true` to compile
-the generated Skill into the CLI and expose `<cli> skill install`; this requires
-Skill generation to remain enabled. For per-file policy, use object form:
-
-```yaml
-skill:
-  root: skills
-  include:
-    path: internal/skill-include
-    files:
-      agents/openai.yaml: replace
-      references/modules/acme.md: omit
-```
-
-Generated CLIs expose `--version` and `-v`. The release version is
-build metadata, not `cli.yaml` data: pass `Version`, `Commit`, and `Date` through
-`lathe.RunOptions`, or inject `github.com/lathe-cli/lathe/pkg/lathe.Version`,
-`Commit`, and `Date` with Go `-ldflags` in your release build.
-
-To let the generated CLI update itself from GitHub Releases, add:
-
-```yaml
-update:
-  github:
-    owner: acme
-    repo: acmectl
-    asset: "acmectl_{{ .Version }}_{{ .OS }}_{{ .Arch }}.tar.gz"
-```
-
-`asset` is a Go template with `Name`, `Version`, `Tag`, `OS`, and `Arch`.
-`update` fetches the latest GitHub release, reports when the current binary is
-already current, and asks for confirmation before replacing the executable. Pass
-`--yes` to skip the prompt. The release asset must expose a `sha256:` digest; zip,
-tar.gz, and tgz assets must contain a binary named after `cli.name`.
-
-## Declare API Specs
-
-Create `specs/sources.yaml`:
-
-```yaml
-sources:
-  users:
-    repo_url: https://github.com/acme/users-api.git
-    pinned_tag: v1.4.0
-    backend: openapi3
-    openapi3:
-      files:
-        - openapi.yaml
-      expose:
-        operation_ids: [Users_List, Users_Get, Users_Create]
-
-  billing:
-    repo_url: https://github.com/acme/billing-api.git
-    pinned_tag: v0.9.2
-    backend: swagger
-    swagger:
-      files:
-        - swagger.json
-
-  accounts:
-    repo_url: https://github.com/acme/accounts-api.git
-    pinned_tag: v2.1.0
-    backend: proto
-    proto:
-      staging:
-        - from: api/proto
-          to: "."
-      entries:
-        - v1/accounts.proto
-
-  console:
-    repo_url: https://github.com/acme/graphql-console.git
-    pinned_tag: v3.0.0
-    backend: graphql
-    graphql:
-      schema: schema/console.graphql
-      expose:
-        queries: ["listApps", "getApp"]
-        mutations: ["createApp"]
-      groups:
-        - match: ["*App*"]
-          group: Apps
-      output:
-        - match: ["listApps"]
-          list_path: data.listApps.nodes
-          default_columns: ["id", "name", "status"]
-      selection:
-        max_depth: 2
-        prune: ["App.secretToken"]
-
-  awire:
-    local_path: ../awire
-    backend: openapi3
-    openapi3:
-      files:
-        - openapi/awire.yaml
-```
-
-Use immutable tags for reproducibility. `lathe specsync` resolves each tag to a
-commit SHA and writes sync state under `.cache/specs-sync/`.
-
-For `backend: openapi3`, optional `openapi3.expose.operation_ids` is an exact
-allowlist applied before commands are normalized or rendered. Each configured
-ID must match exactly one operation across all declared files; missing or
-duplicate matches fail codegen instead of silently widening or narrowing the
-CLI surface. Omitting `expose` preserves the existing expose-all behavior.
-
-Use `local_path` instead of `repo_url`/`pinned_tag` for a working-tree source.
-Relative paths resolve from `specs/sources.yaml`; sync state records the
-resolved local path for cache checks.
-
-For `backend: graphql`, the pinned `graphql.schema` SDL file supplies API facts:
-root operations, arguments, return types, and selectable fields. The required
-`graphql.expose` policy decides which root fields become commands; there is no
-implicit expose-all mode. Mutations are listed separately so a query wildcard
-cannot expose destructive operations.
-
-Optional GraphQL policy blocks tune the generated CLI contract:
-
-- `graphql.groups`: operation-name globs mapped to CLI groups. If one operation
-  matches more than one group rule, codegen fails closed.
-- `graphql.output`: operation-name globs with configured `list_path` and/or
-  `default_columns`. Dotted paths such as `data.listApps.nodes` are supported.
-- `graphql.selection`: `max_depth` for generated selection sets and `prune`
-  patterns in `Type.field` form. Explicit `max_depth` must be greater than zero.
-
-GraphQL commands execute `POST /graphql` with a baked JSON body template:
-`{"query": "...", "variables": {}}`. Scalar and enum arguments become typed CLI
-flags and merge under `variables`. Input-object arguments expand scalar and enum
-leaf fields into dotted variable flags such as `--input-name`; complex fields
-remain query-declared in the body schema and can be supplied with `--set` or
-`--file`.
-Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
-`pageInfo.endCursor`, `pageInfo.hasNextPage`, and an `after` argument get
-`--all`; subsequent pages write the cursor back under `variables.after`.
-
-## Generate Code
-
-After `go.mod`, `cli.yaml`, and `specs/sources.yaml` exist, run both phases:
-
-```sh
-lathe bootstrap
-```
-
-Or run them separately:
-
-```sh
-lathe specsync
-lathe codegen
-```
-
-Useful flags:
-
-```sh
-lathe specsync -source users
-lathe specsync -cache .cache
-lathe codegen -overlay internal/overlay
-lathe codegen -skill-root ""
-lathe codegen -skill-include internal/skill-include
-```
-
-`-skill-root` and `-skill-include` override the `skill.root` and `skill.include`
-path from `cli.yaml` for one run. Prefer `cli.yaml` for reproducible generated
-Skill output. When an include path is set, the directory must already exist and
-must be outside `skill.root`. Files under the include directory are mapped by
-relative path onto `<skill.root>/<cli-name>/<rel>`. Include files may target
-`SKILL.md`, `references/`, `scripts/`, `assets/`, and `agents/`.
-By default, `SKILL.md` and existing `references/**/*.md` targets are appended
-after a blank line; new files under the allowed Skill resource directories are
-created. Object-form `skill.include.files` can set a path to `append`, `create`,
-`replace`, or `omit`. `replace` requires a same-path include file and an existing
-generated target. `omit` removes eligible generated files such as
-`agents/openai.yaml` or `references/modules/*.md`; omitted module references are
-also removed from generated `SKILL.md`. `SKILL.md` may be appended or replaced,
-but not omitted. `.lathe-skill`, dotfiles, path traversal, and symlinks are
-rejected.
-
-OpenAPI parameter names are rendered as kebab-case flags. Generated commands
-continue accepting the previous snake-case spelling when it differs.
-
-An overlay can replace the generic help text for a final command group without
-changing its path:
-
-```yaml
-groups:
-  users:
-    short: Manage users and access
-```
-
-Group keys match the final `group` value after command overrides. Unknown
-groups, empty descriptions, and multiline descriptions fail codegen. When no
-description is configured, existing CLIs keep the `<group> operations`
-fallback.
-
-An overlay can expose selected parameters as ordered positional alternatives
-without removing their flags:
-
-```yaml
-commands:
-  get-user:
-    params:
-      user_id:
-        argument: id
-```
-
-This renders `get-user [id]`; both `get-user 123` and
-`get-user --user-id 123` map to the source parameter `user_id`. Command catalog
-entries retain `name`, `flag`, accepted `aliases`, `argument`, and `position` so
-agents do not infer the mapping from help text.
-
-Account-scoped defaults such as an organization or workspace are opt-in. Declare
-their names and optional environment variables in `cli.yaml`:
+Account-scoped defaults are opt-in:
 
 ```yaml
 contexts:
@@ -355,8 +124,7 @@ contexts:
     local_set: true
 ```
 
-Bind an operation parameter and, when the API has a selector operation, persist
-that parameter only after a successful response:
+An overlay binds an operation parameter to the context:
 
 ```yaml
 commands:
@@ -371,35 +139,245 @@ commands:
         from_param: organization_id
 ```
 
-The value order is explicit operation flag, declared environment variable, then
-the selected host's stored value in `hosts.yml`. Generated CLIs add
-`auth context status|unset` only when `contexts` is declared, and add `set` only
-when at least one entry has `local_set: true`. Server-managed contexts are
-changed through their generated selector operation. OAuth device login may seed
-stored values by mapping response paths under
-`auth.login.poll_response.contexts`.
+Resolution order is explicit operation flag, declared environment variable,
+then the selected host's stored value. `auth context status|unset` is generated
+when contexts exist; `set` is added only for entries with `local_set: true`.
+A selector operation persists its declared context only after successful
+completion.
 
-Generated outputs:
+### Generated Skill
 
-```text
-internal/generated/
-<skill.root>/<cli-name>/
+```yaml
+skill:
+  root: skills
+  include: internal/skill-include
+  bundle: true
 ```
 
-`internal/generated/` contains generated Go command specs. `<skill.root>/<cli-name>/`
-contains the generated agent Skill guide and module references when Skill
-generation is enabled. These outputs are reproducible from `cli.yaml`,
-`specs/sources.yaml`, synced specs, and overlays. Skill output also includes any
-resources declared by `skill.include`. When `skill.bundle` is true, codegen also
-mirrors the Skill tree under `internal/generated/skillbundle/` and pins:
+- `root: ""` disables Skill generation.
+- `include` merges repo-local resources into the generated Skill.
+- `bundle: true` embeds the Skill and mounts `<cli> skill install`.
+
+Object-form `include` supports per-file `append`, `create`, `replace`, and
+`omit` policies. Includes may target `SKILL.md`, `agents/`, `references/`,
+`scripts/`, and `assets/`. Dotfiles, symlinks, traversal, and paths inside
+the generated Skill root are rejected.
+
+When bundling is enabled, codegen pins:
 
 ```sh
 go get github.com/lathe-cli/kitup/go@v0.1.3 github.com/lathe-cli/kitup/go-cobra@v0.1.3
 ```
 
-## Wire the Generated CLI
+### Version and Update
 
-Create `cmd/<cli-name>/main.go`:
+Generated CLIs expose `--version` and `-v`. Supply `Version`, `Commit`, and
+`Date` through `lathe.RunOptions` or Go `-ldflags`; they are build metadata,
+not manifest data.
+
+Optional GitHub Release self-update configuration:
+
+```yaml
+update:
+  github:
+    owner: acme
+    repo: acmectl
+    asset: "acmectl_{{ .Version }}_{{ .OS }}_{{ .Arch }}.tar.gz"
+```
+
+The release asset must expose a `sha256:` digest. Archive assets must contain a
+binary named after `cli.name`. Update asks before replacing the executable
+unless `--yes` is passed.
+
+### Workflows
+
+`workflow.commands` compiles API-only multi-step commands into the generated
+binary. Its DSL, failure model, conditional execution, and limits are owned by
+[Workflow commands](workflow.md).
+
+## `specs/sources.yaml`
+
+```yaml
+sources:
+  users:
+    repo_url: https://github.com/acme/users-api.git
+    pinned_tag: v1.4.0
+    backend: openapi3
+    openapi3:
+      files: [openapi.yaml]
+      expose:
+        operation_ids: [Users_List, Users_Get, Users_Create]
+
+  accounts:
+    repo_url: https://github.com/acme/accounts-api.git
+    pinned_tag: v2.1.0
+    backend: proto
+    proto:
+      staging:
+        - from: api/proto
+          to: "."
+      entries: [v1/accounts.proto]
+
+  console:
+    repo_url: https://github.com/acme/graphql-console.git
+    pinned_tag: v3.0.0
+    backend: graphql
+    graphql:
+      schema: schema/console.graphql
+      expose:
+        queries: [listApps, getApp]
+        mutations: [createApp]
+
+  local:
+    local_path: ../service
+    backend: openapi3
+    openapi3:
+      files: [openapi/service.yaml]
+```
+
+| Field | Contract |
+|---|---|
+| `repo_url` + `pinned_tag` | Immutable Git input. Floating branches are rejected. |
+| `local_path` | Explicit working-tree input. Relative paths resolve from `sources.yaml`; it cannot be mixed with Git fields. |
+| `backend` | `swagger`, `openapi3`, `proto`, or `graphql`. |
+| `swagger.files` | Swagger 2.0 JSON files. |
+| `openapi3.files` | OpenAPI 3.x JSON or YAML files. |
+| `openapi3.expose.operation_ids` | Optional exact allowlist; every configured ID must match exactly once. |
+| `proto.entries` | Entry files whose annotated RPCs may become commands. Imported dependencies never add commands. |
+| `proto.dependencies` | Explicitly staged immutable Buf, Go module, or Git dependencies. |
+| `graphql.expose` | Required query/mutation allow policy; GraphQL has no implicit expose-all mode. |
+
+Buf dependencies require a module, commit, and digest; Go module dependencies
+require a version and checksum; Git dependencies require `repo_url` and
+`pinned_tag`. Staging never overwrites different content at the same include
+path.
+
+GraphQL policy can also define operation grouping, output hints, and selection
+depth/pruning. Generated GraphQL commands execute `POST /graphql` with a baked
+`{query, variables}` envelope. Scalar and enum arguments become typed flags;
+input-object leaves become dotted variable flags. Relay-shaped results can use
+body-cursor pagination.
+
+## Overlays
+
+Overlays own bounded behavior that upstream specs cannot express cleanly. They
+are merged during codegen and never read at runtime.
+
+### Command Shape
+
+```yaml
+groups:
+  users:
+    short: Manage users and access
+
+commands:
+  get-user:
+    short: Get one user
+    aliases: [show-user]
+    params:
+      user_id:
+        argument: id
+        help: User ID
+  delete-user:
+    hidden: true
+```
+
+Supported uses include command/group summaries, aliases, examples, shortcuts,
+visibility, parameter help/defaults/required tightening/deprecation, positional
+alternatives, active contexts, runtime schema preflights, and stream collection.
+Unknown groups and conflicting root names fail codegen. Command overrides apply
+only to an exact command/match; unmatched command entries and most unmatched
+parameter entries are ignored. An `argument` entry for an unknown parameter
+fails validation.
+
+`ignore: true` removes a command. `hidden: true` keeps it out of normal help,
+search, and catalog output; `--include-hidden` can still inspect it.
+
+### Multipart Input
+
+OpenAPI multipart object fields and Swagger `formData` parameters become
+normal command flags. A field with `format: binary` accepts a local file path;
+the runtime opens it and builds the multipart request. These commands do not use
+the JSON body builder's `--file`, `--set`, or `--set-str` flags.
+
+### Runtime Body Schema
+
+Bind a visible, bodyless, non-streaming `GET` operation in the same module as a
+request-body schema source:
+
+```yaml
+commands:
+  run-app:
+    body:
+      runtime_schema:
+        operation_id: describeApp
+        response_path: input_schema
+        params:
+          app_id: ${params.app_id}
+```
+
+The schema operation uses the same hostname and cannot require stronger auth
+than the target. Normal execution fetches the schema and validates the JSON
+body before the target request. External `$ref` loading is disabled.
+`--dry-run` remains network-free and skips this preflight. Static request-body
+schemas from the API spec remain discovery metadata; they are not runtime
+validators.
+
+### Stream Collection
+
+```yaml
+commands:
+  run-job:
+    output:
+      streaming:
+        data: json
+        event_name_path: event
+        collect:
+          require_stop: true
+          stop_events: [done]
+          pause_events: [input_required]
+          error_events: [error]
+          fields:
+            - events: [chunk]
+              from: text
+              to: output
+              reduce: concat
+        live:
+          events: [chunk]
+          from: text
+```
+
+Reducers are `first`, `last`, `concat`, and `append`. JSON/YAML returns one
+collected document, raw output preserves wire events, and `--stream` prints the
+configured live field in the default output mode. A pause is a successful
+terminal outcome; a workflow stops before its next step.
+
+## Generate and Build
+
+```sh
+lathe bootstrap
+```
+
+Equivalent explicit phases:
+
+```sh
+lathe specsync
+lathe codegen
+```
+
+Useful overrides:
+
+```sh
+lathe specsync -source users
+lathe specsync -cache .cache
+lathe codegen -overlay internal/overlay
+lathe codegen -skill-root ""
+lathe codegen -skill-include internal/skill-include
+```
+
+Prefer `cli.yaml` over one-off Skill flags when generation must be reproducible.
+
+Wire the generated package:
 
 ```go
 package main
@@ -409,7 +387,6 @@ import (
 	"os"
 
 	"github.com/lathe-cli/lathe/pkg/lathe"
-
 	"example.com/acme/internal/generated"
 )
 
@@ -424,130 +401,44 @@ func main() {
 }
 ```
 
-Copy `cli.yaml` next to `main.go` so `go:embed` can include it:
-
-```sh
-mkdir -p cmd/acmectl
-cp cli.yaml cmd/acmectl/cli.yaml
-```
-
-Build the generated CLI:
+Copy `cli.yaml` beside `main.go`, then:
 
 ```sh
 go mod tidy
 go build -o bin/acmectl ./cmd/acmectl
-```
-
-## Bundle Skill Installation
-
-Set `skill.bundle: true` when you want the generated CLI binary to carry its
-own Skill installer:
-
-```yaml
-skill:
-  bundle: true
-```
-
-After codegen, wire the downstream CLI with `generated.Mount` as shown above.
-Lathe mirrors the generated Skill into `internal/generated/skillbundle/`, pins
-the required kitup Go modules, and mounts `<cli> skill install` for you. You do
-not need a downstream `go:embed` bridge or handwritten kitup command wiring for
-the standard bundled Skill installer.
-
-Verify the compiled installer after building:
-
-```sh
 bin/acmectl __lathe verify --json
-bin/acmectl skill install --scope user --agent codex --yes
 ```
 
 ## Agent Operation Loop
 
-Generated CLIs expose machine-readable contracts. Agents should use this loop:
-
 ```sh
 bin/acmectl __lathe verify --json
 bin/acmectl search "create user" --json
-bin/acmectl commands show users users create --json
-bin/acmectl commands schema --json
+bin/acmectl commands show users create --json
 bin/acmectl auth status --hostname api.acme.com
-bin/acmectl users users create --set email=alice@example.com --dry-run
-bin/acmectl users users create --set email=alice@example.com -o json
+bin/acmectl users create --set email=alice@example.com --dry-run
+bin/acmectl users create --set email=alice@example.com -o json
 ```
 
 Rules:
 
-- Treat `search` output as candidates only.
-- Run `__lathe verify --json` after building a generated CLI to check the local
-  command contract before live calls.
-- Inspect exact command details with `commands show` before execution.
-- Use `examples` from command detail when overlays provide runnable command metadata.
-- Run `auth status --hostname <host>` before authenticated commands.
-- Use `--dry-run` to inspect the resolved request JSON before sending it.
-- Prefer `-o json` for agent-readable output.
-- Use `--file`, `--set`, or `--set-str` according to the command detail body
-  contract.
-- Body schemas preserve nullable values, `anyOf`/`oneOf`/`allOf`, and
-  `additionalProperties` for discovery; request execution does not validate
-  JSON Schema.
-- If a command detail flag exposes `input_modes`, prefer `--<flag>-env NAME`,
-  `--<flag>-file path`, or `--<flag>-stdin` over passing secrets directly in
-  shell arguments.
+1. Treat search results as candidates only.
+2. Use `commands show <path...> --json` as the exact operation/workflow
+   contract.
+3. Check auth when `auth.required=true`.
+4. Use `--dry-run` when the resolved request needs inspection.
+5. Prefer `-o json` for machine-readable output.
+6. Use `--file`, `--set`, and `--set-str` according to the body contract.
+7. For a flag with `input_modes`, prefer `--<flag>-env`, `--<flag>-file`, or
+   `--<flag>-stdin` for sensitive values.
+8. Branch on structured `error.code` and process exit status, not error prose.
 
-## Example Paths
+Framework commands such as `auth`, `commands`, `search`, `skill`, `update`,
+and `__lathe` are documented by `--help`; generated API operations and
+workflows are documented by the runtime catalog.
 
-### Petstore
+## Examples
 
-`examples/petstore` is the minimal OpenAPI 3 path:
-
-```text
-cd examples/petstore
-cli.yaml
-specs/sources.yaml
-cmd/petstore/main.go
-lathe codegen -cache fixtures
-go mod tidy
-go build -o bin/petstore ./cmd/petstore
-bin/petstore search "list pets" --json
-bin/petstore commands show pets list --json
-bin/petstore commands schema --json
-```
-
-### Rich API
-
-`examples/richapi` is the broader generated CLI path for APIs with pagination,
-enums, headers, request bodies, public endpoints, streaming hints, and
-long-running operation hints:
-
-```text
-cd examples/richapi
-cli.yaml
-specs/sources.yaml
-cmd/richapi/main.go
-lathe codegen -cache fixtures
-go mod tidy
-go build -o bin/richapi ./cmd/richapi
-bin/richapi commands --json
-bin/richapi commands show users list --json
-```
-
-### GraphQL
-
-`examples/graphql` is the minimal GraphQL path for a staged SDL file plus
-explicit `graphql:` policy:
-
-```text
-cd examples/graphql
-cli.yaml
-specs/sources.yaml
-cmd/graphqlctl/main.go
-lathe codegen -cache fixtures
-go mod tidy
-go build -o bin/graphqlctl ./cmd/graphqlctl
-bin/graphqlctl commands show apps list-apps --json
-bin/graphqlctl commands show apps create-app --json
-```
-
-The command detail exposes `POST /graphql`, the templated `{query, variables}`
-body, `body.merge_path=variables`, typed variable flags, and configured output
-hints.
+- [Petstore](../examples/petstore/README.md): minimal OpenAPI path and shortcut.
+- [Rich API](../examples/richapi/README.md): broader runtime metadata.
+- [GraphQL](../examples/graphql/README.md): curated GraphQL policy and request envelope.

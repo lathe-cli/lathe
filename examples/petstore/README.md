@@ -11,32 +11,24 @@ Demonstrates the minimal Lathe workflow: OpenAPI 3 spec -> codegen -> working CL
 5. Verify the generated agent loop with `search`, `commands show`, and `commands schema`.
 6. Try the generated-command shortcut: `petstore pet-123` executes `petstore pets get --id 123`.
 
-## Expected output
+## Expected surface
 
-```
-Petstore CLI demo
+The generated root exposes the `pets` module, the `pet-123` shortcut, and the
+agent discovery commands `search` and `commands`. Inspect live help instead of
+copying a full Cobra help snapshot:
 
-Usage:
-  petstore [command]
-
-Authentication:
-  auth        Authenticate petstore with a host
-
-Modules:
-  pet-123     Get a pet by ID
-  pets        Pets operations
-
-Additional Commands:
-  completion  Generate the autocompletion script for the specified shell
-  help        Help about any command
-  version     Print version information
+```sh
+./bin/petstore --help
+./bin/petstore search pet --json
+./bin/petstore commands show pets get --json
+./bin/petstore commands schema --json
 ```
 
 ## Adapting for your project
 
 See [CLI Usage](../../docs/cli-usage.md) for the full command sequence. The key files are:
 
-- **`cli.yaml`** — CLI name, description, auth endpoint
+- **`cli.yaml`** — CLI name and description
 - **`specs/sources.yaml`** — upstream specs pinned at immutable tags
 - **`overlays/pets.yaml`** — generated-command shortcuts and polish
-- **`cmd/<name>/main.go`** — embed `cli.yaml`, call `lathe.NewApp`, then handle `generated.MountModules` errors
+- **`cmd/<name>/main.go`** — embed `cli.yaml` and call `lathe.Run` with `generated.MountModules`

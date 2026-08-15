@@ -42,7 +42,7 @@ Catalog schema changes should bump `runtime.CatalogSchemaVersion` and explain mi
 
 ## Releases
 
-Maintainers cut releases from signed tags. Release notes should explain user-visible changes, compatibility impact, and verification. Source archives, checksums, and installable binaries should be published for stable releases.
+Maintainers cut releases from release tags. Release notes should explain user-visible changes, compatibility impact, and verification. Source archives, checksums, and installable binaries should be published for stable releases.
 
 ## Becoming a Maintainer
 

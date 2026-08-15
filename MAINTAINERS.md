@@ -33,4 +33,4 @@ Pull requests should be reviewed for:
 
 ## Security Reports
 
-Do not open public issues for vulnerabilities. Use GitHub Security Advisories as described in `SECURITY.md`.
+Do not open public issues for vulnerabilities. Follow the private reporting channel in `SECURITY.md`.

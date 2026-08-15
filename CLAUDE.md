@@ -27,12 +27,12 @@ Lathe also owns `lathe init` for CLI-first application repositories and `lathe s
 - `internal/auth` holds implementation-only runtime authentication support.
 - `pkg/runtime`, `pkg/config`, and `pkg/lathe` are downstream-facing runtime/library surfaces for generated CLIs.
 - Tests live beside implementation as `*_test.go`; golden fixtures live under package-local `testdata/`.
-- `examples/` contains example generation paths, and `docs/` contains architecture material, usage guides, and images.
+- `examples/` contains example generation paths, and `docs/` contains architecture and usage guides.
 
 ## Architecture invariants
 
 - The generation pipeline has two phases: codegen-time (`cmd/lathe`, `internal/lathecmd`, `internal/sourceconfig`, `internal/specsync`, `internal/codegen/**`, `internal/overlay`) and runtime (`pkg/config`, `pkg/runtime`, `pkg/lathe`, `internal/auth`, plus generated modules).
-- The seam is `internal/generated/<module>/<module>_gen.go`: generated `[]runtime.CommandSpec` literals compiled into the downstream CLI.
+- API operations cross the seam as generated `[]runtime.CommandSpec` literals in `internal/generated/<module>/<module>_gen.go`; `internal/generated/modules_gen.go` composes those modules with generated workflows and bundled capabilities through `generated.Mount`.
 - `pkg/runtime` must remain independent of `internal/codegen/**`; runtime behavior cannot depend on raw specs, overlays, or sync cache state.
 - Overlays are codegen-time polish only. They are merged into `CommandSpec`; the runtime must not learn overlay concepts.
 - `specs/sources.yaml`, `cli.yaml`, pinned upstream refs or explicit `local_path` sources, and optional overlays are the durable inputs. A local source is not pinned; sync state must record and validate its resolved path. Generated files are outputs, not hand-edited source.
@@ -65,7 +65,7 @@ Lathe also owns `lathe init` for CLI-first application repositories and `lathe s
 - Before claiming completion, run the narrowest command that proves the changed surface.
 - For runtime-sensitive changes, also run the relevant example script or `go test -race ./...`.
 - For codegen changes, verify regenerated output behavior, but do not commit generated output under `internal/generated/`.
-- For `lathe init` or bundled Skill changes, run the focused package tests and a scratch init or isolated-home install smoke. Never verify Skill installation against the real user Skill directory.
+- For `lathe init` or bundled Skill changes, run the focused package tests and a scratch init. For shell-level Skill smoke, combine a user-scope dry-run with a project-scope install in scratch; never override `HOME` or write to the real user Skill directory.
 - CI runs `go build ./...`, `go vet ./...`, `golangci-lint`, and `go test -race ./...`; local proof should explain any narrower substitute.
 - If a command cannot be run because a dependency is missing, report that directly instead of claiming success.
 
