@@ -21,9 +21,8 @@ Project maintainers are responsible for clarifying and enforcing standards of ac
 
 ## Reporting
 
-Report Code of Conduct concerns privately to the maintainer:
-
-- GitHub: https://github.com/lathe-cli
+Report Code of Conduct concerns by emailing the project owner at
+[samzong.lu@gmail.com](mailto:samzong.lu@gmail.com).
 
 Security vulnerabilities should not be reported through this process. Follow `SECURITY.md` for vulnerability reports.
 

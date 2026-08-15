@@ -1,96 +1,84 @@
 # Machine Contracts
 
-Lathe's durable value is a small set of versioned, machine-readable contracts.
-Generated CLIs, agents, and sibling tooling (installers, verifiers, registries)
-integrate through these contracts, not through Lathe internals. Any new tool or
-capability should answer one question first: which contract does it consume or
-produce, and how is that contract versioned?
-
-Code is the source of truth. Each section below points at the defining source
-file; when this page and the code disagree, trust the code and fix this page.
+Lathe exposes a small set of versioned contracts. Agents and downstream tools
+must consume these contracts instead of generated Go details or codegen
+internals. The defining constants and structs in code remain authoritative.
 
 ## Generated code schema
 
-- Version constant: `runtime.SchemaVersion` in `pkg/runtime/spec.go`.
-- Couples generated `[]runtime.CommandSpec` literals
-  (`internal/generated/<module>/<module>_gen.go` in downstream repos) to the
-  runtime that executes them.
-- Enforced by `runtime.AssertSchema` at mount time: a mismatch fails fast at
-  startup with an instruction to re-run codegen.
-- Bump the constant whenever `CommandSpec` semantics or the generated mount
-  contract change in a way that requires regeneration.
+`runtime.SchemaVersion` in `pkg/runtime/spec.go` couples generated
+`runtime.CommandSpec` literals to the runtime that executes them.
+`runtime.AssertSchema` checks the version when generated modules mount and
+fails with a regeneration instruction on mismatch.
 
-## Command catalog
+Bump this version when a generated command or mount contract changes in a way
+that requires regeneration.
 
-- Version field: `catalog_schema_version`, constant
-  `runtime.CatalogSchemaVersion` in `pkg/runtime/catalog.go`.
-- Served by `<cli> commands --json`, `commands show <path...> --json`,
-  `search "<intent>" --json`, and `commands schema --json`.
-- This is the agent-facing discovery contract and the source of truth for
-  generated operation details: HTTP method and path template, auth
-  requirements, source parameter names, CLI flags and positional alternatives,
-  body schema (including any runtime schema source), output, pagination, and
-  stream collection hints.
-- `catalog.cli.capabilities` lists compiled first-party capabilities such as
-  `skill.bundle`. Capability commands are not catalog operations.
-- Only generated API operation commands carry catalog entries. Framework
-  commands (`auth`, `commands`, `search`, `skill`, `update`, `__lathe`) are
-  discovered through `--help`, not the catalog.
-- Consumers: agents following the documented loop (search, then
-  `commands show`, then `auth status`, then execute), generated Skill files
-  (guidance and indexes only, never execution authority), and external
-  conformance tooling.
+## Runtime catalog
+
+The catalog is the agent-facing discovery contract. Its version is
+`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog.go` and is available
+through:
+
+```sh
+<cli> commands --json
+<cli> commands show <path...> --json
+<cli> commands schema --json
+<cli> search "<intent>" --json
+```
+
+Catalog entries have two kinds:
+
+- `operation`: one generated API operation, including HTTP, auth, parameter,
+  body, output, pagination, stream, and runtime-schema metadata.
+- `workflow`: one generated workflow command, including its DSL version,
+  steps, conditions, and referenced operation metadata.
+
+Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
+`__lathe` are discovered through `--help`; they are not operation entries.
+`catalog.cli.capabilities` reports compiled first-party capabilities such as
+`skill.bundle` and `workflow.dsl`.
+
+Search is discovery only. Inspect the selected command with `commands show`
+before execution. Generated Skill files explain this loop but never override
+the catalog.
 
 ## Verify report
 
-- Emitted by `<cli> __lathe verify --json`; implemented in
-  `pkg/lathe/verify.go`.
-- Version field: `version`, currently `1`.
-- Shape: `{"version": number, "ok": bool, "checks": [{"name": string, "ok":
-  bool, "error": string}]}`. The process exits non-zero when any check fails.
-- This is the generated CLI's self-evidence: root help contract, catalog
-  schema and JSON round-trip, per-command flag consistency, and an isolated
-  unauthenticated `auth status` probe. When `skill.bundle` is compiled in, the
-  `skill_install` check runs a temp-`HOME` install with an explicit Codex target.
+`<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a
+versioned report and exits non-zero if any check fails. It validates the root
+help contract, catalog serialization and flags, and an isolated auth-status
+probe. Capability-specific checks are added only when compiled in:
 
-## Structured errors and exit codes
+- `skill_install` for `skill.bundle`
+- `workflow_contract` for `workflow.dsl`
 
-- Defined in `pkg/runtime/errors.go`.
-- `-o json` and `-o yaml` errors use an `error` envelope with required `code`,
-  `message`, and `hint` fields. An optional `http` object contains only a
-  numeric `status`; URLs, headers, and response bodies are deliberately
-  excluded.
-- Error codes: `general`, `usage`, `api_error`, `not_authenticated`,
-  `canceled`.
-- Exit codes: `0` OK, `1` general, `2` usage, `3` API error,
-  `4` not authenticated, `130` canceled.
-- A configured stream pause is a successful terminal outcome, not an error. It
-  exits `0`; stream collection policy should map the pause event into the
-  returned document when callers need an explicit paused status.
-- Debug output contains request method, HTTP status, retry timing, and elapsed
-  time only. It never prints request or response URLs, headers, bodies, or raw
-  transport errors.
-- Consumers: agents and scripts that branch on failure classes instead of
-  parsing prose.
+## Structured errors
+
+`pkg/runtime/errors.go` defines machine-readable errors and exit codes. JSON
+and YAML errors contain `code`, `message`, and `hint`; `error.http` may contain
+only a numeric status. URLs, headers, bodies, credentials, and raw transport
+errors are excluded.
+
+| Code | Exit |
+| --- | ---: |
+| `general` | 1 |
+| `usage` | 2 |
+| `api_error` | 3 |
+| `not_authenticated` | 4 |
+| `canceled` | 130 |
+
+A configured stream pause is a successful terminal outcome and exits `0`.
 
 ## Durable inputs
 
-- `cli.yaml`, parsed by `pkg/config.Load`, plus codegen-only keys
-  (`skill.root`, `skill.include`) parsed in `internal/lathecmd`.
-  `skill.bundle` is a first-party capability switch in the same domain block.
-- `specs/sources.yaml`, parsed by `internal/sourceconfig`, pinning upstream
-  spec refs per module.
-- Optional overlay files, parsed by `internal/overlay`, merged at codegen time
-  only.
-- Together these are the reproducibility contract: generated output must be
-  reproducible from these pinned inputs. Overlay concepts never reach the
-  runtime.
+- `cli.yaml` defines generated CLI behavior and first-party capabilities.
+- `specs/sources.yaml` declares API sources. Git sources are reproducible only
+  when pinned to immutable refs; `local_path` deliberately follows the current
+  local working tree.
+- Overlay files provide codegen-time command and execution-policy changes,
+  including contexts, runtime-schema preflights, and stream collection.
+  Overlay concepts do not enter the runtime.
 
-## Rules
-
-- The runtime catalog is authoritative for operation details; generated Skill
-  files are guidance.
-- Search results are discovery only; agents must inspect a command via
-  `commands show` before executing it.
-- A change to any surface above is product behavior: prove it with focused
-  tests and treat the version fields as the compatibility gate.
+Generated Go, catalogs, and Skill files are outputs. Regenerate them from the
+inputs; do not treat them as independent sources of truth.

@@ -2,17 +2,16 @@
 
 ## Supported versions
 
-lathe is pre-release (v0.x). Security fixes land on `main` and are cut as a new minor. Older v0.x minors are not backported.
+Lathe is pre-release (v0.x). Security fixes land on `main` and are published in
+the next release. Older v0.x release lines are not backported.
 
 ## Reporting a vulnerability
 
-Please **do not** open a public GitHub issue for a vulnerability. Use GitHub's private advisory flow instead:
+Please **do not** open a public GitHub issue for a vulnerability. Email the
+project owner at [samzong.lu@gmail.com](mailto:samzong.lu@gmail.com).
 
-1. Go to the repo's **Security → Advisories → Report a vulnerability** tab.
-2. Describe the issue with enough detail to reproduce: the spec, the command, and the impact you observed.
-3. Expect a first response within 7 days.
-
-If private advisories are disabled or unreachable, DM the maintainer on GitHub (`@lathe-cli`) to arrange a private channel.
+Include enough detail to reproduce the issue: the spec, the command, and the
+impact you observed. Expect a first response within 7 days.
 
 ## Scope
 

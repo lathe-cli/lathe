@@ -491,7 +491,7 @@ func TestBuildWorkflows_OutputFromSkippedStepDegradesToSummary(t *testing.T) {
 }
 
 // Branch convergence is a documented limitation: a step that references one
-// branch is skipped when the other branch runs. See docs/workflow-conditional.md.
+// branch is skipped when the other branch runs. See docs/workflow.md.
 func TestBuildWorkflows_BranchConvergenceSkipsConvergingStep(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())

@@ -22,7 +22,7 @@ To follow the end-to-end generated CLI workflow, see:
 
 1. Fork the repo, create a feature branch off `main`.
 2. Keep the change small and focused. Split unrelated work into separate PRs.
-3. Run `make check` before opening the PR. New features should land with tests.
+3. Run `make check` before opening the PR. Add focused tests when they protect a stable behavior or regression boundary.
 4. Sign off every commit with `-s`: `git commit -s -m "..."`. This attests to the Developer Certificate of Origin ([developercertificate.org](https://developercertificate.org/)).
 5. Open a PR describing the problem, the fix, and how you verified it. Link any related issue.
 
@@ -38,7 +38,7 @@ To follow the end-to-end generated CLI workflow, see:
 - Don't commit generated code (`internal/generated/`) or upstream clones (`.cache/`).
 - For anything data-driven (auth endpoints, CLI identity, spec sources), prefer extending `cli.yaml` / `specs/sources.yaml` over hard-coding.
 
-For architecture details (package layout, IR pipeline, overlay matrix, extension points), see [docs/architecture.md](docs/architecture.md).
+For system boundaries, package ownership, runtime flow, and capability composition, see [docs/architecture.md](docs/architecture.md).
 
 ## Reporting bugs
 
