@@ -75,12 +75,19 @@ const (
 )
 
 type RequestBody struct {
-	Required  bool
-	MediaType string      `json:",omitempty"`
-	Schema    *SchemaSpec `json:",omitempty"`
+	Required      bool
+	MediaType     string               `json:",omitempty"`
+	Schema        *SchemaSpec          `json:",omitempty"`
+	RuntimeSchema *RuntimeSchemaSource `json:",omitempty"`
 
 	Template  string `json:",omitempty"`
 	MergePath string `json:",omitempty"`
+}
+
+type RuntimeSchemaSource struct {
+	Operation    CommandSpec
+	ResponsePath string
+	Params       map[string]string
 }
 
 type SchemaSpec struct {

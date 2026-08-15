@@ -294,6 +294,26 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	}
 }
 
+func TestBuildCatalog_RuntimeBodySchema(t *testing.T) {
+	root := newRootWithModuleGroup()
+	preflight := CommandSpec{OperationID: "Apps_Describe", Method: "GET", PathTpl: "/apps/{app_id}"}
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Apps", Use: "run", OperationID: "Apps_Run", Method: "POST", PathTpl: "/apps/{app_id}:run",
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json", RuntimeSchema: &RuntimeSchemaSource{
+			Operation: preflight, ResponsePath: "input_schema", Params: map[string]string{"app_id": "${params.app_id}"},
+		}},
+	}})
+
+	body := BuildCatalog(root, CatalogOptions{}).Commands[0].Body
+	if body == nil || body.RuntimeSchema == nil {
+		t.Fatalf("body = %+v", body)
+	}
+	got := body.RuntimeSchema
+	if got.OperationID != "Apps_Describe" || got.HTTP.Method != "GET" || got.HTTP.PathTemplate != "/apps/{app_id}" || got.ResponsePath != "input_schema" || got.Params["app_id"] != "${params.app_id}" {
+		t.Fatalf("runtime schema = %+v", got)
+	}
+}
+
 func TestBuildCatalog_SensitiveFlagInputModes(t *testing.T) {
 	root := newRootWithModuleGroup()
 	mustBuild(t, root, "demo", []CommandSpec{{
@@ -475,8 +495,8 @@ func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
 	}
 
 	catalog := BuildCatalog(root, CatalogOptions{})
-	if catalog.CatalogSchemaVersion != 15 {
-		t.Fatalf("schema version = %d, want 15", catalog.CatalogSchemaVersion)
+	if catalog.CatalogSchemaVersion != 16 {
+		t.Fatalf("schema version = %d, want 16", catalog.CatalogSchemaVersion)
 	}
 	var step *CatalogWorkflowStep
 	for i, entry := range catalog.Commands {

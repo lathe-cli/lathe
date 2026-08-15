@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 15
+const CatalogSchemaVersion = 16
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -105,11 +105,19 @@ type CatalogAuth struct {
 }
 
 type CatalogBody struct {
-	Required  bool        `json:"required"`
-	MediaType string      `json:"media_type,omitempty"`
-	Schema    *SchemaSpec `json:"schema,omitempty"`
-	Template  string      `json:"template,omitempty"`
-	MergePath string      `json:"merge_path,omitempty"`
+	Required      bool                  `json:"required"`
+	MediaType     string                `json:"media_type,omitempty"`
+	Schema        *SchemaSpec           `json:"schema,omitempty"`
+	RuntimeSchema *CatalogRuntimeSchema `json:"runtime_schema,omitempty"`
+	Template      string                `json:"template,omitempty"`
+	MergePath     string                `json:"merge_path,omitempty"`
+}
+
+type CatalogRuntimeSchema struct {
+	OperationID  string            `json:"operation_id"`
+	HTTP         CatalogHTTP       `json:"http"`
+	ResponsePath string            `json:"response_path"`
+	Params       map[string]string `json:"params,omitempty"`
 }
 
 type CatalogFlag struct {
@@ -388,14 +396,31 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 	}
 	if spec.RequestBody != nil {
 		cmd.Body = &CatalogBody{
-			Required:  spec.RequestBody.Required,
-			MediaType: spec.RequestBody.MediaType,
-			Schema:    spec.RequestBody.Schema,
-			Template:  spec.RequestBody.Template,
-			MergePath: spec.RequestBody.MergePath,
+			Required:      spec.RequestBody.Required,
+			MediaType:     spec.RequestBody.MediaType,
+			Schema:        spec.RequestBody.Schema,
+			RuntimeSchema: catalogRuntimeSchema(spec.RequestBody.RuntimeSchema),
+			Template:      spec.RequestBody.Template,
+			MergePath:     spec.RequestBody.MergePath,
 		}
 	}
 	return cmd
+}
+
+func catalogRuntimeSchema(source *RuntimeSchemaSource) *CatalogRuntimeSchema {
+	if source == nil {
+		return nil
+	}
+	return &CatalogRuntimeSchema{
+		OperationID: source.Operation.OperationID,
+		HTTP: CatalogHTTP{
+			Method:          source.Operation.Method,
+			PathTemplate:    source.Operation.PathTpl,
+			DefaultHostname: source.Operation.DefaultHostname,
+		},
+		ResponsePath: source.ResponsePath,
+		Params:       copyStringMap(source.Params),
+	}
 }
 
 func catalogWorkflowConditions(conditions []WorkflowCondition) []CatalogWorkflowCondition {

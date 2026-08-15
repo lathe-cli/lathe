@@ -528,6 +528,53 @@ func TestMergeOverlayModule_StreamPolicy(t *testing.T) {
 	}
 }
 
+func TestRenderModule_RuntimeBodySchema(t *testing.T) {
+	chdirWithGoMod(t)
+	preflight := runtime.CommandSpec{
+		Group: "Apps", Use: "describe", OperationID: "Apps_Describe", Method: "GET", PathTpl: "/apps/{app_id}",
+		Params: []runtime.ParamSpec{
+			{Name: "app_id", Flag: "app-id", In: runtime.InPath, GoType: "string", Required: true},
+			{Name: "fields", Flag: "fields", In: runtime.InQuery, GoType: "string"},
+		},
+		Output: runtime.OutputHints{ResponseMediaType: "application/json"}, Security: &runtime.SecurityHint{Public: true},
+	}
+	run := runtime.CommandSpec{
+		Group: "Apps", Use: "run", OperationID: "Apps_Run", Method: "POST", PathTpl: "/apps/{app_id}:run",
+		Params:      []runtime.ParamSpec{{Name: "app_id", Flag: "app-id", In: runtime.InPath, GoType: "string", Required: true}},
+		RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json"},
+		Security:    &runtime.SecurityHint{Public: true},
+	}
+	overrides := map[string]overlay.Override{"run": {Body: &overlay.BodyOverride{RuntimeSchema: &overlay.RuntimeSchemaOverride{
+		OperationID: "Apps_Describe", ResponsePath: "input_schema",
+		Params: map[string]string{"app_id": "${params.app_id}", "fields": "input_schema"},
+	}}}}
+
+	if err := RenderModule("demo", "", []runtime.CommandSpec{preflight, run}, overrides); err != nil {
+		t.Fatalf("RenderModule: %v", err)
+	}
+	got := generatedModule(t, "demo")
+	for _, want := range []string{
+		`RuntimeSchema: &runtime.RuntimeSchemaSource{`,
+		`OperationID: "Apps_Describe"`,
+		`ResponsePath: "input_schema"`,
+		`"app_id": "${params.app_id}"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated module missing %q\n%s", want, got)
+		}
+	}
+
+	bad := preflight
+	bad.Method = "POST"
+	if err := ValidateOverlayModule([]runtime.CommandSpec{bad, run}, overlay.Module{Commands: overrides}); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("validation error = %v", err)
+	}
+	run.Params[0].Required = false
+	if err := ValidateOverlayModule([]runtime.CommandSpec{preflight, run}, overlay.Module{Commands: overrides}); err == nil || !strings.Contains(err.Error(), "optional target parameter") {
+		t.Fatalf("validation error = %v", err)
+	}
+}
+
 func TestRenderModule_NilOverrides(t *testing.T) {
 	chdirWithGoMod(t)
 

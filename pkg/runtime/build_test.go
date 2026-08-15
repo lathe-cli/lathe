@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -1157,6 +1158,141 @@ func TestBuild_InvalidOutputBlocksBeforeRequest(t *testing.T) {
 	err := root.Execute()
 	if err == nil || ClassifyError(err).Code != CodeUsage {
 		t.Fatalf("error = %v, want usage", err)
+	}
+	if hits != 0 {
+		t.Fatalf("server hits = %d, want 0", hits)
+	}
+}
+
+func TestBuild_RuntimeBodySchemaPreflightsAndValidatesBeforeTarget(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	tests := []struct {
+		name       string
+		sets       []string
+		wantCode   string
+		wantTarget int
+		schema     string
+	}{
+		{name: "valid", sets: []string{"query=hello", "inputs.industry=health", "inputs.tier=pro", "inputs.count=2"}, wantTarget: 1},
+		{name: "missing required", sets: []string{"query=hello", "inputs.tier=pro"}, wantCode: CodeUsage},
+		{name: "unknown input", sets: []string{"query=hello", "inputs.industry=health", "inputs.unknown=value"}, wantCode: CodeUsage},
+		{name: "wrong type", sets: []string{"query=hello", "inputs.industry=health", "inputs.count=many"}, wantCode: CodeUsage},
+		{name: "invalid enum", sets: []string{"query=hello", "inputs.industry=health", "inputs.tier=trial"}, wantCode: CodeUsage},
+		{name: "unsupported schema", sets: []string{"query=hello", "inputs.industry=health"}, wantCode: CodeAPIError, schema: `{"type":"object","properties":{"unused":{"type":"string","pattern":"secret"}}}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var preflightHits, targetHits int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/apps/app-1":
+					preflightHits++
+					if got := r.URL.Query().Get("fields"); got != "input_schema" {
+						t.Errorf("preflight fields = %q", got)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					schema := tc.schema
+					if schema == "" {
+						schema = `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"query":{"type":"string","minLength":1},"inputs":{"type":"object","properties":{"industry":{"type":"string","maxLength":20},"tier":{"type":"string","enum":["free","pro"]},"count":{"type":"number"}},"required":["industry"],"additionalProperties":false}},"required":["query","inputs"]}`
+					}
+					_, _ = fmt.Fprintf(w, `{"input_schema":%s}`, schema)
+				case "/apps/app-1:run":
+					targetHits++
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"ok":true}`))
+				default:
+					t.Errorf("unexpected path %q", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			preflight := CommandSpec{
+				Group: "Apps", Use: "describe", OperationID: "Apps_Describe", Method: "GET", PathTpl: "/apps/{app_id}",
+				Params: []ParamSpec{
+					{Name: "app_id", Flag: "app-id", In: InPath, GoType: "string", Required: true},
+					{Name: "fields", Flag: "fields", In: InQuery, GoType: "string"},
+				},
+				Output:   OutputHints{ResponseMediaType: "application/json"},
+				Security: &SecurityHint{Public: true},
+			}
+			run := CommandSpec{
+				Group: "Apps", Use: "run", OperationID: "Apps_Run", Method: "POST", PathTpl: "/apps/{app_id}:run",
+				Params: []ParamSpec{{Name: "app_id", Flag: "app-id", In: InPath, GoType: "string", Required: true}},
+				RequestBody: &RequestBody{
+					Required: true, MediaType: "application/json",
+					RuntimeSchema: &RuntimeSchemaSource{
+						Operation: preflight, ResponsePath: "input_schema",
+						Params: map[string]string{"app_id": "${params.app_id}", "fields": "input_schema"},
+					},
+				},
+				Security: &SecurityHint{Public: true},
+			}
+
+			root := newRootWithModuleGroup()
+			root.SetOut(io.Discard)
+			root.SetErr(io.Discard)
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "raw", "")
+			mustBuild(t, root, "demo", []CommandSpec{preflight, run})
+			args := []string{"--hostname", srv.URL, "demo", "apps", "run", "--app-id", "app-1"}
+			for _, set := range tc.sets {
+				args = append(args, "--set", set)
+			}
+			root.SetArgs(args)
+
+			err := root.Execute()
+			if tc.wantCode == "" {
+				if err != nil {
+					t.Fatalf("Execute: %v", err)
+				}
+			} else if err == nil || ClassifyError(err).Code != tc.wantCode {
+				t.Fatalf("error = %v, code = %q, want %q", err, ClassifyError(err).Code, tc.wantCode)
+			}
+			if preflightHits != 1 {
+				t.Fatalf("preflight hits = %d, want 1", preflightHits)
+			}
+			if targetHits != tc.wantTarget {
+				t.Fatalf("target hits = %d, want %d", targetHits, tc.wantTarget)
+			}
+		})
+	}
+}
+
+func TestBuild_RuntimeBodySchemaDryRunDoesNotPreflight(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	preflight := CommandSpec{OperationID: "Apps_Describe", Method: "GET", PathTpl: "/apps/{app_id}", Params: []ParamSpec{{Name: "app_id", Flag: "app-id", In: InPath, GoType: "string", Required: true}}, Security: &SecurityHint{Public: true}}
+	run := CommandSpec{
+		Group: "Apps", Use: "run", Method: "POST", PathTpl: "/apps/{app_id}:run",
+		Params: []ParamSpec{{Name: "app_id", Flag: "app-id", In: InPath, GoType: "string", Required: true}},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json", RuntimeSchema: &RuntimeSchemaSource{
+			Operation: preflight, ResponsePath: "input_schema", Params: map[string]string{"app_id": "${params.app_id}"},
+		}},
+		Security: &SecurityHint{Public: true},
+	}
+
+	root := newRootWithModuleGroup()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", []CommandSpec{preflight, run})
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "apps", "run", "--app-id", "app-1", "--set", "inputs.unknown=value", "--dry-run"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
 	if hits != 0 {
 		t.Fatalf("server hits = %d, want 0", hits)

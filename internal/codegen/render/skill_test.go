@@ -32,6 +32,15 @@ func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
 	}
 }
 
+func TestBodySummary_RuntimeSchemaSource(t *testing.T) {
+	got := bodySummary(&runtime.RequestBody{Required: true, MediaType: "application/json", RuntimeSchema: &runtime.RuntimeSchemaSource{
+		Operation: runtime.CommandSpec{OperationID: "Apps_Describe"}, ResponsePath: "input_schema",
+	}})
+	if !strings.Contains(got, "Apps_Describe") || !strings.Contains(got, "input_schema") {
+		t.Errorf("bodySummary = %q", got)
+	}
+}
+
 func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	dir := t.TempDir()
 	manifest := &config.Manifest{

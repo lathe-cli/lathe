@@ -354,8 +354,8 @@ Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
 
 ### Overlays
 
-Overlays polish generated commands without changing the upstream spec or editing
-generated Go code.
+Overlays polish generated commands and bind bounded runtime behavior that the
+upstream spec cannot express, without editing generated Go code.
 
 `internal/overlay/iam.yaml`:
 
@@ -401,6 +401,31 @@ required when an upstream spec is incomplete; it does not create new flags.
 Command `shortcuts` add root-level commands that execute the same generated
 operation with preset values for existing parameters. Shortcut params may use
 the parameter name or flag name; invocation flags can still override the preset.
+
+When a read-only operation returns the JSON Schema for a later request body, an
+overlay can bind that preflight without hard-coding provider behavior:
+
+```yaml
+commands:
+  run-app:
+    body:
+      runtime_schema:
+        operation_id: describeApp
+        response_path: input_schema
+        params:
+          app_id: ${params.app_id}
+          fields: input_schema
+```
+
+The schema operation must be a visible, non-streaming `GET` or `HEAD` in the
+same module, use the same hostname, return JSON, and require no more auth than
+the target. Parameter mappings use source parameter names or flags; values are
+literals or exact `${params.<target-name-or-flag>}` references. Before the
+target request, the runtime executes the schema operation and validates the
+JSON body against `type`, `properties`, `required`, `additionalProperties`,
+`items`, `enum`, `minLength`, and `maxLength`. Unsupported assertion keywords
+fail the preflight instead of being ignored. `--dry-run` remains network-free,
+so it shows the static request without dynamic validation.
 
 For an SSE or NDJSON operation whose event semantics are not described by the
 API spec, an overlay can collect JSON frames into one stable result:

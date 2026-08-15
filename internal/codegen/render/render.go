@@ -259,6 +259,7 @@ func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Over
 
 func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
 	var merged []runtime.CommandSpec
+	runtimeSchemas := map[int]*overlay.RuntimeSchemaOverride{}
 	for _, s := range specs {
 		o, ok := mod.Commands[s.Use]
 		if ok && !overrideMatches(s, o) {
@@ -275,8 +276,33 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 		}
 		applyCommandOverride(&cs, o)
 		merged = append(merged, cs)
+		if o.Body != nil && o.Body.RuntimeSchema != nil {
+			runtimeSchemas[len(merged)-1] = o.Body.RuntimeSchema
+		}
+	}
+	byOperationID := make(map[string]runtime.CommandSpec, len(merged))
+	for _, spec := range merged {
+		byOperationID[spec.OperationID] = spec
+	}
+	for index, configured := range runtimeSchemas {
+		merged[index].RequestBody.RuntimeSchema = &runtime.RuntimeSchemaSource{
+			Operation:    runtimeSchemaOperation(byOperationID[configured.OperationID]),
+			ResponsePath: configured.ResponsePath,
+			Params:       copyStringMap(configured.Params),
+		}
 	}
 	return merged
+}
+
+func runtimeSchemaOperation(source runtime.CommandSpec) runtime.CommandSpec {
+	return runtime.CommandSpec{
+		OperationID:     source.OperationID,
+		Method:          source.Method,
+		PathTpl:         source.PathTpl,
+		DefaultHostname: source.DefaultHostname,
+		Params:          append([]runtime.ParamSpec(nil), source.Params...),
+		Output:          runtime.OutputHints{ResponseMediaType: source.Output.ResponseMediaType},
+	}
 }
 
 func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) error {
@@ -293,8 +319,169 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 				return fmt.Errorf("command %q stream policy: %w", spec.Use, err)
 			}
 		}
+		if override.Body != nil && override.Body.RuntimeSchema != nil {
+			if err := validateRuntimeSchemaOverride(specs, spec, *override.Body.RuntimeSchema, mod); err != nil {
+				return fmt.Errorf("command %q runtime body schema: %w", spec.Use, err)
+			}
+		}
 	}
 	return nil
+}
+
+func validateRuntimeSchemaOverride(specs []runtime.CommandSpec, target runtime.CommandSpec, configured overlay.RuntimeSchemaOverride, mod overlay.Module) error {
+	if target.RequestBody == nil || !jsonMediaType(target.RequestBody.MediaType) {
+		return fmt.Errorf("target must have a JSON request body")
+	}
+	if configured.OperationID == "" || configured.ResponsePath == "" {
+		return fmt.Errorf("operation_id and response_path are required")
+	}
+	source, matches := runtime.CommandSpec{}, 0
+	for _, candidate := range specs {
+		if candidate.OperationID == configured.OperationID {
+			source, matches = candidate, matches+1
+		}
+	}
+	if matches != 1 {
+		return fmt.Errorf("operation_id %q must match exactly one operation", configured.OperationID)
+	}
+	if source.OperationID == target.OperationID {
+		return fmt.Errorf("schema operation must differ from the target operation")
+	}
+	if source.Method != "GET" && source.Method != "HEAD" {
+		return fmt.Errorf("schema operation %q must be read-only (GET or HEAD)", configured.OperationID)
+	}
+	if source.Output.Streaming != nil || !jsonMediaType(source.Output.ResponseMediaType) {
+		return fmt.Errorf("schema operation %q must return non-streaming JSON", configured.OperationID)
+	}
+	if source.DefaultHostname != target.DefaultHostname {
+		return fmt.Errorf("schema operation %q must use the target hostname", configured.OperationID)
+	}
+	sourceParams, targetParams := source.Params, target.Params
+	sourceHidden := source.Hidden
+	if sourceOverride, ok := mod.Commands[source.Use]; ok && overrideMatches(source, sourceOverride) {
+		if sourceOverride.Ignore {
+			return fmt.Errorf("schema operation %q is ignored", configured.OperationID)
+		}
+		if sourceOverride.Body != nil && sourceOverride.Body.RuntimeSchema != nil {
+			return fmt.Errorf("schema operation %q cannot use a runtime body schema", configured.OperationID)
+		}
+		sourceParams = effectiveOverlayParams(source.Params, sourceOverride.Params)
+		if sourceOverride.Hidden != nil {
+			sourceHidden = *sourceOverride.Hidden
+		}
+	}
+	if targetOverride, ok := mod.Commands[target.Use]; ok && overrideMatches(target, targetOverride) {
+		targetParams = effectiveOverlayParams(target.Params, targetOverride.Params)
+	}
+	if sourceHidden {
+		return fmt.Errorf("schema operation %q must be visible", configured.OperationID)
+	}
+	if securityRequired(source.Security) && !securityRequired(target.Security) {
+		return fmt.Errorf("schema operation %q requires authentication but target is public", configured.OperationID)
+	}
+	if !scopesContain(target.Security, source.Security) {
+		return fmt.Errorf("target auth scopes must include schema operation %q scopes", configured.OperationID)
+	}
+
+	mapped := map[string]bool{}
+	for key, value := range configured.Params {
+		param, ok := findParam(sourceParams, key)
+		if !ok {
+			return fmt.Errorf("schema operation parameter %q does not exist", key)
+		}
+		if mapped[param.Name] {
+			return fmt.Errorf("schema operation parameter %q is mapped more than once", param.Name)
+		}
+		mapped[param.Name] = true
+		if strings.HasPrefix(value, "${") {
+			ref, ok := runtimeSchemaParamRef(value)
+			if !ok {
+				return fmt.Errorf("parameter %q has invalid target reference %q", key, value)
+			}
+			targetParam, ok := findParam(targetParams, ref)
+			if !ok {
+				return fmt.Errorf("target parameter %q does not exist", ref)
+			}
+			if targetParam.GoType != param.GoType {
+				return fmt.Errorf("target parameter %q type %q does not match schema operation parameter %q type %q", ref, targetParam.GoType, param.Name, param.GoType)
+			}
+			if param.Required && param.Default == "" && !targetParam.Required && targetParam.Default == "" {
+				return fmt.Errorf("required schema operation parameter %q maps from optional target parameter %q", param.Name, ref)
+			}
+		}
+	}
+	for _, param := range sourceParams {
+		if param.Required && param.Default == "" && !mapped[param.Name] {
+			return fmt.Errorf("required schema operation parameter %q is not mapped", param.Name)
+		}
+	}
+	return nil
+}
+
+func effectiveOverlayParams(params []runtime.ParamSpec, overrides map[string]overlay.ParamOverride) []runtime.ParamSpec {
+	out := append([]runtime.ParamSpec(nil), params...)
+	for index := range out {
+		override, ok := overrides[out[index].Name]
+		if !ok {
+			continue
+		}
+		if override.Flag != "" {
+			out[index].Flag = override.Flag
+		}
+		if override.Required {
+			out[index].Required = true
+		}
+		if override.Default != "" {
+			out[index].Default = override.Default
+		}
+	}
+	return out
+}
+
+func jsonMediaType(mediaType string) bool {
+	mediaType, _, _ = strings.Cut(strings.ToLower(strings.TrimSpace(mediaType)), ";")
+	return mediaType == "" || mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func runtimeSchemaParamRef(value string) (string, bool) {
+	const prefix = "${params."
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, "}") {
+		return "", false
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(value, prefix), "}")
+	return name, name != "" && !strings.ContainsAny(name, "${}")
+}
+
+func findParam(params []runtime.ParamSpec, name string) (runtime.ParamSpec, bool) {
+	for _, param := range params {
+		if param.Name == name || param.Flag == name {
+			return param, true
+		}
+	}
+	return runtime.ParamSpec{}, false
+}
+
+func securityRequired(security *runtime.SecurityHint) bool {
+	return security == nil || !security.Public
+}
+
+func scopesContain(target, source *runtime.SecurityHint) bool {
+	if source == nil || len(source.Scopes) == 0 {
+		return true
+	}
+	if target == nil {
+		return false
+	}
+	wanted := map[string]bool{}
+	for _, scope := range target.Scopes {
+		wanted[scope] = true
+	}
+	for _, scope := range source.Scopes {
+		if !wanted[scope] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateArguments(spec runtime.CommandSpec, overrides map[string]overlay.ParamOverride) error {
@@ -419,6 +606,10 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	for i := range cloned.Params {
 		cloned.Params[i].Aliases = append([]string(nil), spec.Params[i].Aliases...)
 		cloned.Params[i].Enum = append([]string(nil), spec.Params[i].Enum...)
+	}
+	if spec.RequestBody != nil {
+		body := *spec.RequestBody
+		cloned.RequestBody = &body
 	}
 	if spec.Output.Streaming != nil {
 		streaming := *spec.Output.Streaming
@@ -977,8 +1168,23 @@ func requestBodyLiteral(body *runtime.RequestBody) string {
 	if body.Schema != nil {
 		fmt.Fprintf(&b, "Schema: %s,", schemaLiteral(body.Schema))
 	}
+	if body.RuntimeSchema != nil {
+		fmt.Fprintf(&b, "RuntimeSchema: %s,", runtimeSchemaSourceLiteral(body.RuntimeSchema))
+	}
 	writeStringField(&b, "Template", body.Template)
 	writeStringField(&b, "MergePath", body.MergePath)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func runtimeSchemaSourceLiteral(source *runtime.RuntimeSchemaSource) string {
+	var b strings.Builder
+	b.WriteString("&runtime.RuntimeSchemaSource{")
+	fmt.Fprintf(&b, "Operation: %s,", commandSpecLiteral(source.Operation))
+	writeStringField(&b, "ResponsePath", source.ResponsePath)
+	if len(source.Params) > 0 {
+		fmt.Fprintf(&b, "Params: %s,", stringMapLiteral(source.Params))
+	}
 	b.WriteByte('}')
 	return b.String()
 }
@@ -1180,6 +1386,7 @@ var moduleTmpl = template.Must(template.New("gen").Funcs(template.FuncMap{
 	"schemaLiteral":      schemaLiteral,
 	"stringMapLiteral":   stringMapLiteral,
 	"outputHintsLiteral": outputHintsLiteral,
+	"requestBodyLiteral": requestBodyLiteral,
 }).Parse(`// Code generated by lathe codegen. DO NOT EDIT.
 
 package {{.Module}}
@@ -1285,22 +1492,8 @@ var Specs = []runtime.CommandSpec{
 		},
 		{{- end}}
 		{{- if $op.RequestBody}}
-			RequestBody: &runtime.RequestBody{
-				Required: {{$op.RequestBody.Required}},
-				{{- if $op.RequestBody.MediaType}}
-				MediaType: {{printf "%q" $op.RequestBody.MediaType}},
-				{{- end}}
-				{{- if $op.RequestBody.Schema}}
-				Schema: {{schemaLiteral $op.RequestBody.Schema}},
-				{{- end}}
-				{{- if $op.RequestBody.Template}}
-				Template: {{printf "%q" $op.RequestBody.Template}},
-				{{- end}}
-				{{- if $op.RequestBody.MergePath}}
-				MergePath: {{printf "%q" $op.RequestBody.MergePath}},
-				{{- end}}
-			},
-			{{- end}}
+		RequestBody: {{requestBodyLiteral $op.RequestBody}},
+		{{- end}}
 		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
 		Output: {{outputHintsLiteral $op.Output}},
 		{{- end}}
