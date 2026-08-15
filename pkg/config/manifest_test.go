@@ -96,6 +96,13 @@ func TestLoadRejectsUnsafeContextName(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsCaseInsensitiveDuplicateContextEnv(t *testing.T) {
+	_, err := Load([]byte("cli:\n  name: demo\ncontexts:\n  workspace:\n    env: WORKSPACE_ID\n  organization:\n    env: workspace_id\n"))
+	if err == nil || !strings.Contains(err.Error(), "same environment variable") {
+		t.Fatalf("error = %v, want duplicate environment variable", err)
+	}
+}
+
 func TestLoad_NoAuthValidate(t *testing.T) {
 	data := []byte(`
 cli:

@@ -331,10 +331,11 @@ func normalizeContexts(contexts map[string]ContextInfo) error {
 			if !validEnvName(info.Env) {
 				return fmt.Errorf("contexts.%s.env %q is not a valid environment variable name", name, info.Env)
 			}
-			if prior := seenEnv[info.Env]; prior != "" {
+			envKey := strings.ToUpper(info.Env)
+			if prior := seenEnv[envKey]; prior != "" {
 				return fmt.Errorf("contexts %q and %q use the same environment variable %s", prior, name, info.Env)
 			}
-			seenEnv[info.Env] = name
+			seenEnv[envKey] = name
 		}
 		contexts[name] = info
 	}
