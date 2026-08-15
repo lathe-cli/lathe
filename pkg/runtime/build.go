@@ -127,7 +127,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return fmt.Errorf("live stream output does not support wait polling")
 			}
 			changed := operationChangedFlags(cmd, s.Params)
-			if err := bindPositionalArgs(cmd, args, positionals, vals, changed); err != nil {
+			if err := bindPositionalArgs(cmd, args, positionals, changed); err != nil {
 				return err
 			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
@@ -482,14 +482,16 @@ func configureParamFlagAliases(cmd *cobra.Command, params []ParamSpec) {
 	})
 }
 
-func bindPositionalArgs(cmd *cobra.Command, args []string, params []ParamSpec, vals map[string]any, changed map[string]bool) error {
+func bindPositionalArgs(cmd *cobra.Command, args []string, params []ParamSpec, changed map[string]bool) error {
 	for i, value := range args {
 		p := params[i]
 		if flagChanged(cmd, p) {
 			return fmt.Errorf("parameter %q cannot use both argument %d and --%s", p.Name, i+1, p.Flag)
 		}
+		if err := cmd.Flags().Set(p.Flag, value); err != nil {
+			return fmt.Errorf("parse argument %d for parameter %q: %w", i+1, p.Name, err)
+		}
 		key := boundParamKey(p)
-		vals[key] = value
 		changed[key] = true
 	}
 	return nil

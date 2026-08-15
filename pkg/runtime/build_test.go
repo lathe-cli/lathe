@@ -123,11 +123,13 @@ func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []string
+		wantURL string
 		wantErr string
 	}{
-		{name: "primary flag", input: []string{"--app-id", "a-1", "--workspace-id", "w-1"}},
-		{name: "legacy flag", input: []string{"--app_id", "a-1", "--workspace_id", "w-1"}},
-		{name: "positional", input: []string{"a-1", "--workspace-id", "w-1"}},
+		{name: "primary flag", input: []string{"--app-id", "a-1", "--workspace-id", "w-1"}, wantURL: "/apps/a-1?workspace_id=w-1"},
+		{name: "legacy flag", input: []string{"--app_id", "a-1", "--workspace_id", "w-1"}, wantURL: "/apps/a-1?workspace_id=w-1"},
+		{name: "positional", input: []string{"a-1", "--workspace-id", "w-1"}, wantURL: "/apps/a-1?workspace_id=w-1"},
+		{name: "positional slice", input: []string{"a-1", "one,two", "--workspace-id", "w-1"}, wantURL: "/apps/a-1?tags=one&tags=two&workspace_id=w-1"},
 		{name: "conflicting inputs", input: []string{"a-1", "--app-id", "a-2", "--workspace-id", "w-1"}, wantErr: "both argument 1 and --app-id"},
 	}
 	for _, tc := range tests {
@@ -153,6 +155,8 @@ func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
 				}, {
 					Name: "workspace_id", Flag: "workspace-id", Aliases: []string{"workspace_id"}, In: InQuery,
 					GoType: "string", Required: true,
+				}, {
+					Name: "tags", Flag: "tags", In: InQuery, GoType: "[]string", Argument: "tags",
 				}},
 				Security: &SecurityHint{Public: true},
 			}})
@@ -160,8 +164,8 @@ func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
 			if describe == nil {
 				t.Fatal("describe command was not mounted")
 			}
-			if describe.Use != "describe [id]" {
-				t.Fatalf("use = %q, want describe [id]", describe.Use)
+			if describe.Use != "describe [id] [tags]" {
+				t.Fatalf("use = %q, want describe [id] [tags]", describe.Use)
 			}
 			args := []string{"--hostname", srv.URL, "demo", "apps", "describe"}
 			root.SetArgs(append(args, tc.input...))
@@ -179,8 +183,8 @@ func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
-			if requestURL != "/apps/a-1?workspace_id=w-1" {
-				t.Fatalf("URL = %q, want /apps/a-1?workspace_id=w-1", requestURL)
+			if requestURL != tc.wantURL {
+				t.Fatalf("URL = %q, want %q", requestURL, tc.wantURL)
 			}
 		})
 	}
