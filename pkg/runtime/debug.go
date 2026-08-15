@@ -19,7 +19,7 @@ const (
 	maxDebugRespBody = 4096
 )
 
-var bearerPattern = regexp.MustCompile(`(?i)\bBearer[ \t]+[A-Za-z0-9._~+/=-]+`)
+var authorizationPattern = regexp.MustCompile(`(?i)\b(Basic|Bearer)[ \t]+[A-Za-z0-9._~+/=-]+`)
 
 type debugTransport struct {
 	inner                http.RoundTripper
@@ -235,8 +235,8 @@ func redactDebugJSONAt(v any, path []string) bool {
 	}
 }
 
-func redactBearer(s string) string {
-	return bearerPattern.ReplaceAllString(s, "Bearer ***")
+func redactAuthorization(s string) string {
+	return authorizationPattern.ReplaceAllString(s, "$1 ***")
 }
 
 func isDebugEnvVarPair(path []string, v map[string]any) bool {
@@ -254,7 +254,7 @@ func isDebugEnvVarContainer(name string) bool {
 }
 
 func redactDebugText(s string) string {
-	s = redactBearer(s)
+	s = redactAuthorization(s)
 	fields := strings.FieldsFunc(s, func(r rune) bool {
 		return r == '&' || r == ';' || r == '\n' || r == '\r'
 	})
