@@ -95,6 +95,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"auth.required=true",
 		"references/modules/users.md",
 		"flags[].input_modes",
+		"error.code",
 	} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("SKILL.md missing %q", want)
@@ -115,7 +116,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 
 	catalog := readFile(t, dir, "skills/acmectl/references/catalog.md")
-	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "input_modes", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json"} {
+	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "## Errors and Pending Outcomes", "input_modes", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json", "`canceled`", "stream pause"} {
 		if !strings.Contains(catalog, want) {
 			t.Errorf("catalog.md missing %q", want)
 		}

@@ -322,6 +322,20 @@ This renders `get-user [id]`; both `get-user 123` and
 entries retain `name`, `flag`, accepted `aliases`, `argument`, and `position` so
 agents do not infer the mapping from help text.
 
+## Handle Errors and Pending Outcomes
+
+Use `-o json` or `-o yaml` when a script or agent must handle failures. The CLI
+writes a stable `error` envelope to stderr with required `code` and `message`
+fields. `hint`, `http_status`, `method`, `url`, and a redacted bounded
+`server_body` appear when relevant. Branch on `code`; message text is for
+people.
+
+Exit codes are `1` for `general`, `2` for `usage`, `3` for `api_error`, `4` for
+`not_authenticated`, and `130` for `canceled`. A collected stream pause exits
+`0` and returns the overlay-defined pending payload. Inspect the command's
+`output.streaming.policy.collect.pause_events` and field mappings rather than
+treating a pause as failure.
+
 Generated outputs:
 
 ```text

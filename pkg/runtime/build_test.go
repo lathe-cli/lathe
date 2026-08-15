@@ -1086,6 +1086,9 @@ func TestBuild_RequiredQueryParamBlocksBeforeRequest(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected required flag error")
 	}
+	if classified := ClassifyError(err); classified.Code != CodeUsage || classified.ExitCode != ExitUsage {
+		t.Fatalf("classified error = %+v", classified)
+	}
 	if !strings.Contains(err.Error(), "required flag") || !strings.Contains(err.Error(), "type") {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -68,19 +68,25 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 		Long:    spec.Long,
 		Example: spec.Example,
 		Hidden:  spec.Hidden,
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := cmd.ValidateRequiredFlags(); err != nil {
+				return newUsageError(cmd, err)
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := resolveSafeInputFlags(cmd, spec.Params, vals); err != nil {
-				return err
+				return newUsageError(cmd, err)
 			}
 			changed := operationChangedFlags(cmd, spec.Params)
 			if err := validateRequiredParams(spec.Params, false, changed); err != nil {
-				return err
+				return newUsageError(cmd, err)
 			}
 			if err := validateOperationEnums(CommandSpec{Params: spec.Params}, OperationInput{
 				Values:  vals,
 				Changed: changed,
 			}); err != nil {
-				return err
+				return newUsageError(cmd, err)
 			}
 			result, data, err := executeWorkflow(cmd, spec, vals)
 			if err != nil {

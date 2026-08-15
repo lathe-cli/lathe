@@ -118,23 +118,29 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		Short:   s.Short,
 		Long:    s.Long,
 		Example: s.Example,
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := cmd.ValidateRequiredFlags(); err != nil {
+				return newUsageError(cmd, err)
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			if liveStream && format != "table" {
-				return fmt.Errorf("live stream output does not support -o %s", format)
+				return newUsageError(cmd, fmt.Errorf("live stream output does not support -o %s", format))
 			}
 			if liveStream && waitPoll {
-				return fmt.Errorf("live stream output does not support wait polling")
+				return newUsageError(cmd, fmt.Errorf("live stream output does not support wait polling"))
 			}
 			changed := operationChangedFlags(cmd, s.Params)
 			if err := bindPositionalArgs(cmd, args, positionals, changed); err != nil {
 				return err
 			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
-				return err
+				return newUsageError(cmd, err)
 			}
 			if err := validateRequiredParams(s.Params, s.RequestBody != nil, changed); err != nil {
-				return err
+				return newUsageError(cmd, err)
 			}
 
 			var hostname string
@@ -201,7 +207,13 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		for _, p := range positionals {
 			cmd.Use += " [" + p.Argument + "]"
 		}
-		cmd.Args = cobra.MaximumNArgs(len(positionals))
+		validateArgs := cobra.MaximumNArgs(len(positionals))
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if err := validateArgs(cmd, args); err != nil {
+				return newUsageError(cmd, err)
+			}
+			return nil
+		}
 	}
 	configureParamFlagAliases(cmd, s.Params)
 
@@ -486,10 +498,10 @@ func bindPositionalArgs(cmd *cobra.Command, args []string, params []ParamSpec, c
 	for i, value := range args {
 		p := params[i]
 		if flagChanged(cmd, p) {
-			return fmt.Errorf("parameter %q cannot use both argument %d and --%s", p.Name, i+1, p.Flag)
+			return newUsageError(cmd, fmt.Errorf("parameter %q cannot use both argument %d and --%s", p.Name, i+1, p.Flag))
 		}
 		if err := cmd.Flags().Set(p.Flag, value); err != nil {
-			return fmt.Errorf("parse argument %d for parameter %q: %w", i+1, p.Name, err)
+			return newUsageError(cmd, fmt.Errorf("parse argument %d for parameter %q: %w", i+1, p.Name, err))
 		}
 		key := boundParamKey(p)
 		changed[key] = true

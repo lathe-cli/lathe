@@ -20,7 +20,10 @@ var ErrNotAuthenticated = errors.New("not authenticated")
 // the bound manifest and wraps ErrNotAuthenticated so errors.Is still works.
 func NewNotAuthenticatedError() error {
 	name := config.Active().CLI.Name
-	return fmt.Errorf("not logged in to any %s host; run `%s auth login` to authenticate: %w", name, name, ErrNotAuthenticated)
+	return notAuthenticatedError(
+		fmt.Sprintf("not logged in to any %s host", name),
+		fmt.Sprintf("run '%s auth login'", name),
+	)
 }
 
 func ResolveHost(cmd *cobra.Command) (string, error) {
@@ -153,5 +156,15 @@ func tryLoadHostOptionsMaybeRefresh(cmd *cobra.Command, defaultHostname string, 
 
 func notAuthenticatedToHost(hostname string) error {
 	name := config.Active().CLI.Name
-	return fmt.Errorf("not authenticated to %s (run: %s auth login --hostname %s)", hostname, name, hostname)
+	return notAuthenticatedError(
+		fmt.Sprintf("not authenticated to %s", hostname),
+		fmt.Sprintf("run '%s auth login --hostname %s'", name, hostname),
+	)
+}
+
+func notAuthenticatedError(message, hint string) *LatheError {
+	return &LatheError{
+		Code: CodeNotAuthenticated, Message: message, Hint: hint,
+		ExitCode: ExitNotAuthenticated, cause: ErrNotAuthenticated,
+	}
 }

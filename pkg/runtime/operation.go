@@ -301,7 +301,7 @@ func validateRequiredOperationParams(s CommandSpec, input OperationInput) error 
 			continue
 		}
 		if !operationChanged(input, p) {
-			return fmt.Errorf("required param %q missing", p.Name)
+			return NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("required param %q missing", p.Name))
 		}
 	}
 	return nil
@@ -314,7 +314,7 @@ func validateOperationEnums(s CommandSpec, input OperationInput) error {
 		}
 		v, _, err := operationValue(input, p)
 		if err != nil {
-			return err
+			return NewLatheError(CodeUsage, ExitUsage, err)
 		}
 		raw := operationStringValue(v)
 		valid := false
@@ -325,7 +325,7 @@ func validateOperationEnums(s CommandSpec, input OperationInput) error {
 			}
 		}
 		if !valid {
-			return fmt.Errorf("invalid value %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.Enum, ", "))
+			return NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("invalid value %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.Enum, ", ")))
 		}
 	}
 	return nil

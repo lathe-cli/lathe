@@ -334,9 +334,5 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string {
-	snippet := string(e.Body)
-	if len(snippet) > 200 {
-		snippet = snippet[:200] + "…"
-	}
-	return fmt.Sprintf("%s %s: HTTP %d: %s", e.Method, e.URL, e.Status, strings.TrimSpace(snippet))
+	return fmt.Sprintf("%s %s: HTTP %d", e.Method, e.URL, e.Status)
 }

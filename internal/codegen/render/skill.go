@@ -525,6 +525,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	b.WriteString("- For collected streams, choose one mode: `-o json` for one stable document, `--stream` in the default output mode when catalog `output.streaming.policy.live` is present, or `-o raw` for wire events.\n")
 	b.WriteString("- Use `--file`, `--set`, or `--set-str` for JSON request bodies according to `commands show` body requirements.\n")
 	b.WriteString("- For sensitive flags, prefer safe modes from `flags[].input_modes`: `--<flag>-env`, `--<flag>-file`, or `--<flag>-stdin`.\n")
+	b.WriteString("- On a non-zero exit with `-o json` or `-o yaml`, parse the stderr `error` envelope and branch on `error.code`, not `error.message`. A collected stream pause is success with exit 0; inspect the collected payload and stream policy.\n")
 	return b.String()
 }
 
@@ -576,6 +577,9 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `--set-str key.path=value`: build JSON while forcing the value to remain a string.\n\n")
 	b.WriteString("## Output\n\n")
 	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`. For collected streams, choose one mode: JSON or YAML for one document, `--stream` in the default output mode when `output.streaming.policy.live` is present, or raw for wire events.\n\n")
+	b.WriteString("## Errors and Pending Outcomes\n\n")
+	b.WriteString("With `-o json` or `-o yaml`, failures are written to stderr as an `error` envelope. `code` and `message` are always present; `hint`, `http_status`, `method`, `url`, and a redacted bounded `server_body` are optional. Branch on `code`, never on message text.\n\n")
+	b.WriteString("Exit codes are 1 `general`, 2 `usage`, 3 `api_error`, 4 `not_authenticated`, and 130 `canceled`. A collected stream pause is not an error: it exits 0 and returns the overlay-defined pending payload; inspect `output.streaming.policy.collect.pause_events` and its field mappings before continuing.\n\n")
 	b.WriteString("## Auth\n\n")
 	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {

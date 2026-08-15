@@ -235,7 +235,7 @@ func streamEventError(event string, payload any) error {
 	for _, path := range []string{"message", "error"} {
 		if value, ok := getNestedPath(payload, path); ok {
 			if text, ok := value.(string); ok && text != "" {
-				return fmt.Errorf("stream event %q: %s", event, text)
+				return fmt.Errorf("stream event %q: %s", event, redactDebugText(text))
 			}
 		}
 	}

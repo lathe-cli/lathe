@@ -1,8 +1,10 @@
 package lathe
 
 import (
+	"context"
 	"io"
 	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 
@@ -30,6 +32,9 @@ func Run(opts RunOptions) int {
 }
 
 func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	m, err := config.Load(opts.Manifest)
 	if err != nil {
 		return runtime.FormatError(err, "table", stderr)
@@ -38,6 +43,7 @@ func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 	setVersionInfo(opts)
 
 	root := NewApp(m)
+	root.SetContext(ctx)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)

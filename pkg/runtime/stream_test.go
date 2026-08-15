@@ -120,8 +120,11 @@ func TestCollectStream_RejectsMissingRequiredStop(t *testing.T) {
 
 	hint.Policy.Collect.RequireStop = false
 	hint.Policy.Collect.ErrorEvents = []string{"failed"}
-	_, err := collectStream(strings.NewReader("{\"kind\":\"failed\",\"message\":\"run failed\"}\n"), hint, nil, &outcome)
+	_, err := collectStream(strings.NewReader("{\"kind\":\"failed\",\"message\":\"run failed; token=stream-secret; Bearer stream-bearer\"}\n"), hint, nil, &outcome)
 	if classified := ClassifyError(err); classified == nil || classified.ExitCode != ExitAPIError {
 		t.Fatalf("error = %v, classified = %#v", err, classified)
+	}
+	if strings.Contains(err.Error(), "stream-secret") || strings.Contains(err.Error(), "stream-bearer") {
+		t.Fatalf("stream error leaked server secret: %v", err)
 	}
 }

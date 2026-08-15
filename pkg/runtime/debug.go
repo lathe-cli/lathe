@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -17,6 +18,8 @@ const (
 	maxDebugReqBody  = 1024
 	maxDebugRespBody = 4096
 )
+
+var bearerPattern = regexp.MustCompile(`(?i)\bBearer[ \t]+[A-Za-z0-9._~+/=-]+`)
 
 type debugTransport struct {
 	inner                http.RoundTripper
@@ -198,6 +201,14 @@ func redactDebugJSONAt(v any, path []string) bool {
 				changed = true
 				continue
 			}
+			if text, ok := child.(string); ok {
+				redacted := redactBearer(text)
+				if redacted != text {
+					tv[k] = redacted
+					changed = true
+				}
+				continue
+			}
 			if redactDebugJSONAt(child, append(path, k)) {
 				changed = true
 			}
@@ -205,7 +216,15 @@ func redactDebugJSONAt(v any, path []string) bool {
 		return changed
 	case []any:
 		changed := false
-		for _, child := range tv {
+		for i, child := range tv {
+			if text, ok := child.(string); ok {
+				redacted := redactBearer(text)
+				if redacted != text {
+					tv[i] = redacted
+					changed = true
+				}
+				continue
+			}
 			if redactDebugJSONAt(child, path) {
 				changed = true
 			}
@@ -214,6 +233,10 @@ func redactDebugJSONAt(v any, path []string) bool {
 	default:
 		return false
 	}
+}
+
+func redactBearer(s string) string {
+	return bearerPattern.ReplaceAllString(s, "Bearer ***")
 }
 
 func isDebugEnvVarPair(path []string, v map[string]any) bool {
@@ -231,6 +254,7 @@ func isDebugEnvVarContainer(name string) bool {
 }
 
 func redactDebugText(s string) string {
+	s = redactBearer(s)
 	fields := strings.FieldsFunc(s, func(r rune) bool {
 		return r == '&' || r == ';' || r == '\n' || r == '\r'
 	})

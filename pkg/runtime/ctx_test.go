@@ -27,12 +27,17 @@ func bindTestManifest(t *testing.T, name, hostEnv string) {
 
 func TestNewNotAuthenticatedError_WrapsSentinel(t *testing.T) {
 	bindTestManifest(t, "demo", "DEMO_HOST")
-	err := NewNotAuthenticatedError()
-	if !errors.Is(err, ErrNotAuthenticated) {
-		t.Fatal("expected errors.Is to match ErrNotAuthenticated")
-	}
-	if !strings.Contains(err.Error(), "demo host") || !strings.Contains(err.Error(), "`demo auth login`") {
-		t.Errorf("expected rendered message to use bound name; got %q", err.Error())
+	for _, err := range []error{NewNotAuthenticatedError(), notAuthenticatedToHost("api.example.com")} {
+		if !errors.Is(err, ErrNotAuthenticated) {
+			t.Fatal("expected errors.Is to match ErrNotAuthenticated")
+		}
+		classified := ClassifyError(err)
+		if classified.Code != CodeNotAuthenticated || classified.ExitCode != ExitNotAuthenticated {
+			t.Errorf("classified error = %+v", classified)
+		}
+		if !strings.Contains(classified.Hint, "demo auth login") {
+			t.Errorf("hint does not use bound CLI name: %+v", classified)
+		}
 	}
 }
 
