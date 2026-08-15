@@ -736,7 +736,7 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 		}
 	}
 	if len(s.Required) > 0 {
-		seen := make(map[string]bool, len(out.Required)+len(s.Required))
+		seen := make(map[string]bool)
 		for _, name := range out.Required {
 			seen[name] = true
 		}
