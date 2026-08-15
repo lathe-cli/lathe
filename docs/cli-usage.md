@@ -67,6 +67,14 @@ auth:
     start_path: /auth/device/start
     token_path: /auth/device/token
     refresh_path: /auth/device/refresh
+    start_request:
+      client_id: acmectl
+      device_label: ${device_label}
+    poll_request:
+      client_id: acmectl
+      device_code: ${device_code}
+    poll_response:
+      access_token: token
   validate:
     method: GET
     path: /api/v1/whoami
@@ -86,11 +94,18 @@ and multiple modules use `<cli> <module> <group> <operation>`. Set it to
 module flat path and fail codegen on root command conflicts.
 
 `auth.login.type: oauth_device` enables `auth login --device-auth` and
-`auth login --auth-type oauth`. The service must provide `start_path` and
-`token_path` endpoints using OAuth 2.0 device-flow fields (`device_code`,
-`verification_uri`, optional `user_code`, `interval`, `expires_in`, and later
-`access_token`). `refresh_path` is optional; when present, generated commands
-refresh expired bearer tokens before execution.
+`auth login --auth-type oauth`. In an interactive terminal the verification
+URL opens in a browser by default; use `--no-browser` for a manual flow.
+
+`start_request` and `poll_request` replace the default JSON request bodies.
+Values may be literals or the exact placeholders `${hostname}`, `${provider}`,
+`${device_label}`, and, in `poll_request`, `${device_code}`. Empty placeholder
+values are omitted. `poll_response` maps runtime fields to JSON paths; omitted
+entries use `access_token`, `refresh_token`, `expires_in`, `status`, `error`,
+`user.email`, and `user.name`. The start response uses the standard device
+fields (`device_code`, `verification_uri`, optional `user_code`, `interval`,
+and `expires_in`). `refresh_path` remains standard OAuth and is optional; when
+present, generated commands refresh expired bearer tokens before execution.
 
 `auth.default_type` controls `auth login` when `--auth-type` is omitted and
 defaults to `bearer`; `oauth` requires an `auth.login` block. For API key login,

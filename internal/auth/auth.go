@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/exec"
+	goruntime "runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,12 +46,13 @@ type oauthDeviceStartResponse struct {
 }
 
 type oauthDeviceTokenResponse struct {
-	Status       string            `json:"status"`
-	Error        string            `json:"error"`
-	AccessToken  string            `json:"access_token"`
-	RefreshToken string            `json:"refresh_token"`
-	ExpiresIn    int64             `json:"expires_in"`
-	User         map[string]string `json:"user"`
+	Status       string
+	Error        string
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int64
+	UserEmail    string
+	UserName     string
 }
 
 func rootString(cmd *cobra.Command, name string) string {
@@ -60,15 +65,28 @@ func rootBool(cmd *cobra.Command, name string) bool {
 	return v
 }
 
-func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, provider string, insecure bool) (config.HostEntry, error) {
+func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, provider string, insecure, noBrowser bool) (config.HostEntry, error) {
 	login := m.Auth.Login
 	if login == nil || login.Type != config.AuthLoginOAuthDevice {
 		return config.HostEntry{}, errors.New("auth.login with type oauth_device is required for --auth-type oauth")
 	}
-	body := map[string]string{"hostname": hostname}
 	provider = strings.TrimSpace(provider)
+	deviceHostname, _ := os.Hostname()
+	if deviceHostname == "" {
+		deviceHostname = "unknown-host"
+	}
+	deviceLabel := m.CLI.Name + " on " + deviceHostname
+	fallback := map[string]string{"hostname": hostname}
 	if provider != "" {
-		body["provider"] = provider
+		fallback["provider"] = provider
+	}
+	body, err := oauthDeviceRequest(login.StartRequest, fallback, map[string]string{
+		config.AuthLoginHostname:    hostname,
+		config.AuthLoginProvider:    provider,
+		config.AuthLoginDeviceLabel: deviceLabel,
+	})
+	if err != nil {
+		return config.HostEntry{}, err
 	}
 	data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.StartPath, body, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
 	if err != nil {
@@ -92,7 +110,12 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 	if start.UserCode != "" {
 		fmt.Fprintf(os.Stderr, "Code: %s\n", start.UserCode)
 	}
-	token, err := pollOAuthDeviceToken(cmd, hostname, login.TokenPath, start, insecure)
+	openURL := start.VerificationURIComplete
+	if openURL == "" {
+		openURL = verificationURL
+	}
+	maybeOpenBrowser(openURL, noBrowser)
+	token, err := pollOAuthDeviceToken(cmd, hostname, login, start, provider, deviceLabel, insecure)
 	if err != nil {
 		return config.HostEntry{}, err
 	}
@@ -107,16 +130,14 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 	if token.ExpiresIn > 0 {
 		entry.OAuthExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix()
 	}
-	if token.User != nil {
-		entry.User = token.User["email"]
-		if entry.User == "" {
-			entry.User = token.User["name"]
-		}
+	entry.User = token.UserEmail
+	if entry.User == "" {
+		entry.User = token.UserName
 	}
 	return entry, nil
 }
 
-func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, tokenPath string, start oauthDeviceStartResponse, insecure bool) (oauthDeviceTokenResponse, error) {
+func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, login *config.AuthLogin, start oauthDeviceStartResponse, provider, deviceLabel string, insecure bool) (oauthDeviceTokenResponse, error) {
 	expiresIn := start.ExpiresIn
 	if expiresIn <= 0 {
 		expiresIn = 600
@@ -126,16 +147,25 @@ func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, tokenPath string,
 		interval = 5
 	}
 	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	body, err := oauthDeviceRequest(login.PollRequest, map[string]string{"device_code": start.DeviceCode}, map[string]string{
+		config.AuthLoginHostname:    hostname,
+		config.AuthLoginProvider:    provider,
+		config.AuthLoginDeviceLabel: deviceLabel,
+		config.AuthLoginDeviceCode:  start.DeviceCode,
+	})
+	if err != nil {
+		return oauthDeviceTokenResponse{}, err
+	}
 	for {
 		if time.Now().After(deadline) {
 			return oauthDeviceTokenResponse{}, errors.New("oauth login expired")
 		}
-		data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", tokenPath, map[string]string{
-			"device_code": start.DeviceCode,
-		}, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
+		data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.TokenPath, body, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
 		var token oauthDeviceTokenResponse
 		if len(data) > 0 {
-			if decodeErr := json.Unmarshal(data, &token); decodeErr != nil {
+			var decodeErr error
+			token, decodeErr = decodeOAuthDeviceToken(data, login.PollResponse)
+			if decodeErr != nil {
 				if err != nil {
 					return oauthDeviceTokenResponse{}, fmt.Errorf("poll oauth login: %w", err)
 				}
@@ -187,12 +217,122 @@ func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, tokenPath string,
 	}
 }
 
+func oauthDeviceRequest(configured, fallback, values map[string]string) (map[string]string, error) {
+	if configured == nil {
+		return fallback, nil
+	}
+	body := make(map[string]string, len(configured))
+	for field, value := range configured {
+		if resolved, ok := values[value]; ok {
+			if resolved != "" {
+				body[field] = resolved
+			}
+			continue
+		}
+		if strings.Contains(value, "${") {
+			return nil, fmt.Errorf("auth.login request field %q has unsupported placeholder %q", field, value)
+		}
+		body[field] = value
+	}
+	return body, nil
+}
+
+func decodeOAuthDeviceToken(data []byte, fields config.AuthLoginPollResponse) (oauthDeviceTokenResponse, error) {
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return oauthDeviceTokenResponse{}, err
+	}
+	expiresIn, err := oauthInt64(raw, oauthField(fields.ExpiresIn, "expires_in"))
+	if err != nil {
+		return oauthDeviceTokenResponse{}, err
+	}
+	return oauthDeviceTokenResponse{
+		Status:       pluckString(raw, oauthField(fields.Status, "status")),
+		Error:        pluckString(raw, oauthField(fields.Error, "error")),
+		AccessToken:  pluckString(raw, oauthField(fields.AccessToken, "access_token")),
+		RefreshToken: pluckString(raw, oauthField(fields.RefreshToken, "refresh_token")),
+		ExpiresIn:    expiresIn,
+		UserEmail:    pluckString(raw, oauthField(fields.UserEmail, "user.email")),
+		UserName:     pluckString(raw, oauthField(fields.UserName, "user.name")),
+	}, nil
+}
+
+func oauthField(configured, fallback string) string {
+	if configured != "" {
+		return configured
+	}
+	return fallback
+}
+
+func oauthInt64(raw any, path string) (int64, error) {
+	value, ok := pluck(raw, path)
+	if !ok || value == nil {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(fmt.Sprint(value), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("oauth token response field %q must be an integer", path)
+	}
+	return n, nil
+}
+
+func maybeOpenBrowser(rawURL string, noBrowser bool) {
+	if reason := browserSkipReason(noBrowser); reason != "" {
+		fmt.Fprintf(os.Stderr, "Browser not opened (%s); open the URL above manually.\n", reason)
+		return
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		fmt.Fprintln(os.Stderr, "Browser not opened (verification URL is not HTTP(S)); open the URL above manually.")
+		return
+	}
+	name := "xdg-open"
+	args := []string{rawURL}
+	switch goruntime.GOOS {
+	case "darwin":
+		name = "open"
+	case "windows":
+		name = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", rawURL}
+	}
+	if err := startBrowserCommand(name, args...); err != nil {
+		fmt.Fprintf(os.Stderr, "Browser could not be opened (%v); open the URL above manually.\n", err)
+	}
+}
+
+func startBrowserCommand(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// xdg-open may stay attached to the browser, so reap it without delaying token polling.
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
+func browserSkipReason(noBrowser bool) string {
+	if noBrowser {
+		return "--no-browser requested"
+	}
+	if os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" {
+		return "SSH session detected"
+	}
+	if goruntime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		return "headless Linux detected"
+	}
+	if !term.IsTerminal(int(os.Stdout.Fd())) || !term.IsTerminal(int(os.Stderr.Fd())) {
+		return "non-interactive terminal"
+	}
+	return ""
+}
+
 func newLogin(m *config.Manifest) *cobra.Command {
 	var (
 		authType     string
 		provider     string
 		withToken    bool
 		deviceAuth   bool
+		noBrowser    bool
 		skipValidate bool
 	)
 	cmd := &cobra.Command{
@@ -276,7 +416,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return errors.New("--with-token cannot be used with --auth-type oauth")
 				}
 				var err error
-				entry, err = oauthDeviceLogin(cmd, m, hostname, provider, insecure)
+				entry, err = oauthDeviceLogin(cmd, m, hostname, provider, insecure, noBrowser)
 				if err != nil {
 					return err
 				}
@@ -324,6 +464,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "OAuth provider hint passed to the service")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read token/key from stdin")
 	cmd.Flags().BoolVar(&deviceAuth, "device-auth", false, "Use OAuth device login")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Do not open a browser for OAuth device login")
 	cmd.Flags().BoolVar(&skipValidate, "skip-validate", false, "Do not validate credentials against the server")
 	return cmd
 }

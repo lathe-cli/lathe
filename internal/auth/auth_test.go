@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -94,6 +96,98 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 	if entry.AuthType != "bearer" || entry.LoginType != config.AuthLoginOAuthDevice || entry.LoginProvider != "github" || entry.OAuthToken != "access-1" || entry.OAuthRefreshToken != "refresh-1" || entry.User != "octo@example.com" || entry.OAuthExpiresAt == 0 {
 		t.Fatalf("entry = %+v", entry)
 	}
+}
+
+func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
+	var startBody, pollBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			if err := json.NewDecoder(r.Body).Decode(&startBody); err != nil {
+				t.Errorf("decode start body: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code":      "device-1",
+				"user_code":        "ABCD",
+				"verification_uri": "https://example.com/device",
+				"expires_in":       60,
+			})
+		case "/token":
+			if err := json.NewDecoder(r.Body).Decode(&pollBody); err != nil {
+				t.Errorf("decode poll body: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"token": "access-1"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	m := &config.Manifest{
+		CLI: config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		Auth: config.AuthInfo{Login: &config.AuthLogin{
+			Type:         config.AuthLoginOAuthDevice,
+			StartPath:    "/start",
+			TokenPath:    "/token",
+			StartRequest: map[string]string{"client_id": "demo-cli", "device_label": "${device_label}"},
+			PollRequest:  map[string]string{"client_id": "demo-cli", "device_code": "${device_code}"},
+			PollResponse: config.AuthLoginPollResponse{AccessToken: "token"},
+		}},
+	}
+	config.Bind(m)
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+
+	root := &cobra.Command{Use: "demo"}
+	root.PersistentFlags().String("hostname", srv.URL, "")
+	root.PersistentFlags().Bool("insecure", false, "")
+	root.AddCommand(NewCommand(m))
+	root.SetArgs([]string{"auth", "login", "--device-auth", "--no-browser", "--skip-validate"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if startBody["client_id"] != "demo-cli" || !strings.HasPrefix(startBody["device_label"], "demo on ") || len(startBody) != 2 {
+		t.Fatalf("start body = %#v", startBody)
+	}
+	if pollBody["client_id"] != "demo-cli" || pollBody["device_code"] != "device-1" || len(pollBody) != 2 {
+		t.Fatalf("poll body = %#v", pollBody)
+	}
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatalf("LoadHosts: %v", err)
+	}
+	entry, ok := hosts.Get(srv.URL)
+	if !ok || entry.OAuthToken != "access-1" {
+		t.Fatalf("entry = %+v, found = %v", entry, ok)
+	}
+}
+
+func TestOAuthDeviceRequestDistinguishesOmittedAndEmpty(t *testing.T) {
+	fallback := map[string]string{"device_code": "device-1"}
+	omitted, err := oauthDeviceRequest(nil, fallback, nil)
+	if err != nil || omitted["device_code"] != "device-1" {
+		t.Fatalf("omitted request = %#v, error = %v", omitted, err)
+	}
+	empty, err := oauthDeviceRequest(map[string]string{}, fallback, nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("explicit empty request = %#v, error = %v", empty, err)
+	}
+}
+
+func TestStartBrowserCommandDoesNotWait(t *testing.T) {
+	started := time.Now()
+	if err := startBrowserCommand(os.Args[0], "-test.run=^TestBrowserOpenerHelperProcess$", "--", "browser-opener-helper"); err != nil {
+		t.Fatalf("startBrowserCommand: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("startBrowserCommand waited %s", elapsed)
+	}
+}
+
+func TestBrowserOpenerHelperProcess(t *testing.T) {
+	if os.Args[len(os.Args)-1] != "browser-opener-helper" {
+		return
+	}
+	time.Sleep(3 * time.Second)
 }
 
 func TestAPIKeyLoginUsesManifestDefaults(t *testing.T) {

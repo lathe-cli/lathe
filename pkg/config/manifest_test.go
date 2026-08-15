@@ -19,6 +19,16 @@ auth:
     start_path: /auth/cli/start
     token_path: /auth/cli/token
     refresh_path: /auth/cli/refresh
+    start_request:
+      client_id: demo-cli
+      device_label: ${device_label}
+    poll_request:
+      client_id: demo-cli
+      device_code: ${device_code}
+    poll_response:
+      access_token: token
+      status: state
+      error: failure.code
   validate:
     method: POST
     path: /whoami
@@ -47,6 +57,15 @@ auth:
 	}
 	if m.Auth.Login.Type != AuthLoginOAuthDevice || m.Auth.Login.StartPath != "/auth/cli/start" || m.Auth.Login.TokenPath != "/auth/cli/token" || m.Auth.Login.RefreshPath != "/auth/cli/refresh" {
 		t.Errorf("unexpected AuthLogin: %+v", m.Auth.Login)
+	}
+	if m.Auth.Login.StartRequest["client_id"] != "demo-cli" || m.Auth.Login.StartRequest["device_label"] != "${device_label}" {
+		t.Errorf("unexpected start request: %+v", m.Auth.Login.StartRequest)
+	}
+	if m.Auth.Login.PollRequest["client_id"] != "demo-cli" || m.Auth.Login.PollRequest["device_code"] != "${device_code}" {
+		t.Errorf("unexpected poll request: %+v", m.Auth.Login.PollRequest)
+	}
+	if m.Auth.Login.PollResponse.AccessToken != "token" || m.Auth.Login.PollResponse.Status != "state" || m.Auth.Login.PollResponse.Error != "failure.code" {
+		t.Errorf("unexpected poll response: %+v", m.Auth.Login.PollResponse)
 	}
 	if m.Auth.Validate.Method != "POST" || m.Auth.Validate.Path != "/whoami" {
 		t.Errorf("unexpected AuthValidate: %+v", m.Auth.Validate)
@@ -290,6 +309,20 @@ auth:
   validate:
     path: /whoami
     assert: {}
+`,
+		},
+		{
+			name: "unsupported request placeholder",
+			yaml: `
+cli:
+  name: demo
+auth:
+  login:
+    type: oauth_device
+    start_path: /start
+    token_path: /token
+    start_request:
+      client_id: ${unknown}
 `,
 		},
 	}

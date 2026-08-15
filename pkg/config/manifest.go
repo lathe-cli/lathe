@@ -146,10 +146,23 @@ type WorkflowOutput struct {
 }
 
 type AuthLogin struct {
-	Type        string `yaml:"type"`
-	StartPath   string `yaml:"start_path"`
-	TokenPath   string `yaml:"token_path"`
-	RefreshPath string `yaml:"refresh_path,omitempty"`
+	Type         string                `yaml:"type"`
+	StartPath    string                `yaml:"start_path"`
+	TokenPath    string                `yaml:"token_path"`
+	RefreshPath  string                `yaml:"refresh_path,omitempty"`
+	StartRequest map[string]string     `yaml:"start_request,omitempty"`
+	PollRequest  map[string]string     `yaml:"poll_request,omitempty"`
+	PollResponse AuthLoginPollResponse `yaml:"poll_response,omitempty"`
+}
+
+type AuthLoginPollResponse struct {
+	Status       string `yaml:"status,omitempty"`
+	Error        string `yaml:"error,omitempty"`
+	AccessToken  string `yaml:"access_token,omitempty"`
+	RefreshToken string `yaml:"refresh_token,omitempty"`
+	ExpiresIn    string `yaml:"expires_in,omitempty"`
+	UserEmail    string `yaml:"user_email,omitempty"`
+	UserName     string `yaml:"user_name,omitempty"`
 }
 
 type GitHubUpdate struct {
@@ -180,6 +193,10 @@ const (
 	CommandPathFlat       = "flat"
 	CommandPathNamespaced = "namespaced"
 	AuthLoginOAuthDevice  = "oauth_device"
+	AuthLoginHostname     = "${hostname}"
+	AuthLoginProvider     = "${provider}"
+	AuthLoginDeviceLabel  = "${device_label}"
+	AuthLoginDeviceCode   = "${device_code}"
 )
 
 // Load parses raw cli.yaml bytes into a Manifest. The caller (typically main.go)
@@ -239,6 +256,24 @@ func Load(bytes []byte) (*Manifest, error) {
 		if m.Auth.Login.RefreshPath != "" && !strings.HasPrefix(m.Auth.Login.RefreshPath, "/") {
 			return nil, fmt.Errorf("auth.login.refresh_path must start with /")
 		}
+		if err := validateAuthLoginRequest("start_request", m.Auth.Login.StartRequest, map[string]bool{
+			AuthLoginHostname: true, AuthLoginProvider: true, AuthLoginDeviceLabel: true,
+		}); err != nil {
+			return nil, err
+		}
+		if err := validateAuthLoginRequest("poll_request", m.Auth.Login.PollRequest, map[string]bool{
+			AuthLoginHostname: true, AuthLoginProvider: true, AuthLoginDeviceLabel: true, AuthLoginDeviceCode: true,
+		}); err != nil {
+			return nil, err
+		}
+		fields := &m.Auth.Login.PollResponse
+		fields.Status = strings.TrimSpace(fields.Status)
+		fields.Error = strings.TrimSpace(fields.Error)
+		fields.AccessToken = strings.TrimSpace(fields.AccessToken)
+		fields.RefreshToken = strings.TrimSpace(fields.RefreshToken)
+		fields.ExpiresIn = strings.TrimSpace(fields.ExpiresIn)
+		fields.UserEmail = strings.TrimSpace(fields.UserEmail)
+		fields.UserName = strings.TrimSpace(fields.UserName)
 	} else if m.Auth.DefaultType == "oauth" {
 		return nil, fmt.Errorf("auth.default_type oauth requires an auth.login block")
 	}
@@ -262,6 +297,18 @@ func Load(bytes []byte) (*Manifest, error) {
 		m.CLI.HostEnv = upper + "_HOST"
 	}
 	return &m, nil
+}
+
+func validateAuthLoginRequest(name string, request map[string]string, allowed map[string]bool) error {
+	for field, value := range request {
+		if strings.TrimSpace(field) == "" {
+			return fmt.Errorf("auth.login.%s field names must not be empty", name)
+		}
+		if strings.Contains(value, "${") && !allowed[value] {
+			return fmt.Errorf("auth.login.%s field %q has unsupported placeholder %q", name, field, value)
+		}
+	}
+	return nil
 }
 
 func normalizeWorkflow(workflow *WorkflowInfo) error {
