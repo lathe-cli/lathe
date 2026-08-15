@@ -57,6 +57,7 @@ commands: {}
 #         required: true
 #       workspace:
 #         flag: ws
+#         argument: workspace
 #         help: "Target workspace name"
 #         default: "default"
 #   internal-debug:

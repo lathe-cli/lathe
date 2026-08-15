@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // ModuleGroupID is the cobra group ID every generated service command tree
@@ -110,13 +111,14 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	var dryRun bool
 	var liveStream bool
 
+	positionals := positionalParams(s.Params)
 	cmd := &cobra.Command{
 		Use:     s.Use,
 		Aliases: s.Aliases,
 		Short:   s.Short,
 		Long:    s.Long,
 		Example: s.Example,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			if liveStream && format != "table" {
 				return fmt.Errorf("live stream output does not support -o %s", format)
@@ -124,10 +126,14 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			if liveStream && waitPoll {
 				return fmt.Errorf("live stream output does not support wait polling")
 			}
+			changed := operationChangedFlags(cmd, s.Params)
+			if err := bindPositionalArgs(cmd, args, positionals, changed); err != nil {
+				return err
+			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
 				return err
 			}
-			if err := validateRequiredSafeParams(cmd, s.Params, s.RequestBody != nil); err != nil {
+			if err := validateRequiredParams(s.Params, s.RequestBody != nil, changed); err != nil {
 				return err
 			}
 
@@ -166,7 +172,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			}
 			result, err := invokeOperation(cmd.Context(), s, OperationInput{
 				Values:         vals,
-				Changed:        operationChangedFlags(cmd, s.Params),
+				Changed:        changed,
 				FileBody:       fileBody,
 				HasFile:        hasFile,
 				BodySets:       bodySets,
@@ -191,6 +197,13 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			return FormatOutput(result.Data, format, cmd.OutOrStdout(), s.Output)
 		},
 	}
+	if len(positionals) > 0 {
+		for _, p := range positionals {
+			cmd.Use += " [" + p.Argument + "]"
+		}
+		cmd.Args = cobra.MaximumNArgs(len(positionals))
+	}
+	configureParamFlagAliases(cmd, s.Params)
 
 	for i := range s.Params {
 		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
@@ -258,7 +271,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		vals[key] = v
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
-		if p.Default == "" && !isSensitiveStringParam(p) {
+		if p.Default == "" && p.Argument == "" && !isSensitiveStringParam(p) {
 			_ = cmd.MarkFlagRequired(p.Flag)
 		}
 		if p.Deprecated {
@@ -310,7 +323,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
 	}
-	if p.Required && p.Default == "" && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
+	if p.Required && p.Default == "" && p.Argument == "" && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
 		_ = cmd.MarkFlagRequired(p.Flag)
 	}
 	if p.Deprecated {
@@ -418,19 +431,80 @@ func resolveSafeInputFlags(cmd *cobra.Command, params []ParamSpec, vals map[stri
 	return nil
 }
 
-func validateRequiredSafeParams(cmd *cobra.Command, params []ParamSpec, hasRequestBody bool) error {
+func validateRequiredParams(params []ParamSpec, hasRequestBody bool, changed map[string]bool) error {
 	for _, p := range params {
-		if !p.Required || p.Default != "" || !isSensitiveStringParam(p) {
+		if !p.Required || p.Default != "" {
 			continue
 		}
 		if p.In == InVariable && hasRequestBody {
 			continue
 		}
-		if !flagChangedOrDefault(cmd, p) {
+		if !changed[boundParamKey(p)] {
 			return fmt.Errorf("required flag(s) \"%s\" not set", p.Flag)
 		}
 	}
 	return nil
+}
+
+func positionalParams(params []ParamSpec) []ParamSpec {
+	out := make([]ParamSpec, 0)
+	for _, p := range params {
+		if p.Argument != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func configureParamFlagAliases(cmd *cobra.Command, params []ParamSpec) {
+	aliases := map[string]string{}
+	for _, p := range params {
+		for _, alias := range p.Aliases {
+			if alias == "" || alias == p.Flag {
+				continue
+			}
+			aliases[alias] = p.Flag
+			if isSensitiveStringParam(p) {
+				for _, suffix := range []string{"-env", "-file", "-stdin"} {
+					aliases[alias+suffix] = p.Flag + suffix
+				}
+			}
+		}
+	}
+	if len(aliases) == 0 {
+		return
+	}
+	cmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if normalized := aliases[name]; normalized != "" {
+			return pflag.NormalizedName(normalized)
+		}
+		return pflag.NormalizedName(name)
+	})
+}
+
+func bindPositionalArgs(cmd *cobra.Command, args []string, params []ParamSpec, changed map[string]bool) error {
+	for i, value := range args {
+		p := params[i]
+		if flagChanged(cmd, p) {
+			return fmt.Errorf("parameter %q cannot use both argument %d and --%s", p.Name, i+1, p.Flag)
+		}
+		if err := cmd.Flags().Set(p.Flag, value); err != nil {
+			return fmt.Errorf("parse argument %d for parameter %q: %w", i+1, p.Name, err)
+		}
+		key := boundParamKey(p)
+		changed[key] = true
+	}
+	return nil
+}
+
+func flagChanged(cmd *cobra.Command, p ParamSpec) bool {
+	if cmd.Flags().Changed(p.Flag) {
+		return true
+	}
+	if !isSensitiveStringParam(p) {
+		return false
+	}
+	return cmd.Flags().Changed(p.Flag+"-env") || cmd.Flags().Changed(p.Flag+"-file") || cmd.Flags().Changed(p.Flag+"-stdin")
 }
 
 func mountShortcuts(root *cobra.Command, specs []CommandSpec) error {
@@ -594,13 +668,7 @@ func validateShortcutParamValue(p ParamSpec, value string) error {
 }
 
 func flagChangedOrDefault(cmd *cobra.Command, p ParamSpec) bool {
-	if cmd.Flags().Changed(p.Flag) || p.Default != "" {
-		return true
-	}
-	if !isSensitiveStringParam(p) {
-		return false
-	}
-	return cmd.Flags().Changed(p.Flag+"-env") || cmd.Flags().Changed(p.Flag+"-file") || cmd.Flags().Changed(p.Flag+"-stdin")
+	return p.Default != "" || flagChanged(cmd, p)
 }
 
 func operationChangedFlags(cmd *cobra.Command, params []ParamSpec) map[string]bool {

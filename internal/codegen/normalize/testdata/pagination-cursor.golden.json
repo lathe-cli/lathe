@@ -14,7 +14,10 @@
     "Params": [
       {
         "Name": "page_token",
-        "Flag": "page_token",
+        "Flag": "page-token",
+        "Aliases": [
+          "page_token"
+        ],
         "In": "query",
         "GoType": "string",
         "Help": "Pagination token. (query)",

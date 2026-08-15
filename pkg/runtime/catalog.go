@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CatalogSchemaVersion = 14
+const CatalogSchemaVersion = 15
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -115,6 +115,9 @@ type CatalogBody struct {
 type CatalogFlag struct {
 	Name       string   `json:"name"`
 	Flag       string   `json:"flag"`
+	Aliases    []string `json:"aliases,omitempty"`
+	Argument   string   `json:"argument,omitempty"`
+	Position   int      `json:"position,omitempty"`
 	Location   string   `json:"location"`
 	Type       string   `json:"type"`
 	Required   bool     `json:"required"`
@@ -349,26 +352,7 @@ func findChildCommand(parent *cobra.Command, name string) *cobra.Command {
 }
 
 func catalogCommand(service string, spec CommandSpec, path []string) CatalogCommand {
-	flags := make([]CatalogFlag, 0, len(spec.Params))
-	for _, p := range spec.Params {
-		var inputModes []string
-		if isSensitiveStringParam(p) {
-			inputModes = []string{"flag", "env", "file", "stdin"}
-		}
-		flags = append(flags, CatalogFlag{
-			Name:       p.Name,
-			Flag:       p.Flag,
-			Location:   p.In,
-			Type:       p.GoType,
-			Required:   p.Required,
-			Default:    p.Default,
-			Enum:       append([]string(nil), p.Enum...),
-			Format:     p.Format,
-			InputModes: inputModes,
-			Deprecated: p.Deprecated,
-			Help:       p.Help,
-		})
-	}
+	flags := catalogFlags(spec.Params)
 	examples := spec.Examples
 	if len(examples) == 0 && spec.Example != "" {
 		examples = []CommandExample{{Command: spec.Example}}
@@ -430,26 +414,7 @@ func catalogWorkflowConditions(conditions []WorkflowCondition) []CatalogWorkflow
 }
 
 func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
-	flags := make([]CatalogFlag, 0, len(spec.Params))
-	for _, p := range spec.Params {
-		var inputModes []string
-		if isSensitiveStringParam(p) {
-			inputModes = []string{"flag", "env", "file", "stdin"}
-		}
-		flags = append(flags, CatalogFlag{
-			Name:       p.Name,
-			Flag:       p.Flag,
-			Location:   p.In,
-			Type:       p.GoType,
-			Required:   p.Required,
-			Default:    p.Default,
-			Enum:       append([]string(nil), p.Enum...),
-			Format:     p.Format,
-			InputModes: inputModes,
-			Deprecated: p.Deprecated,
-			Help:       p.Help,
-		})
-	}
+	flags := catalogFlags(spec.Params)
 	steps := make([]CatalogWorkflowStep, 0, len(spec.Steps))
 	auth := CatalogAuth{Required: false}
 	for _, step := range spec.Steps {
@@ -498,6 +463,39 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 		Hidden:     spec.Hidden,
 		Deprecated: spec.Deprecated,
 	}
+}
+
+func catalogFlags(params []ParamSpec) []CatalogFlag {
+	flags := make([]CatalogFlag, 0, len(params))
+	position := 0
+	for _, p := range params {
+		var inputModes []string
+		if isSensitiveStringParam(p) {
+			inputModes = []string{"flag", "env", "file", "stdin"}
+		}
+		argumentPosition := 0
+		if p.Argument != "" {
+			position++
+			argumentPosition = position
+		}
+		flags = append(flags, CatalogFlag{
+			Name:       p.Name,
+			Flag:       p.Flag,
+			Aliases:    append([]string(nil), p.Aliases...),
+			Argument:   p.Argument,
+			Position:   argumentPosition,
+			Location:   p.In,
+			Type:       p.GoType,
+			Required:   p.Required,
+			Default:    p.Default,
+			Enum:       append([]string(nil), p.Enum...),
+			Format:     p.Format,
+			InputModes: inputModes,
+			Deprecated: p.Deprecated,
+			Help:       p.Help,
+		})
+	}
+	return flags
 }
 
 func cloneShortcuts(shortcuts []CommandShortcut) []CommandShortcut {

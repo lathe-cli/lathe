@@ -85,6 +85,7 @@ type Shortcut struct {
 
 type ParamOverride struct {
 	Flag            string `yaml:"flag"`
+	Argument        string `yaml:"argument"`
 	Help            string `yaml:"help"`
 	Required        bool   `yaml:"required"`
 	Default         string `yaml:"default"`

@@ -217,7 +217,8 @@ Overlays apply at codegen-time. The runtime has no overlay types. This matrix sh
 | IR field | Spec source | Overlay | Priority |
 |---|---|---|---|
 | `Name` | spec | locked | spec-only |
-| `Flag` | kebab-derived | rename | overlay > spec |
+| `Flag` | kebab-derived; old snake spelling remains an accepted alias | rename | overlay > spec |
+| `Argument` | — | `param.argument`; ordered by the source parameter list | overlay-only |
 | `In` | spec | locked | spec-only |
 | `GoType` | `type` / `format` | narrowing only (post-v0.1) | overlay > spec |
 | `Help` | description / comment | override | overlay > spec |

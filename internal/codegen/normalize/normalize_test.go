@@ -43,6 +43,36 @@ func TestNormalize_Golden(t *testing.T) {
 	}
 }
 
+func TestNormalize_ParameterFlagsUseKebabCase(t *testing.T) {
+	specs := Normalize(&rawir.RawModule{Name: "demo", Operations: []rawir.RawOperation{{
+		Group:       "Apps",
+		OperationID: "Apps_Get",
+		Method:      "GET",
+		Path:        "/apps/{app_id}",
+		Parameters: []rawir.RawParameter{
+			{Name: "app_id", In: "path", Type: "string", Required: true},
+			{Name: "page_size", In: "query", Type: "integer"},
+			{Name: "external_id", In: "query", Type: "string"},
+			{Name: "external-id", In: "header", Type: "string"},
+		},
+	}}})
+
+	want := map[string]struct {
+		flag    string
+		aliases []string
+	}{
+		"app_id":      {flag: "app-id", aliases: []string{"app_id"}},
+		"page_size":   {flag: "page-size", aliases: []string{"page_size"}},
+		"external_id": {flag: "external_id"},
+		"external-id": {flag: "external-id"},
+	}
+	for _, param := range specs[0].Params {
+		if got := want[param.Name]; param.Flag != got.flag || !reflect.DeepEqual(param.Aliases, got.aliases) {
+			t.Errorf("param %q = flag %q aliases %#v, want %q %#v", param.Name, param.Flag, param.Aliases, got.flag, got.aliases)
+		}
+	}
+}
+
 func TestNormalize_SuccessResponseHints(t *testing.T) {
 	listSchema := func(listPath string) *rawir.RawSchema {
 		return &rawir.RawSchema{

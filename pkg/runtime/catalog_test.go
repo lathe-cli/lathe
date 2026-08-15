@@ -29,7 +29,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 			PathTpl:         "/users/{id}",
 			DefaultHostname: "api.example.com",
 			Params: []ParamSpec{
-				{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true, Help: "User id"},
+				{Name: "user_id", Flag: "user-id", Aliases: []string{"user_id"}, Argument: "id", In: InPath, GoType: "string", Required: true, Help: "User id"},
 				{Name: "workspace", Flag: "workspace", In: InQuery, GoType: "string", Default: "default", Enum: []string{"default", "prod"}, Format: "slug", Help: "Target workspace"},
 			},
 			RequestBody: &RequestBody{Required: true, MediaType: "application/json", Schema: &SchemaSpec{Type: "object", Properties: map[string]*SchemaSpec{"name": {Type: "string"}}}},
@@ -101,6 +101,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if cmd.Flags[0].Location != InPath || !cmd.Flags[0].Required {
 		t.Fatalf("path flag = %+v", cmd.Flags[0])
+	}
+	if cmd.Flags[0].Name != "user_id" || cmd.Flags[0].Flag != "user-id" || !reflect.DeepEqual(cmd.Flags[0].Aliases, []string{"user_id"}) || cmd.Flags[0].Argument != "id" || cmd.Flags[0].Position != 1 {
+		t.Fatalf("path input syntax = %+v", cmd.Flags[0])
 	}
 	if cmd.Flags[1].Default != "default" || !reflect.DeepEqual(cmd.Flags[1].Enum, []string{"default", "prod"}) {
 		t.Fatalf("query flag = %+v", cmd.Flags[1])
@@ -472,8 +475,8 @@ func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
 	}
 
 	catalog := BuildCatalog(root, CatalogOptions{})
-	if catalog.CatalogSchemaVersion != 14 {
-		t.Fatalf("schema version = %d, want 14", catalog.CatalogSchemaVersion)
+	if catalog.CatalogSchemaVersion != 15 {
+		t.Fatalf("schema version = %d, want 15", catalog.CatalogSchemaVersion)
 	}
 	var step *CatalogWorkflowStep
 	for i, entry := range catalog.Commands {

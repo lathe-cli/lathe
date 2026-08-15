@@ -61,7 +61,11 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 					if flag.Required {
 						required = " required"
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "  --%s %s%s  %s\n", flag.Flag, flag.Type, required, flag.Help)
+					syntax := "--" + flag.Flag
+					if flag.Position > 0 {
+						syntax = fmt.Sprintf("[%s] | %s", flag.Argument, syntax)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s %s%s  %s\n", syntax, flag.Type, required, flag.Help)
 				}
 			}
 			return nil
