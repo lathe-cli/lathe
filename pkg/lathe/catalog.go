@@ -43,7 +43,7 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <path...>",
 		Short: "Show one generated command",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  requireCatalogArgument,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			entry, ok := runtime.FindCatalogCommand(cmd.Root(), args, catalogOptions(m, includeHidden))
 			if !ok {
@@ -100,7 +100,7 @@ func searchCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search generated commands",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  requireCatalogArgument,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
 			results := runtime.SearchCatalog(cmd.Root(), query, runtime.SearchOptions{
@@ -122,6 +122,15 @@ func searchCmd(m *config.Manifest) *cobra.Command {
 	addJSONFlag(cmd, &jsonOut, "Emit search results JSON")
 	cmd.Flags().IntVar(&limit, "limit", runtime.DefaultSearchLimit, "Maximum number of results")
 	return cmd
+}
+
+func requireCatalogArgument(cmd *cobra.Command, args []string) error {
+	if err := cobra.MinimumNArgs(1)(cmd, args); err != nil {
+		usage := runtime.NewLatheError(runtime.CodeUsage, runtime.ExitUsage, err)
+		usage.Hint = fmt.Sprintf("run '%s --help'", cmd.CommandPath())
+		return usage
+	}
+	return nil
 }
 
 func catalogOptions(m *config.Manifest, includeHidden bool) runtime.CatalogOptions {

@@ -31,7 +31,7 @@ func TestClassifyError_NotAuthenticated(t *testing.T) {
 }
 
 func TestClassifyError_HTTPError(t *testing.T) {
-	err := &HTTPError{Method: "GET", URL: "/x", Status: 422, Body: []byte(`{"error":"invalid input","detail":"token=body-secret; Bearer body-bearer; Basic Ym9keTpiYXNpYw==","token":"server-secret"}`)}
+	err := &HTTPError{Method: "GET", URL: "/x", Status: 422, Body: []byte(`{"error":"invalid input","detail":"token=body-secret; secret: colon-secret; Bearer body-bearer; Basic Ym9keTpiYXNpYw==","token":"server-secret"}`)}
 	le := ClassifyError(err)
 	if le.Code != CodeAPIError {
 		t.Errorf("code = %q, want %q", le.Code, CodeAPIError)
@@ -42,10 +42,10 @@ func TestClassifyError_HTTPError(t *testing.T) {
 	if le.HTTPStatus != 422 || le.Method != "GET" || le.URL != "/x" {
 		t.Errorf("HTTP context = %+v", le)
 	}
-	if le.ServerBody != `{"detail":"token=***; Bearer ***; Basic ***","error":"invalid input","token":"***"}` {
+	if le.ServerBody != `{"detail":"token=***; secret:***; Bearer ***; Basic ***","error":"invalid input","token":"***"}` {
 		t.Errorf("server body = %q", le.ServerBody)
 	}
-	if strings.Contains(le.Message+le.ServerBody, "server-secret") || strings.Contains(le.ServerBody, "body-secret") || strings.Contains(le.ServerBody, "body-bearer") || strings.Contains(le.ServerBody, "Ym9keTpiYXNpYw") {
+	if strings.Contains(le.Message+le.ServerBody, "server-secret") || strings.Contains(le.ServerBody, "body-secret") || strings.Contains(le.ServerBody, "colon-secret") || strings.Contains(le.ServerBody, "body-bearer") || strings.Contains(le.ServerBody, "Ym9keTpiYXNpYw") {
 		t.Fatalf("classified error leaked server secret: %+v", le)
 	}
 	if strings.Contains(err.Error(), "server-secret") {

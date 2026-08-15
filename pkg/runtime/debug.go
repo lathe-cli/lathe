@@ -259,11 +259,15 @@ func redactDebugText(s string) string {
 		return r == '&' || r == ';' || r == '\n' || r == '\r'
 	})
 	for _, field := range fields {
-		name, value, ok := strings.Cut(field, "=")
-		if !ok || !isSensitiveDebugName(strings.TrimSpace(name)) || value == "" {
+		separator := strings.IndexAny(field, "=:")
+		if separator < 0 || separator == len(field)-1 {
 			continue
 		}
-		s = strings.ReplaceAll(s, field, name+"=***")
+		name := field[:separator]
+		if !isSensitiveDebugName(strings.TrimSpace(name)) {
+			continue
+		}
+		s = strings.ReplaceAll(s, field, name+field[separator:separator+1]+"***")
 	}
 	return s
 }

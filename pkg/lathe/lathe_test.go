@@ -2,6 +2,7 @@ package lathe
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -139,5 +140,27 @@ func TestRunUsesRuntimeExecuteErrors(t *testing.T) {
 	}, []string{"needs-auth"}, &stdout, &stderr)
 	if code != runtime.ExitNotAuthenticated {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitNotAuthenticated)
+	}
+}
+
+func TestRunClassifiesCatalogArgumentErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"commands", "show", "-o", "json"},
+		{"search", "-o", "json"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(RunOptions{Manifest: []byte("cli:\n  name: myctl\n")}, args, &stdout, &stderr)
+		if code != runtime.ExitUsage {
+			t.Fatalf("args %v: exit = %d, stderr = %q", args, code, stderr.String())
+		}
+		var envelope struct {
+			Error runtime.LatheError `json:"error"`
+		}
+		if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil {
+			t.Fatalf("args %v: invalid JSON error: %v\n%s", args, err, stderr.String())
+		}
+		if envelope.Error.Code != runtime.CodeUsage || envelope.Error.Hint == "" {
+			t.Fatalf("args %v: error = %+v", args, envelope.Error)
+		}
 	}
 }
