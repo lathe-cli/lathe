@@ -354,8 +354,8 @@ Relay-style outputs with `list_path: data.<operation>.nodes` or `.edges`,
 
 ### Overlays
 
-Overlays polish generated commands without changing the upstream spec or editing
-generated Go code.
+Overlays polish generated commands and bind bounded runtime behavior that the
+upstream spec cannot express, without editing generated Go code.
 
 `internal/overlay/iam.yaml`:
 
@@ -401,6 +401,30 @@ required when an upstream spec is incomplete; it does not create new flags.
 Command `shortcuts` add root-level commands that execute the same generated
 operation with preset values for existing parameters. Shortcut params may use
 the parameter name or flag name; invocation flags can still override the preset.
+
+When a read-only operation returns the JSON Schema for another operation's
+request body, bind it as a preflight:
+
+```yaml
+commands:
+  run-app:
+    body:
+      runtime_schema:
+        operation_id: describeApp
+        response_path: input_schema
+        params:
+          app_id: ${params.app_id}
+          fields: input_schema
+```
+
+The source must be a visible, non-streaming, bodyless `GET` in the same module
+and use the same hostname with no stronger auth than the target. Mappings use
+source parameter names or flags; values are literals or exact
+`${params.<target-name-or-flag>}` references. Normal execution fetches the
+schema and validates the JSON body before the target request. The schema's
+declared draft is honored; schemas without `$schema` use Draft 2020-12.
+External `$ref` loading is disabled. `--dry-run` remains network-free and skips
+the preflight.
 
 For an SSE or NDJSON operation whose event semantics are not described by the
 API spec, an overlay can collect JSON frames into one stable result:

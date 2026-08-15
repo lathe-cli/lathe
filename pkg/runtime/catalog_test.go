@@ -32,7 +32,16 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 				{Name: "user_id", Flag: "user-id", Aliases: []string{"user_id"}, Argument: "id", In: InPath, GoType: "string", Required: true, Help: "User id"},
 				{Name: "workspace", Flag: "workspace", In: InQuery, GoType: "string", Default: "default", Enum: []string{"default", "prod"}, Format: "slug", Help: "Target workspace"},
 			},
-			RequestBody: &RequestBody{Required: true, MediaType: "application/json", Schema: &SchemaSpec{Type: "object", Properties: map[string]*SchemaSpec{"name": {Type: "string"}}}},
+			RequestBody: &RequestBody{
+				Required:  true,
+				MediaType: "application/json",
+				Schema:    &SchemaSpec{Type: "object", Properties: map[string]*SchemaSpec{"name": {Type: "string"}}},
+				RuntimeSchema: &RuntimeSchemaSpec{
+					Operation:    CommandSpec{OperationID: "describeUser", Method: "GET", PathTpl: "/users/{id}", DefaultHostname: "api.example.com"},
+					ResponsePath: "input_schema",
+					Params:       map[string]string{"id": "${params.user_id}"},
+				},
+			},
 			Output: OutputHints{
 				ListPath:          "data.items",
 				DefaultColumns:    []string{"id", "name"},
@@ -96,6 +105,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if cmd.Body.Schema == nil || cmd.Body.Schema.Properties["name"].Type != "string" {
 		t.Fatalf("body schema = %+v", cmd.Body.Schema)
 	}
+	if cmd.Body.RuntimeSchema == nil || cmd.Body.RuntimeSchema.OperationID != "describeUser" || cmd.Body.RuntimeSchema.HTTP.PathTemplate != "/users/{id}" || cmd.Body.RuntimeSchema.ResponsePath != "input_schema" || cmd.Body.RuntimeSchema.Params["id"] != "${params.user_id}" {
+		t.Fatalf("runtime schema = %+v", cmd.Body.RuntimeSchema)
+	}
 	if len(cmd.Flags) != 2 {
 		t.Fatalf("flags = %d, want 2", len(cmd.Flags))
 	}
@@ -140,6 +152,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if roundTrip.Commands[0].Body.Schema.Properties["name"].Type != "string" {
 		t.Fatalf("round-trip body schema = %+v", roundTrip.Commands[0].Body.Schema)
+	}
+	if roundTrip.Commands[0].Body.RuntimeSchema == nil || roundTrip.Commands[0].Body.RuntimeSchema.OperationID != "describeUser" {
+		t.Fatalf("round-trip runtime schema = %+v", roundTrip.Commands[0].Body.RuntimeSchema)
 	}
 	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
 		t.Fatalf("round-trip known errors = %#v", roundTrip.Commands[0].KnownErrors)
@@ -475,8 +490,8 @@ func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
 	}
 
 	catalog := BuildCatalog(root, CatalogOptions{})
-	if catalog.CatalogSchemaVersion != 15 {
-		t.Fatalf("schema version = %d, want 15", catalog.CatalogSchemaVersion)
+	if catalog.CatalogSchemaVersion != CatalogSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", catalog.CatalogSchemaVersion, CatalogSchemaVersion)
 	}
 	var step *CatalogWorkflowStep
 	for i, entry := range catalog.Commands {

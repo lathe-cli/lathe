@@ -526,6 +526,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	b.WriteString("- A configured stream pause is successful (`exit 0`); inspect the collected output field mapped from the pause event instead of treating it as an error.\n")
 	b.WriteString("- For collected streams, choose one mode: `-o json` for one stable document, `--stream` in the default output mode when catalog `output.streaming.policy.live` is present, or `-o raw` for wire events.\n")
 	b.WriteString("- Use `--file`, `--set`, or `--set-str` for JSON request bodies according to `commands show` body requirements.\n")
+	b.WriteString("- When `body.runtime_schema` is present, normal execution fetches and validates against that schema before the target request; `--dry-run` stays network-free and skips this preflight.\n")
 	b.WriteString("- For sensitive flags, prefer safe modes from `flags[].input_modes`: `--<flag>-env`, `--<flag>-file`, or `--<flag>-stdin`.\n")
 	return b.String()
 }
@@ -555,7 +556,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `http`: HTTP method and path template.\n")
 	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host selected after explicit `--hostname` and `$%s`; when present it is used before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, input modes, and help.\n")
-	b.WriteString("- `body`: request body requirement and media type.\n")
+	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
 	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
 	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints; a streaming policy describes collection, terminal outcomes, and optional live projection.\n")
@@ -576,6 +577,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `--file -`: read a JSON body from stdin.\n")
 	b.WriteString("- `--set key.path=value`: build JSON with type inference for booleans, null, integers, and floats.\n")
 	b.WriteString("- `--set-str key.path=value`: build JSON while forcing the value to remain a string.\n\n")
+	b.WriteString("If `body.runtime_schema` is present, normal execution fetches that JSON Schema and validates the body before the target request. `--dry-run` does not fetch it.\n\n")
 	b.WriteString("## Output\n\n")
 	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`. For collected streams, choose one mode: JSON or YAML for one document, `--stream` in the default output mode when `output.streaming.policy.live` is present, or raw for wire events.\n\n")
 	b.WriteString("On a non-zero exit with JSON or YAML output, read `error.code`, `error.message`, and `error.hint`; optional `error.http` contains only `status`. A configured pause exits zero and is represented by the field mapping in its stream collection policy.\n\n")
@@ -975,7 +977,10 @@ func bodySummary(body *runtime.RequestBody) string {
 		return state + "; templated body, set inputs under `" + merge + "` with --set/--set-str/--file"
 	}
 	if body.MediaType != "" {
-		return state + "; media type `" + body.MediaType + "`"
+		state += "; media type `" + body.MediaType + "`"
+	}
+	if body.RuntimeSchema != nil {
+		state += "; runtime schema preflight"
 	}
 	return state
 }

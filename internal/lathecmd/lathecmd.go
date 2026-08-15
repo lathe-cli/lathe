@@ -231,17 +231,17 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		}
 
 		specs := normalize.Normalize(mod)
+		if src.DefaultHostname != nil {
+			for i := range specs {
+				specs[i].DefaultHostname = *src.DefaultHostname
+			}
+		}
 		if err := render.ValidateOverlayModule(specs, overlays[src.Name]); err != nil {
 			return nil, fmt.Errorf("source %q overlay: %w", src.Name, err)
 		}
 		specs = render.MergeOverlayModule(specs, overlays[src.Name])
 		if len(specs) == 0 {
 			return nil, fmt.Errorf("source %q produced no commands: check its entry/file list, expose policy, and overlay ignore rules", src.Name)
-		}
-		if src.DefaultHostname != nil {
-			for i := range specs {
-				specs[i].DefaultHostname = *src.DefaultHostname
-			}
 		}
 		cliName := moduleNames[i]
 		flat, err := render.ResolveFlatCommandPath(manifest.CLI.CommandPath, len(ordered), specs)
