@@ -188,6 +188,8 @@ sources:
     openapi3:
       files:
         - api/openapi.yaml
+      expose:
+        operation_ids: [Payments_List, Payments_Get, Payments_Create]
 
   console:
     repo_url: https://github.com/acme/graphql-console.git
@@ -318,6 +320,7 @@ Declares which upstream specs become modules.
 | `backend` | Yes | One of `swagger`, `openapi3`, `proto`, or `graphql`. |
 | `swagger.files` | Swagger only | One or more Swagger 2.0 JSON specs. |
 | `openapi3.files` | OpenAPI 3 only | JSON or YAML OpenAPI specs. |
+| `openapi3.expose` | OpenAPI 3 only | Optional exact `operation_ids` allowlist. Every entry must match exactly one operation or codegen fails closed. |
 | `proto.staging` | Proto only | Files staged into the `protoc` include root before parsing. |
 | `proto.entries` | Proto only | Entry proto files. Only RPCs declared in these files, and annotated with `google.api.http`, become commands; imported files, including dependencies, never contribute commands. |
 | `proto.import_roots` | Proto only | Additional staged include roots passed to `protoc`. |

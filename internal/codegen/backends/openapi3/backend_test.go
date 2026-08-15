@@ -81,6 +81,81 @@ func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
 	}
 }
 
+func TestParse_ExposeOperationIDs(t *testing.T) {
+	syncDir := t.TempDir()
+	input := `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/pets": {"get": {"operationId": "Pet_List", "responses": {"200": {}}}},
+    "/pets/{id}": {"get": {"operationId": "Pet_Get", "responses": {"200": {}}}},
+    "/health": {"get": {"operationId": "Health_Get", "responses": {"200": {}}}}
+  }
+}`
+	if err := os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(input), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &sourceconfig.Source{
+		Name: "demo",
+		OpenAPI3: &sourceconfig.OpenAPI3Config{
+			Files:  []string{"openapi.json"},
+			Expose: &sourceconfig.OpenAPIExpose{OperationIDs: []string{"Pet_Get", "Pet_List"}},
+		},
+	}
+	mod, err := Parse(src, syncDir)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := map[string]bool{}
+	for _, op := range mod.Operations {
+		got[op.OperationID] = true
+	}
+	if !reflect.DeepEqual(got, map[string]bool{"Pet_Get": true, "Pet_List": true}) {
+		t.Fatalf("operations = %#v", got)
+	}
+}
+
+func TestParse_ExposeOperationIDsFailsClosed(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"unmatched", `{
+  "openapi": "3.0.3",
+  "paths": {"/pets": {"get": {"operationId": "Pet_List", "responses": {"200": {}}}}}
+}`, "matched no operations"},
+		{"ambiguous", `{
+  "openapi": "3.0.3",
+  "paths": {"/pets": {"get": {"operationId": "Pet_Get", "responses": {"200": {}}}}}
+}`, "ambiguous"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			syncDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(tc.input), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			files := []string{"openapi.json"}
+			if tc.name == "ambiguous" {
+				if err := os.WriteFile(filepath.Join(syncDir, "duplicate.json"), []byte(tc.input), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				files = append(files, "duplicate.json")
+			}
+			src := &sourceconfig.Source{
+				Name: "demo",
+				OpenAPI3: &sourceconfig.OpenAPI3Config{
+					Files:  files,
+					Expose: &sourceconfig.OpenAPIExpose{OperationIDs: []string{"Pet_Get"}},
+				},
+			}
+			if _, err := Parse(src, syncDir); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Parse error = %v", err)
+			}
+		})
+	}
+}
+
 func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	input := `{
   "openapi": "3.1.0",

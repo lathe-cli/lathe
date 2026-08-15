@@ -227,6 +227,13 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 	all := &oas3Doc{
 		Paths: map[string]*pathItem{},
 	}
+	allowedOperationIDs := map[string]bool{}
+	matchedOperationIDs := map[string]int{}
+	if src.OpenAPI3.Expose != nil {
+		for _, operationID := range src.OpenAPI3.Expose.OperationIDs {
+			allowedOperationIDs[operationID] = true
+		}
+	}
 	for _, rel := range src.OpenAPI3.Files {
 		p := filepath.Join(syncDir, rel)
 		data, err := os.ReadFile(p)
@@ -238,9 +245,56 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		applyServerBasePaths(&doc, src.Name, p)
+		countExposedOperationIDs(&doc, allowedOperationIDs, matchedOperationIDs)
 		mergeDoc(all, &doc, src.Name, p)
 	}
-	return toRawIR(src.Name, all), nil
+	mod := toRawIR(src.Name, all)
+	if src.OpenAPI3.Expose == nil {
+		return mod, nil
+	}
+	return filterExposedOperations(src.Name, mod, src.OpenAPI3.Expose.OperationIDs, matchedOperationIDs)
+}
+
+func countExposedOperationIDs(doc *oas3Doc, allowed map[string]bool, matched map[string]int) {
+	if len(allowed) == 0 {
+		return
+	}
+	for _, item := range doc.Paths {
+		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+			if op != nil && allowed[op.OperationID] {
+				matched[op.OperationID]++
+			}
+		}
+	}
+}
+
+func filterExposedOperations(source string, mod *rawir.RawModule, operationIDs []string, matched map[string]int) (*rawir.RawModule, error) {
+	allowed := make(map[string]bool, len(operationIDs))
+	for _, operationID := range operationIDs {
+		allowed[operationID] = true
+		if matched[operationID] == 0 {
+			return nil, fmt.Errorf("openapi3.expose.operation_ids entry %q matched no operations in source %q", operationID, source)
+		}
+		if matched[operationID] > 1 {
+			return nil, fmt.Errorf("openapi3.expose.operation_ids entry %q is ambiguous in source %q: matched %d operations", operationID, source, matched[operationID])
+		}
+	}
+
+	operations := mod.Operations[:0]
+	generated := map[string]bool{}
+	for _, op := range mod.Operations {
+		if allowed[op.OperationID] {
+			operations = append(operations, op)
+			generated[op.OperationID] = true
+		}
+	}
+	for _, operationID := range operationIDs {
+		if !generated[operationID] {
+			return nil, fmt.Errorf("openapi3.expose.operation_ids entry %q was discarded while merging source %q", operationID, source)
+		}
+	}
+	mod.Operations = operations
+	return mod, nil
 }
 
 func applyServerBasePaths(doc *oas3Doc, module, origin string) {
