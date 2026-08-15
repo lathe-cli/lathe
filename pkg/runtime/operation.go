@@ -240,16 +240,20 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 	switch {
 	case len(input.BodySets) > 0 || len(input.BodyStringSets) > 0:
 		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
-			return nil, fmt.Errorf("request body media type %s requires --file; --set and --set-str only support JSON request bodies", s.RequestBody.MediaType)
+			return nil, NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("request body media type %s requires --file; --set and --set-str only support JSON request bodies", s.RequestBody.MediaType))
 		}
-		return buildBodyFromSet(input.BodySets, input.BodyStringSets)
+		body, err := buildBodyFromSet(input.BodySets, input.BodyStringSets)
+		if err != nil {
+			return nil, NewLatheError(CodeUsage, ExitUsage, err)
+		}
+		return body, nil
 	case input.HasFile:
 		return input.FileBody, nil
 	case s.RequestBody.Required:
 		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
-			return nil, fmt.Errorf("request body media type %s requires --file", s.RequestBody.MediaType)
+			return nil, NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("request body media type %s requires --file", s.RequestBody.MediaType))
 		}
-		return nil, fmt.Errorf("request body required: pass --file, --set, or --set-str")
+		return nil, NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("request body required: pass --file, --set, or --set-str"))
 	default:
 		return nil, nil
 	}

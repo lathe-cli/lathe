@@ -131,14 +131,14 @@ func TestDebugTransport_RedactsQueryCredentials(t *testing.T) {
 func TestDebugTransport_RedactsSensitiveJSONBodies(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"result":"ok","message":"Bearer response-bearer","token":"response-token","nested":{"apiKey":"response-key"}}`))
+		w.Write([]byte(`{"result":"ok","message":"token=response-message-secret; Bearer response-bearer","token":"response-token","nested":{"apiKey":"response-key"}}`))
 	}))
 	defer srv.Close()
 
 	r := captureStderr(t)
 
 	dt := &debugTransport{inner: http.DefaultTransport}
-	body := strings.NewReader(`{"name":"test","message":"bearer request-bearer","secret":"request-secret","nested":{"password":"request-password"}}`)
+	body := strings.NewReader(`{"name":"test","message":"token=request-message-secret; bearer request-bearer","secret":"request-secret","nested":{"password":"request-password"}}`)
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/api", body)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := dt.RoundTrip(req)
@@ -148,7 +148,7 @@ func TestDebugTransport_RedactsSensitiveJSONBodies(t *testing.T) {
 	resp.Body.Close()
 
 	out := readStderr(t, r)
-	for _, leaked := range []string{"request-secret", "request-password", "request-bearer", "response-token", "response-key", "response-bearer"} {
+	for _, leaked := range []string{"request-secret", "request-password", "request-message-secret", "request-bearer", "response-token", "response-key", "response-message-secret", "response-bearer"} {
 		if strings.Contains(out, leaked) {
 			t.Fatalf("debug body leaked %q:\n%s", leaked, out)
 		}

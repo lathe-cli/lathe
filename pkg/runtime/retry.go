@@ -36,7 +36,13 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if t.sleepFn != nil {
 				t.sleepFn(wait)
 			} else {
-				time.Sleep(wait)
+				timer := time.NewTimer(wait)
+				select {
+				case <-timer.C:
+				case <-req.Context().Done():
+					timer.Stop()
+					return nil, req.Context().Err()
+				}
 			}
 			if req.GetBody != nil {
 				req.Body, err = req.GetBody()

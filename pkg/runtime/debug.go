@@ -202,7 +202,7 @@ func redactDebugJSONAt(v any, path []string) bool {
 				continue
 			}
 			if text, ok := child.(string); ok {
-				redacted := redactBearer(text)
+				redacted := redactDebugText(text)
 				if redacted != text {
 					tv[k] = redacted
 					changed = true
@@ -218,7 +218,7 @@ func redactDebugJSONAt(v any, path []string) bool {
 		changed := false
 		for i, child := range tv {
 			if text, ok := child.(string); ok {
-				redacted := redactBearer(text)
+				redacted := redactDebugText(text)
 				if redacted != text {
 					tv[i] = redacted
 					changed = true

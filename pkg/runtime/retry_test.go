@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -208,6 +209,40 @@ func TestRetryTransport_RespectsRetryAfter(t *testing.T) {
 	resp.Body.Close()
 	if slept != 7*time.Second {
 		t.Errorf("slept = %v, want 7s (Retry-After)", slept)
+	}
+}
+
+func TestRetryTransport_CancelInterruptsBackoff(t *testing.T) {
+	started := make(chan struct{})
+	rt := &retryTransport{
+		inner: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			close(started)
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Status:     "429 Too Many Requests",
+				Header:     http.Header{"Retry-After": []string{"300"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		}),
+		maxRetries: 1,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", nil)
+	done := make(chan error, 1)
+	go func() {
+		_, err := rt.RoundTrip(req)
+		done <- err
+	}()
+	<-started
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RoundTrip error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RoundTrip remained blocked in retry backoff")
 	}
 }
 

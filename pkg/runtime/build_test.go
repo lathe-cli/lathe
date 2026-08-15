@@ -627,10 +627,16 @@ func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
 	}
 }
 
-func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
-	for _, args := range [][]string{
-		{"--set", "id=1"},
-		nil,
+func TestBuild_RequestBodyInputErrorsAreUsage(t *testing.T) {
+	for _, tc := range []struct {
+		media string
+		args  []string
+		want  string
+	}{
+		{media: "text/plain", args: []string{"--set", "id=1"}, want: "requires --file"},
+		{media: "text/plain", want: "requires --file"},
+		{media: "application/json", want: "request body required"},
+		{media: "application/json", args: []string{"--set", "missing-equals"}, want: "expected key=value"},
 	} {
 		bindTestManifest(t, "myctl", "MYCTL_HOST")
 		t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
@@ -643,14 +649,17 @@ func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
 			Use:         "create-export",
 			Method:      "POST",
 			PathTpl:     "/exports",
-			RequestBody: &RequestBody{Required: true, MediaType: "text/plain"},
+			RequestBody: &RequestBody{Required: true, MediaType: tc.media},
 			Security:    &SecurityHint{Public: true},
 		}})
-		root.SetArgs(append([]string{"--hostname", "http://127.0.0.1:1", "demo", "exports", "create-export"}, args...))
+		root.SetArgs(append([]string{"--hostname", "http://127.0.0.1:1", "demo", "exports", "create-export"}, tc.args...))
 
 		err := root.Execute()
-		if err == nil || !strings.Contains(err.Error(), "requires --file") {
-			t.Fatalf("Execute error = %v, want requires --file", err)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("Execute error = %v, want %q", err, tc.want)
+		}
+		if classified := ClassifyError(err); classified.Code != CodeUsage || classified.ExitCode != ExitUsage {
+			t.Fatalf("classified error = %+v", classified)
 		}
 	}
 }

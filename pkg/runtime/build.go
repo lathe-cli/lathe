@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -161,7 +162,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			if hasFile {
 				fileBody, err = ReadBody(bodyFile)
 				if err != nil {
-					return err
+					return newUsageError(cmd, err)
 				}
 			}
 
@@ -192,6 +193,10 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				Wait:        waitPoll,
 			}, output)
 			if err != nil {
+				var usage *LatheError
+				if errors.As(err, &usage) && usage.Code == CodeUsage {
+					return newUsageError(cmd, err)
+				}
 				return err
 			}
 			if result.DryRun != nil {
