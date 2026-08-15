@@ -183,6 +183,8 @@ sources:
     openapi3:
       files:
         - openapi.yaml
+      expose:
+        operation_ids: [Users_List, Users_Get, Users_Create]
 
   billing:
     repo_url: https://github.com/acme/billing-api.git
@@ -233,6 +235,12 @@ sources:
 
 Use immutable tags for reproducibility. `lathe specsync` resolves each tag to a
 commit SHA and writes sync state under `.cache/specs-sync/`.
+
+For `backend: openapi3`, optional `openapi3.expose.operation_ids` is an exact
+allowlist applied before commands are normalized or rendered. Each configured
+ID must match exactly one operation across all declared files; missing or
+duplicate matches fail codegen instead of silently widening or narrowing the
+CLI surface. Omitting `expose` preserves the existing expose-all behavior.
 
 Use `local_path` instead of `repo_url`/`pinned_tag` for a working-tree source.
 Relative paths resolve from `specs/sources.yaml`; sync state records the

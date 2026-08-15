@@ -66,7 +66,12 @@ type ProtoDependency struct {
 }
 
 type OpenAPI3Config struct {
-	Files []string `yaml:"files"`
+	Files  []string       `yaml:"files"`
+	Expose *OpenAPIExpose `yaml:"expose,omitempty"`
+}
+
+type OpenAPIExpose struct {
+	OperationIDs []string `yaml:"operation_ids"`
 }
 
 type GraphQLConfig struct {
@@ -215,6 +220,21 @@ func validate(s *Source, baseDir string) error {
 		}
 		if err := validateRelPathList("openapi3.files", s.OpenAPI3.Files); err != nil {
 			return err
+		}
+		if s.OpenAPI3.Expose != nil {
+			if len(s.OpenAPI3.Expose.OperationIDs) == 0 {
+				return fmt.Errorf("openapi3.expose requires non-empty operation_ids")
+			}
+			seen := map[string]bool{}
+			for _, operationID := range s.OpenAPI3.Expose.OperationIDs {
+				if strings.TrimSpace(operationID) == "" {
+					return fmt.Errorf("openapi3.expose.operation_ids must not contain empty values")
+				}
+				if seen[operationID] {
+					return fmt.Errorf("openapi3.expose.operation_ids contains duplicate %q", operationID)
+				}
+				seen[operationID] = true
+			}
 		}
 	case BackendGraphQL:
 		if s.GraphQL == nil || s.GraphQL.Schema == "" {

@@ -223,6 +223,8 @@ func TestLoad_AcceptsOpenAPI3(t *testing.T) {
     backend: openapi3
     openapi3:
       files: [openapi.yaml]
+      expose:
+        operation_ids: [Pet_List, Pet_Get]
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("seed yaml: %v", err)
@@ -233,6 +235,37 @@ func TestLoad_AcceptsOpenAPI3(t *testing.T) {
 	}
 	if cfg.Sources["demo"].Backend != BackendOpenAPI3 {
 		t.Errorf("backend = %q, want openapi3", cfg.Sources["demo"].Backend)
+	}
+	if got := cfg.Sources["demo"].OpenAPI3.Expose.OperationIDs; len(got) != 2 || got[0] != "Pet_List" || got[1] != "Pet_Get" {
+		t.Fatalf("operation_ids = %#v", got)
+	}
+}
+
+func TestLoad_RejectsInvalidOpenAPI3Expose(t *testing.T) {
+	for name, operationIDs := range map[string]string{
+		"empty":     "[]",
+		"blank":     "['']",
+		"duplicate": "[Pet_List, Pet_List]",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sources.yaml")
+			body := `sources:
+  demo:
+    repo_url: https://example.com/repo.git
+    pinned_tag: v2.0.0
+    backend: openapi3
+    openapi3:
+      files: [openapi.yaml]
+      expose:
+        operation_ids: ` + operationIDs + "\n"
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatalf("seed yaml: %v", err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "openapi3.expose") {
+				t.Fatalf("Load error = %v", err)
+			}
+		})
 	}
 }
 
