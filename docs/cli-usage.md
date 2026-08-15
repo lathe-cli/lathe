@@ -412,6 +412,9 @@ Rules:
 - Prefer `-o json` for agent-readable output.
 - Use `--file`, `--set`, or `--set-str` according to the command detail body
   contract.
+- Body schemas preserve nullable values, `anyOf`/`oneOf`/`allOf`, and
+  `additionalProperties` for discovery; request execution does not validate
+  JSON Schema.
 - If a command detail flag exposes `input_modes`, prefer `--<flag>-env NAME`,
   `--<flag>-file path`, or `--<flag>-stdin` over passing secrets directly in
   shell arguments.

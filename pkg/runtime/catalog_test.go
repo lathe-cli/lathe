@@ -244,9 +244,12 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 			Required:  true,
 			MediaType: "application/json",
 			Schema: &SchemaSpec{
-				Type:       "object",
-				Properties: map[string]*SchemaSpec{"name": {Type: "string"}},
-				Required:   []string{"name"},
+				Type: "object",
+				Properties: map[string]*SchemaSpec{
+					"name":   {Type: "string", Nullable: true},
+					"labels": {Type: "object", AdditionalProperties: &AdditionalPropertiesSpec{Schema: &SchemaSpec{Type: "string"}}},
+				},
+				Required: []string{"name"},
 			},
 			Template:  tmpl,
 			MergePath: "variables",
@@ -266,7 +269,7 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"template":`, `"merge_path":"variables"`, `"required":["name"]`, `createApp(name:$name)`} {
+	for _, want := range []string{`"template":`, `"merge_path":"variables"`, `"required":["name"]`, `"nullable":true`, `"additionalProperties":{"type":"string"}`, `createApp(name:$name)`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("catalog JSON missing %q:\n%s", want, raw)
 		}
@@ -279,8 +282,12 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	if rt == nil || rt.Template != tmpl || rt.MergePath != "variables" {
 		t.Fatalf("round-trip body envelope = %+v", rt)
 	}
-	if rt.Schema == nil || !reflect.DeepEqual(rt.Schema.Required, []string{"name"}) {
+	if rt.Schema == nil || !reflect.DeepEqual(rt.Schema.Required, []string{"name"}) || rt.Schema.Properties["name"] == nil || !rt.Schema.Properties["name"].Nullable {
 		t.Fatalf("round-trip body schema = %+v", rt.Schema)
+	}
+	labels := rt.Schema.Properties["labels"]
+	if labels == nil || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
+		t.Fatalf("round-trip labels schema = %+v", labels)
 	}
 }
 
@@ -465,8 +472,8 @@ func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
 	}
 
 	catalog := BuildCatalog(root, CatalogOptions{})
-	if catalog.CatalogSchemaVersion != 13 {
-		t.Fatalf("schema version = %d, want 13", catalog.CatalogSchemaVersion)
+	if catalog.CatalogSchemaVersion != 14 {
+		t.Fatalf("schema version = %d, want 14", catalog.CatalogSchemaVersion)
 	}
 	var step *CatalogWorkflowStep
 	for i, entry := range catalog.Commands {

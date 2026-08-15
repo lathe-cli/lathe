@@ -707,32 +707,74 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 	if s == nil {
 		return nil
 	}
+	var out *runtime.SchemaSpec
 	if s.Ref != "" {
 		if visited[s.Ref] {
-			return &runtime.SchemaSpec{Ref: s.Ref}
-		}
-		resolved := rawir.Resolve(s, defs)
-		if resolved != nil {
+			out = &runtime.SchemaSpec{Ref: s.Ref}
+		} else if resolved := rawir.Resolve(s, defs); resolved != nil {
 			next := copyVisited(visited)
 			next[s.Ref] = true
-			return runtimeSchema(resolved, defs, next)
+			out = runtimeSchema(resolved, defs, next)
 		}
 	}
-	out := &runtime.SchemaSpec{Type: s.Type}
-	if s.Ref != "" {
+	if out == nil {
+		out = &runtime.SchemaSpec{}
+	}
+	if s.Ref != "" && rawir.Resolve(s, defs) == nil {
 		out.Ref = s.Ref
 	}
+	if s.Type != "" {
+		out.Type = s.Type
+	}
+	out.Nullable = out.Nullable || s.Nullable
 	if len(s.Properties) > 0 {
-		out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
+		if out.Properties == nil {
+			out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
+		}
 		for k, v := range s.Properties {
 			out.Properties[k] = runtimeSchema(v, defs, visited)
 		}
 	}
 	if len(s.Required) > 0 {
-		out.Required = append([]string(nil), s.Required...)
+		seen := make(map[string]bool, len(out.Required)+len(s.Required))
+		for _, name := range out.Required {
+			seen[name] = true
+		}
+		for _, name := range s.Required {
+			if !seen[name] {
+				out.Required = append(out.Required, name)
+				seen[name] = true
+			}
+		}
 	}
 	if s.Items != nil {
 		out.Items = runtimeSchema(s.Items, defs, visited)
+	}
+	if len(s.AnyOf) > 0 {
+		out.AnyOf = runtimeSchemas(s.AnyOf, defs, visited)
+	}
+	if len(s.OneOf) > 0 {
+		out.OneOf = runtimeSchemas(s.OneOf, defs, visited)
+	}
+	if len(s.AllOf) > 0 {
+		out.AllOf = runtimeSchemas(s.AllOf, defs, visited)
+	}
+	if s.AdditionalProperties != nil {
+		out.AdditionalProperties = &runtime.AdditionalPropertiesSpec{
+			Allowed: s.AdditionalProperties.Allowed,
+			Schema:  runtimeSchema(s.AdditionalProperties.Schema, defs, visited),
+		}
+	}
+	return out
+}
+
+func runtimeSchemas(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) []*runtime.SchemaSpec {
+	if len(schemas) == 0 {
+		return nil
+	}
+	out := make([]*runtime.SchemaSpec, len(schemas))
+	for i, schema := range schemas {
+		out[i] = runtimeSchema(schema, defs, visited)
 	}
 	return out
 }

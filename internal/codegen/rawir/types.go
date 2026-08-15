@@ -67,12 +67,22 @@ type RawPaginationHint struct {
 }
 
 type RawSchema struct {
-	Ref        string
-	Type       string
-	Format     string `json:",omitempty"`
-	Properties map[string]*RawSchema
-	Required   []string `json:",omitempty"`
-	Items      *RawSchema
+	Ref                  string
+	Type                 string
+	Format               string `json:",omitempty"`
+	Nullable             bool   `json:",omitempty"`
+	Properties           map[string]*RawSchema
+	Required             []string `json:",omitempty"`
+	Items                *RawSchema
+	AnyOf                []*RawSchema             `json:",omitempty"`
+	OneOf                []*RawSchema             `json:",omitempty"`
+	AllOf                []*RawSchema             `json:",omitempty"`
+	AdditionalProperties *RawAdditionalProperties `json:",omitempty"`
+}
+
+type RawAdditionalProperties struct {
+	Allowed bool
+	Schema  *RawSchema
 }
 
 const RefPrefix = "#/definitions/"

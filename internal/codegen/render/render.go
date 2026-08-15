@@ -1068,6 +1068,7 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 	if s.Type != "" {
 		fmt.Fprintf(b, "Type: %q,", s.Type)
 	}
+	writeBoolField(b, "Nullable", s.Nullable)
 	if len(s.Properties) > 0 {
 		b.WriteString("Properties: map[string]*runtime.SchemaSpec{")
 		keys := make([]string, 0, len(s.Properties))
@@ -1094,7 +1095,32 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 		writeSchemaLiteral(b, s.Items)
 		b.WriteByte(',')
 	}
+	writeSchemaSliceLiteral(b, "AnyOf", s.AnyOf)
+	writeSchemaSliceLiteral(b, "OneOf", s.OneOf)
+	writeSchemaSliceLiteral(b, "AllOf", s.AllOf)
+	if s.AdditionalProperties != nil {
+		b.WriteString("AdditionalProperties: &runtime.AdditionalPropertiesSpec{")
+		writeBoolField(b, "Allowed", s.AdditionalProperties.Allowed)
+		if s.AdditionalProperties.Schema != nil {
+			b.WriteString("Schema: ")
+			writeSchemaLiteral(b, s.AdditionalProperties.Schema)
+			b.WriteByte(',')
+		}
+		b.WriteString("},")
+	}
 	b.WriteByte('}')
+}
+
+func writeSchemaSliceLiteral(b *strings.Builder, name string, schemas []*runtime.SchemaSpec) {
+	if len(schemas) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "%s: []*runtime.SchemaSpec{", name)
+	for _, schema := range schemas {
+		writeSchemaLiteral(b, schema)
+		b.WriteByte(',')
+	}
+	b.WriteString("},")
 }
 
 var moduleTmpl = template.Must(template.New("gen").Funcs(template.FuncMap{
