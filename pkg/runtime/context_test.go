@@ -44,7 +44,7 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 	}
 
 	list := CommandSpec{Group: "Apps", Use: "list", Method: "GET", PathTpl: "/apps", Security: &SecurityHint{Public: true}, Params: []ParamSpec{
-		{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Required: true, Context: "workspace"},
+		{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Required: true, Default: "spec-default", Context: "workspace"},
 	}}
 	switchWorkspace := CommandSpec{Group: "Apps", Use: "use", Method: "POST", PathTpl: "/workspaces/{workspace_id}", Security: &SecurityHint{Public: true}, Params: []ParamSpec{
 		{Name: "workspace_id", Flag: "workspace-id", In: InPath, GoType: "string", Required: true},

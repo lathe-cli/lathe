@@ -694,7 +694,7 @@ func validateShortcutParamValue(p ParamSpec, value string) error {
 }
 
 func flagChangedOrDefault(cmd *cobra.Command, p ParamSpec) bool {
-	return p.Default != "" || flagChanged(cmd, p)
+	return flagChanged(cmd, p) || (p.Default != "" && p.Context == "")
 }
 
 func operationChangedFlags(cmd *cobra.Command, params []ParamSpec) map[string]bool {
