@@ -615,6 +615,7 @@ func shortcutSpec(spec CommandSpec, shortcut CommandShortcut) (CommandSpec, erro
 		set[i] = key
 		target.Params[i].Default = value
 		target.Params[i].Required = false
+		target.Params[i].Context = ""
 	}
 	return target, nil
 }

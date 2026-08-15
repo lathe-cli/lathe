@@ -43,7 +43,7 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list := CommandSpec{Group: "Apps", Use: "list", Method: "GET", PathTpl: "/apps", Security: &SecurityHint{Public: true}, Params: []ParamSpec{
+	list := CommandSpec{Group: "Apps", Use: "list", Method: "GET", PathTpl: "/apps", Security: &SecurityHint{Public: true}, Shortcuts: []CommandShortcut{{Use: "list-selected", Params: map[string]string{"workspace_id": "preset"}}}, Params: []ParamSpec{
 		{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Required: true, Default: "spec-default", Context: "workspace"},
 	}}
 	switchWorkspace := CommandSpec{Group: "Apps", Use: "use", Method: "POST", PathTpl: "/workspaces/{workspace_id}", Security: &SecurityHint{Public: true}, Params: []ParamSpec{
@@ -70,7 +70,10 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 	if err := run("demo", "apps", "list", "--workspace-id", "explicit"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(requested[:3], "|") != "/apps?workspace_id=stored|/apps?workspace_id=environment|/apps?workspace_id=explicit" {
+	if err := run("list-selected"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(requested[:4], "|") != "/apps?workspace_id=stored|/apps?workspace_id=environment|/apps?workspace_id=explicit|/apps?workspace_id=preset" {
 		t.Fatalf("requests = %#v", requested)
 	}
 	if err := run("demo", "apps", "use", "--workspace-id", "selected"); err != nil {
