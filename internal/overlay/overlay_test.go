@@ -95,6 +95,9 @@ func TestLoadDir_ParsesExtendedFields(t *testing.T) {
     params:
       page: "1"
       pageSize: "20"
+groups:
+  Identity:
+    short: "Manage user identities"
 commands:
   create-user:
     match:
@@ -140,6 +143,9 @@ commands:
 		t.Fatalf("LoadDir: %v", err)
 	}
 	mod := got["iam"]
+	if mod.Groups["Identity"].Short != "Manage user identities" {
+		t.Fatalf("group override = %#v", mod.Groups["Identity"])
+	}
 	if mod.Defaults.Pagination == nil {
 		t.Fatal("pagination defaults were not parsed")
 	}

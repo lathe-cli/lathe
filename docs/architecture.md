@@ -198,6 +198,7 @@ Overlays apply at codegen-time. The runtime has no overlay types. This matrix sh
 |---|---|---|---|
 | `Use` | `operationId`-derived | rename | overlay > spec |
 | `Group` | `tags[0]` / service name | override | overlay > spec |
+| `GroupShort` | — | set by final group name | overlay-only |
 | `Short` | `summary` / first comment | override | overlay > spec |
 | `Long` | `description` / comment block | override | overlay > spec |
 | `Aliases` | — | append | overlay-only |

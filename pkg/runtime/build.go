@@ -80,11 +80,17 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 	ordered := make([]*cobra.Command, 0)
 	for i := range specs {
 		s := specs[i]
+		groupShort := s.GroupShort
+		if groupShort == "" {
+			groupShort = s.Group + " operations"
+		}
 		g, ok := groups[s.Group]
 		if !ok {
-			g = helpCommand(strings.ToLower(s.Group), s.Group+" operations")
+			g = helpCommand(strings.ToLower(s.Group), groupShort)
 			groups[s.Group] = g
 			ordered = append(ordered, g)
+		} else if g.Short != groupShort {
+			return nil, fmt.Errorf("group %q has conflicting descriptions", s.Group)
 		}
 		c := buildCmd(s)
 		for _, name := range append([]string{c.Name()}, c.Aliases...) {

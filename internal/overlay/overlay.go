@@ -120,9 +120,14 @@ type KnownError struct {
 	Cause  string `yaml:"cause"`
 }
 
+type GroupOverride struct {
+	Short string `yaml:"short"`
+}
+
 type Module struct {
-	Defaults Defaults            `yaml:"defaults"`
-	Commands map[string]Override `yaml:"commands"`
+	Defaults Defaults                 `yaml:"defaults"`
+	Groups   map[string]GroupOverride `yaml:"groups"`
+	Commands map[string]Override      `yaml:"commands"`
 }
 
 type Defaults struct {

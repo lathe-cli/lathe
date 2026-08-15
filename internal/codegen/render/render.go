@@ -260,6 +260,7 @@ func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Over
 func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
 	merged := mergeOverlaySpecs(specs, mod)
 	applyRuntimeSchemaBindings(specs, merged, mod)
+	applyGroupOverrides(merged, mod.Groups)
 	return merged
 }
 
@@ -300,7 +301,35 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 			}
 		}
 	}
-	return validateRuntimeSchemaBindings(specs, mergeOverlaySpecs(specs, mod), mod)
+	merged := mergeOverlaySpecs(specs, mod)
+	if err := validateGroupOverrides(merged, mod.Groups); err != nil {
+		return err
+	}
+	return validateRuntimeSchemaBindings(specs, merged, mod)
+}
+
+func validateGroupOverrides(specs []runtime.CommandSpec, groups map[string]overlay.GroupOverride) error {
+	known := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		known[spec.Group] = true
+	}
+	for name, group := range groups {
+		if !known[name] {
+			return fmt.Errorf("group %q does not exist after command overrides", name)
+		}
+		if group.Short == "" || strings.TrimSpace(group.Short) != group.Short || strings.ContainsAny(group.Short, "\r\n") {
+			return fmt.Errorf("group %q short must be one non-empty trimmed line", name)
+		}
+	}
+	return nil
+}
+
+func applyGroupOverrides(specs []runtime.CommandSpec, groups map[string]overlay.GroupOverride) {
+	for i := range specs {
+		if group, ok := groups[specs[i].Group]; ok {
+			specs[i].GroupShort = group.Short
+		}
+	}
 }
 
 func validateRuntimeSchemaBindings(original, merged []runtime.CommandSpec, mod overlay.Module) error {
@@ -1003,6 +1032,7 @@ func commandSpecLiteral(spec runtime.CommandSpec) string {
 	var b strings.Builder
 	b.WriteString("runtime.CommandSpec{")
 	writeStringField(&b, "Group", spec.Group)
+	writeStringField(&b, "GroupShort", spec.GroupShort)
 	writeStringField(&b, "Use", spec.Use)
 	writeStringSliceField(&b, "Aliases", spec.Aliases)
 	if len(spec.Shortcuts) > 0 {
@@ -1424,6 +1454,9 @@ var Specs = []runtime.CommandSpec{
 {{- range $op := .Ops}}
 	{
 		Group:       {{printf "%q" $op.Group}},
+		{{- if $op.GroupShort}}
+		GroupShort:  {{printf "%q" $op.GroupShort}},
+		{{- end}}
 		Use:         {{printf "%q" $op.Use}},
 		{{- if $op.Aliases}}
 		Aliases:     []string{ {{- range $op.Aliases}}{{printf "%q" .}}, {{end -}} },

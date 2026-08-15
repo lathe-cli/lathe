@@ -10,6 +10,7 @@ const SchemaVersion = 11
 
 type CommandSpec struct {
 	Group           string
+	GroupShort      string `json:",omitempty"`
 	Use             string
 	Aliases         []string
 	Shortcuts       []CommandShortcut `json:",omitempty"`

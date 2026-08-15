@@ -25,6 +25,9 @@ commands: {}
 #     params:
 #       page: "1"
 #       pageSize: "20"
+# groups:
+#   Identity:
+#     short: "Manage users and access"
 # commands:
 #   create-user:
 #     use: create
