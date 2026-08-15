@@ -116,6 +116,21 @@ func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	}
 }
 
+func TestBuild_UnknownNestedCommandIsUsage(t *testing.T) {
+	for _, args := range [][]string{{"demo", "unknown"}, {"demo", "users", "unknown"}, {"demo", "users", "get-user", "unknown"}} {
+		root := newRootWithModuleGroup()
+		root.SetOut(io.Discard)
+		root.SetErr(io.Discard)
+		mustBuild(t, root, "demo", []CommandSpec{{Group: "Users", Use: "get-user"}})
+		root.SetArgs(args)
+
+		err := root.Execute()
+		if err == nil || ClassifyError(err).Code != CodeUsage {
+			t.Fatalf("Execute(%v) error = %v, want usage", args, err)
+		}
+	}
+}
+
 func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
@@ -627,6 +642,28 @@ func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
 	}
 }
 
+func TestBuild_MultipartFileErrorPrecedesAuth(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	root := newRootWithModuleGroup()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Uploads", Use: "create", Method: http.MethodPost, PathTpl: "/uploads",
+		Params:      []ParamSpec{{Name: "file", Flag: "file", In: InFormData, GoType: "string", Required: true, Format: "binary"}},
+		RequestBody: &RequestBody{Required: true, MediaType: "multipart/form-data"},
+	}})
+	root.SetArgs([]string{"--hostname", "https://example.invalid", "demo", "uploads", "create", "--file", t.TempDir() + "/missing"})
+
+	err := root.Execute()
+	if err == nil || ClassifyError(err).Code != CodeUsage || !strings.Contains(err.Error(), "read multipart file") {
+		t.Fatalf("error = %v, want local multipart usage error before auth", err)
+	}
+}
+
 func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
 	for _, args := range [][]string{
 		{"--set", "id=1"},
@@ -644,13 +681,15 @@ func TestBuild_NonJSONRequestBodyRequiresFile(t *testing.T) {
 			Method:      "POST",
 			PathTpl:     "/exports",
 			RequestBody: &RequestBody{Required: true, MediaType: "text/plain"},
-			Security:    &SecurityHint{Public: true},
 		}})
 		root.SetArgs(append([]string{"--hostname", "http://127.0.0.1:1", "demo", "exports", "create-export"}, args...))
 
 		err := root.Execute()
 		if err == nil || !strings.Contains(err.Error(), "requires --file") {
 			t.Fatalf("Execute error = %v, want requires --file", err)
+		}
+		if got := ClassifyError(err).Code; got != CodeUsage {
+			t.Fatalf("error code = %q, want %q", got, CodeUsage)
 		}
 	}
 }
@@ -1088,6 +1127,36 @@ func TestBuild_RequiredQueryParamBlocksBeforeRequest(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "required flag") || !strings.Contains(err.Error(), "type") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("server hits = %d, want 0", hits)
+	}
+}
+
+func TestBuild_InvalidOutputBlocksBeforeRequest(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	root := newRootWithModuleGroup()
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Items", Use: "get-item", Method: "GET", PathTpl: "/items/1", Security: &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{"--hostname", srv.URL, "--output", "not-a-format", "demo", "items", "get-item"})
+
+	err := root.Execute()
+	if err == nil || ClassifyError(err).Code != CodeUsage {
+		t.Fatalf("error = %v, want usage", err)
 	}
 	if hits != 0 {
 		t.Fatalf("server hits = %d, want 0", hits)

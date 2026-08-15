@@ -17,6 +17,7 @@ func commandsCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "commands",
 		Short: "List generated commands",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			catalog := runtime.BuildCatalog(cmd.Root(), catalogOptions(m, includeHidden))
 			if jsonOut {
@@ -43,7 +44,7 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <path...>",
 		Short: "Show one generated command",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  runtime.UsageArgs(cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			entry, ok := runtime.FindCatalogCommand(cmd.Root(), args, catalogOptions(m, includeHidden))
 			if !ok {
@@ -81,6 +82,7 @@ func commandsSchemaCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "schema",
 		Short: "Print command catalog schema version",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			data := map[string]int{"catalog_schema_version": runtime.CatalogSchemaVersion}
 			if jsonOut {
@@ -100,7 +102,7 @@ func searchCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search generated commands",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  runtime.UsageArgs(cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
 			results := runtime.SearchCatalog(cmd.Root(), query, runtime.SearchOptions{

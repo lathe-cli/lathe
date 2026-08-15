@@ -55,9 +55,20 @@ file; when this page and the code disagree, trust the code and fix this page.
 ## Structured errors and exit codes
 
 - Defined in `pkg/runtime/errors.go`.
-- Error codes: `general`, `usage`, `api_error`, `not_authenticated`.
+- `-o json` and `-o yaml` errors use an `error` envelope with required `code`,
+  `message`, and `hint` fields. An optional `http` object contains only a
+  numeric `status`; URLs, headers, and response bodies are deliberately
+  excluded.
+- Error codes: `general`, `usage`, `api_error`, `not_authenticated`,
+  `canceled`.
 - Exit codes: `0` OK, `1` general, `2` usage, `3` API error,
-  `4` not authenticated.
+  `4` not authenticated, `130` canceled.
+- A configured stream pause is a successful terminal outcome, not an error. It
+  exits `0`; stream collection policy should map the pause event into the
+  returned document when callers need an explicit paused status.
+- Debug output contains request method, HTTP status, retry timing, and elapsed
+  time only. It never prints request or response URLs, headers, bodies, or raw
+  transport errors.
 - Consumers: agents and scripts that branch on failure classes instead of
   parsing prose.
 

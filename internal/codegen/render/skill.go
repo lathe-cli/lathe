@@ -522,6 +522,8 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	b.WriteString("- Do not guess flags or request body shape from command names.\n")
 	b.WriteString("- Do not execute directly from search results; confirm with `commands show` first.\n")
 	b.WriteString("- Prefer `-o json` for machine-readable command output unless the user asks for human-readable output.\n")
+	b.WriteString("- With `-o json` or `-o yaml`, branch on `error.code` and process exit status; `error.message` and `error.hint` are safe human guidance, and `error.http.status` is the only optional HTTP context.\n")
+	b.WriteString("- A configured stream pause is successful (`exit 0`); inspect the collected output field mapped from the pause event instead of treating it as an error.\n")
 	b.WriteString("- For collected streams, choose one mode: `-o json` for one stable document, `--stream` in the default output mode when catalog `output.streaming.policy.live` is present, or `-o raw` for wire events.\n")
 	b.WriteString("- Use `--file`, `--set`, or `--set-str` for JSON request bodies according to `commands show` body requirements.\n")
 	b.WriteString("- For sensitive flags, prefer safe modes from `flags[].input_modes`: `--<flag>-env`, `--<flag>-file`, or `--<flag>-stdin`.\n")
@@ -576,6 +578,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `--set-str key.path=value`: build JSON while forcing the value to remain a string.\n\n")
 	b.WriteString("## Output\n\n")
 	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`. For collected streams, choose one mode: JSON or YAML for one document, `--stream` in the default output mode when `output.streaming.policy.live` is present, or raw for wire events.\n\n")
+	b.WriteString("On a non-zero exit with JSON or YAML output, read `error.code`, `error.message`, and `error.hint`; optional `error.http` contains only `status`. A configured pause exits zero and is represented by the field mapping in its stream collection policy.\n\n")
 	b.WriteString("## Auth\n\n")
 	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {

@@ -45,6 +45,7 @@ func verifyCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify generated CLI contract",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := verifyGenerated(cmd.Root(), m)
 			if err := writeJSON(cmd, report); err != nil {

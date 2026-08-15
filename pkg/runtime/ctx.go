@@ -151,7 +151,6 @@ func tryLoadHostOptionsMaybeRefresh(cmd *cobra.Command, defaultHostname string, 
 	return hostname, opts, nil
 }
 
-func notAuthenticatedToHost(hostname string) error {
-	name := config.Active().CLI.Name
-	return fmt.Errorf("not authenticated to %s (run: %s auth login --hostname %s)", hostname, name, hostname)
+func notAuthenticatedToHost(string) error {
+	return fmt.Errorf("authentication required for selected host: %w", ErrNotAuthenticated)
 }

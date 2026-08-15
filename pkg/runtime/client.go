@@ -267,21 +267,24 @@ func newRequest(ctx context.Context, method, u string, body []byte, contentType 
 
 func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
 	method := req.Method
-	u := redactDebugURL(req.URL, opts.sensitiveQueryParams)
 	resp, err := httpClient(opts, consume != nil).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w", method, u, redactClientError(err, opts.sensitiveQueryParams))
+		cause := redactClientError(err, opts.sensitiveQueryParams)
+		if errors.Is(cause, context.Canceled) {
+			return nil, cause
+		}
+		return nil, newAPIError(cause, 0)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("read response: %w", err)
+			return nil, newAPIError(fmt.Errorf("read response: %w", err), resp.StatusCode)
 		}
 		return nil, &HTTPError{
 			Method: method,
-			URL:    u,
+			URL:    redactDebugURL(req.URL, opts.sensitiveQueryParams),
 			Status: resp.StatusCode,
 			Body:   data,
 		}
@@ -296,7 +299,7 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, newAPIError(fmt.Errorf("read response: %w", err), resp.StatusCode)
 	}
 	return &RawResult{Body: data, StatusCode: resp.StatusCode, Header: resp.Header}, nil
 }
@@ -334,9 +337,5 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string {
-	snippet := string(e.Body)
-	if len(snippet) > 200 {
-		snippet = snippet[:200] + "…"
-	}
-	return fmt.Sprintf("%s %s: HTTP %d: %s", e.Method, e.URL, e.Status, strings.TrimSpace(snippet))
+	return fmt.Sprintf("%s request failed with HTTP %d", e.Method, e.Status)
 }

@@ -25,6 +25,10 @@ func NewCommand(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: fmt.Sprintf("Authenticate %s with a host", m.CLI.Name),
+		Args:  runtime.UsageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 	cmd.AddCommand(newLogin(m), newStatus(), newLogout())
 	return cmd
@@ -338,6 +342,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate with a host",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostname := rootString(cmd, "hostname")
 			insecure := rootBool(cmd, "insecure")
@@ -350,13 +355,13 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				hostname = strings.TrimSpace(line)
 			}
 			if hostname == "" {
-				return errors.New("hostname is required (use --hostname)")
+				return runtime.UsageError(cmd, errors.New("hostname is required (use --hostname)"))
 			}
 			hostname = config.NormalizeHostname(hostname)
 			authType = strings.ToLower(strings.TrimSpace(authType))
 			if deviceAuth {
 				if cmd.Flags().Changed("auth-type") && authType != "oauth" {
-					return fmt.Errorf("--device-auth cannot be used with --auth-type %s", authType)
+					return runtime.UsageError(cmd, fmt.Errorf("--device-auth cannot be used with --auth-type %s", authType))
 				}
 				authType = "oauth"
 			}
@@ -369,7 +374,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return err
 				}
 				if token == "" {
-					return errors.New("empty token")
+					return runtime.UsageError(cmd, errors.New("empty token"))
 				}
 				entry.OAuthToken = token
 			case "apikey":
@@ -378,7 +383,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return err
 				}
 				if key == "" {
-					return errors.New("empty API key")
+					return runtime.UsageError(cmd, errors.New("empty API key"))
 				}
 				entry.APIKey = key
 				entry.APIKeyHeader = m.Auth.APIKeyHeader
@@ -404,7 +409,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				}
 				entry.BasicUser = strings.TrimSpace(uline)
 				if entry.BasicUser == "" {
-					return errors.New("empty username")
+					return runtime.UsageError(cmd, errors.New("empty username"))
 				}
 				pass, err := readSecret("Password", false)
 				if err != nil {
@@ -413,7 +418,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				entry.BasicPassword = pass
 			case "oauth":
 				if withToken {
-					return errors.New("--with-token cannot be used with --auth-type oauth")
+					return runtime.UsageError(cmd, errors.New("--with-token cannot be used with --auth-type oauth"))
 				}
 				var err error
 				entry, err = oauthDeviceLogin(cmd, m, hostname, provider, insecure, noBrowser)
@@ -421,7 +426,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return err
 				}
 			default:
-				return fmt.Errorf("unknown auth type: %q (use bearer, apikey, basic, or oauth)", authType)
+				return runtime.UsageError(cmd, fmt.Errorf("unknown auth type: %q (use bearer, apikey, basic, or oauth)", authType))
 			}
 
 			if !skipValidate {
@@ -473,6 +478,7 @@ func newStatus() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "View authentication status",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostname := rootString(cmd, "hostname")
 			hosts, err := config.LoadHosts()
@@ -486,7 +492,7 @@ func newStatus() *cobra.Command {
 			if hostname != "" {
 				e, ok := hosts.Get(hostname)
 				if !ok {
-					return fmt.Errorf("not logged in to %s", hostname)
+					return runtime.NewNotAuthenticatedError()
 				}
 				printStatus(hostname, e)
 				return nil
@@ -504,6 +510,7 @@ func newLogout() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Remove authentication for a host",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostname := rootString(cmd, "hostname")
 			hosts, err := config.LoadHosts()
@@ -512,7 +519,7 @@ func newLogout() *cobra.Command {
 			}
 			names := hosts.Names()
 			if len(names) == 0 {
-				return errors.New("not logged in to any host")
+				return runtime.NewNotAuthenticatedError()
 			}
 			if hostname == "" {
 				if len(names) == 1 {
@@ -522,7 +529,7 @@ func newLogout() *cobra.Command {
 				}
 			}
 			if !hosts.Delete(hostname) {
-				return fmt.Errorf("not logged in to %s", hostname)
+				return runtime.NewNotAuthenticatedError()
 			}
 			if err := hosts.Save(); err != nil {
 				return err

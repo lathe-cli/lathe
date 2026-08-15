@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 var (
@@ -49,6 +50,7 @@ func updateCmd(m *config.Manifest) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Update this CLI from GitHub Releases",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runGitHubUpdate(cmd, m, yes)
 		},

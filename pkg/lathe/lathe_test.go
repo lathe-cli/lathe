@@ -2,6 +2,7 @@ package lathe
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 func TestRootHelpExposesAgentHint(t *testing.T) {
@@ -102,8 +104,8 @@ func TestRunReportsInvalidManifest(t *testing.T) {
 	if code != runtime.ExitGeneral {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitGeneral)
 	}
-	if !strings.Contains(stderr.String(), "cli.name is required") {
-		t.Fatalf("stderr missing manifest error: %q", stderr.String())
+	if got := stderr.String(); got != "Error: invalid CLI configuration\nHint: fix cli.yaml and retry\n" {
+		t.Fatalf("stderr = %q", got)
 	}
 }
 
@@ -118,8 +120,8 @@ func TestRunReportsMountError(t *testing.T) {
 	if code != runtime.ExitGeneral {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitGeneral)
 	}
-	if !strings.Contains(stderr.String(), "mount failed") {
-		t.Fatalf("stderr missing mount error: %q", stderr.String())
+	if got := stderr.String(); got != "Error: generated CLI failed to start\nHint: re-run code generation and rebuild the CLI\n" {
+		t.Fatalf("stderr = %q", got)
 	}
 }
 
@@ -139,5 +141,81 @@ func TestRunUsesRuntimeExecuteErrors(t *testing.T) {
 	}, []string{"needs-auth"}, &stdout, &stderr)
 	if code != runtime.ExitNotAuthenticated {
 		t.Fatalf("exit = %d, want %d", code, runtime.ExitNotAuthenticated)
+	}
+}
+
+func TestRunMachineErrorContract(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		cause    error
+		wantCode string
+		wantExit int
+		status   int
+	}{
+		{name: "cobra usage", args: []string{"unknown-secret-command"}, wantCode: runtime.CodeUsage, wantExit: runtime.ExitUsage},
+		{name: "nested cobra usage", args: []string{"__lathe", "unknown-secret-command"}, wantCode: runtime.CodeUsage, wantExit: runtime.ExitUsage},
+		{name: "extra cobra argument", args: []string{"__lathe", "version", "unknown-secret-command"}, wantCode: runtime.CodeUsage, wantExit: runtime.ExitUsage},
+		{name: "auth", args: []string{"fail"}, cause: runtime.ErrNotAuthenticated, wantCode: runtime.CodeNotAuthenticated, wantExit: runtime.ExitNotAuthenticated},
+		{name: "api", args: []string{"fail"}, cause: &runtime.HTTPError{Method: "GET", URL: "/private", Status: 429, Body: []byte("upstream-secret")}, wantCode: runtime.CodeAPIError, wantExit: runtime.ExitAPIError, status: 429},
+		{name: "canceled", args: []string{"fail"}, cause: context.Canceled, wantCode: runtime.CodeCanceled, wantExit: runtime.ExitCanceled},
+	}
+	for _, format := range []string{"json", "yaml"} {
+		for _, tc := range tests {
+			t.Run(format+"/"+tc.name, func(t *testing.T) {
+				var stdout, stderr bytes.Buffer
+				args := append([]string{"--output", format}, tc.args...)
+				code := run(RunOptions{
+					Manifest: []byte("cli:\n  name: myctl\n"),
+					Mount: func(root *cobra.Command) error {
+						if tc.cause != nil {
+							root.AddCommand(&cobra.Command{Use: "fail", RunE: func(*cobra.Command, []string) error { return tc.cause }})
+						}
+						return nil
+					},
+				}, args, &stdout, &stderr)
+				if code != tc.wantExit {
+					t.Fatalf("exit = %d, want %d; stderr = %s", code, tc.wantExit, stderr.String())
+				}
+				var env struct {
+					Error runtime.LatheError `yaml:"error"`
+				}
+				if err := yaml.Unmarshal(stderr.Bytes(), &env); err != nil {
+					t.Fatalf("decode %s: %v\n%s", format, err, stderr.String())
+				}
+				if env.Error.Code != tc.wantCode || env.Error.Message == "" || env.Error.Hint == "" {
+					t.Fatalf("error = %#v", env.Error)
+				}
+				if tc.status != 0 && (env.Error.HTTP == nil || env.Error.HTTP.Status != tc.status) {
+					t.Fatalf("http context = %#v, want status %d", env.Error.HTTP, tc.status)
+				}
+				for _, secret := range []string{"unknown-secret-command", "upstream-secret", "/private"} {
+					if strings.Contains(stderr.String(), secret) {
+						t.Fatalf("machine error leaked %q: %s", secret, stderr.String())
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRunFormatsStartupErrorAsMachineOutput(t *testing.T) {
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(RunOptions{Manifest: []byte("cli: {}\n")}, []string{"-o=" + format}, &stdout, &stderr)
+			if code != runtime.ExitGeneral {
+				t.Fatalf("exit = %d, want %d", code, runtime.ExitGeneral)
+			}
+			var env struct {
+				Error runtime.LatheError `yaml:"error"`
+			}
+			if err := yaml.Unmarshal(stderr.Bytes(), &env); err != nil {
+				t.Fatalf("decode %s: %v\n%s", format, err, stderr.String())
+			}
+			if env.Error.Code != runtime.CodeGeneral || env.Error.Hint == "" {
+				t.Fatalf("startup error = %#v", env.Error)
+			}
+		})
 	}
 }

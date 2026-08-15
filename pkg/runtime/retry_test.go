@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -208,6 +209,34 @@ func TestRetryTransport_RespectsRetryAfter(t *testing.T) {
 	resp.Body.Close()
 	if slept != 7*time.Second {
 		t.Errorf("slept = %v, want 7s (Retry-After)", slept)
+	}
+}
+
+func TestRetryTransport_CancellationStopsBackoff(t *testing.T) {
+	called := make(chan struct{}, 1)
+	rt := &retryTransport{
+		inner: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called <- struct{}{}
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}),
+		maxRetries: 1,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.invalid", nil)
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := rt.RoundTrip(req)
+		errCh <- err
+	}()
+	<-called
+	cancel()
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context canceled", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("retry backoff ignored cancellation")
 	}
 }
 

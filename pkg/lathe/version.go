@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 var (
@@ -73,6 +75,7 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
 		Run: func(cmd *cobra.Command, _ []string) {
 			cmd.Printf("%s %s\n", cmd.Root().Use, versionInfo())
 		},
