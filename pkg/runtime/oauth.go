@@ -30,7 +30,7 @@ func refreshAuthFunc(hostname string, insecure bool, rejectedToken string) func(
 		if entry.OAuthToken != "" && entry.OAuthToken != rejectedToken {
 			return NewAuthFromHost(entry)
 		}
-		entry, err = refreshHostAuth(ctx, hostname, hosts, entry, insecure)
+		entry, err = refreshHostAuth(ctx, hostname, entry, insecure)
 		if err != nil {
 			return nil, err
 		}
@@ -43,17 +43,17 @@ func canRefreshHostAuth(entry config.HostEntry) bool {
 	return login != nil && login.RefreshPath != "" && entry.OAuthRefreshToken != ""
 }
 
-func refreshHostAuthIfNeeded(ctx context.Context, hostname string, hosts *config.Hosts, entry config.HostEntry, insecure bool) (config.HostEntry, error) {
+func refreshHostAuthIfNeeded(ctx context.Context, hostname string, entry config.HostEntry, insecure bool) (config.HostEntry, error) {
 	if !canRefreshHostAuth(entry) {
 		return entry, nil
 	}
 	if entry.OAuthExpiresAt == 0 || time.Now().Unix()+oauthRefreshSkew < entry.OAuthExpiresAt {
 		return entry, nil
 	}
-	return refreshHostAuth(ctx, hostname, hosts, entry, insecure)
+	return refreshHostAuth(ctx, hostname, entry, insecure)
 }
 
-func refreshHostAuth(ctx context.Context, hostname string, hosts *config.Hosts, entry config.HostEntry, insecure bool) (config.HostEntry, error) {
+func refreshHostAuth(ctx context.Context, hostname string, entry config.HostEntry, insecure bool) (config.HostEntry, error) {
 	login := config.Active().Auth.Login
 	if login == nil || login.RefreshPath == "" || entry.OAuthRefreshToken == "" {
 		return entry, fmt.Errorf("refresh token unavailable; run `%s auth login --auth-type oauth --hostname %s`", config.Active().CLI.Name, hostname)
@@ -74,21 +74,31 @@ func refreshHostAuth(ctx context.Context, hostname string, hosts *config.Hosts, 
 	if token.AccessToken == "" {
 		return entry, fmt.Errorf("refresh token response missing access_token")
 	}
-	entry.AuthType = "bearer"
-	entry.OAuthToken = token.AccessToken
-	if token.RefreshToken != "" {
-		entry.OAuthRefreshToken = token.RefreshToken
-	}
-	if token.ExpiresIn > 0 {
-		entry.OAuthExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix()
-	} else {
-		entry.OAuthExpiresAt = 0
-	}
-	hosts.Set(hostname, entry)
-	if err := hosts.Save(); err != nil {
-		return entry, err
-	}
-	return entry, nil
+	updated := entry
+	err = config.MutateHosts(ctx, func(hosts *config.Hosts) error {
+		current, ok := hosts.Get(hostname)
+		if !ok {
+			return notAuthenticatedToHost(hostname)
+		}
+		if current.OAuthToken != entry.OAuthToken || current.OAuthRefreshToken != entry.OAuthRefreshToken {
+			updated = current
+			return nil
+		}
+		current.AuthType = "bearer"
+		current.OAuthToken = token.AccessToken
+		if token.RefreshToken != "" {
+			current.OAuthRefreshToken = token.RefreshToken
+		}
+		if token.ExpiresIn > 0 {
+			current.OAuthExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix()
+		} else {
+			current.OAuthExpiresAt = 0
+		}
+		updated = current
+		hosts.Set(hostname, current)
+		return nil
+	})
+	return updated, err
 }
 
 func refreshedByAnotherProcess(hostname string, old config.HostEntry) (config.HostEntry, bool) {

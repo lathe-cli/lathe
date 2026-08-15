@@ -11,6 +11,9 @@ func TestLoad_FullSpec(t *testing.T) {
 cli:
   name: demo
   short: "demo CLI"
+contexts:
+  workspace:
+    env: DEMO_WORKSPACE_ID
 auth:
   default_type: apikey
   api_key_header: X-Auth-Token
@@ -29,6 +32,8 @@ auth:
       access_token: token
       status: state
       error: failure.code
+      contexts:
+        workspace: account.workspace_id
   validate:
     method: POST
     path: /whoami
@@ -66,6 +71,9 @@ auth:
 	}
 	if m.Auth.Login.PollResponse.AccessToken != "token" || m.Auth.Login.PollResponse.Status != "state" || m.Auth.Login.PollResponse.Error != "failure.code" {
 		t.Errorf("unexpected poll response: %+v", m.Auth.Login.PollResponse)
+	}
+	if m.Contexts["workspace"].Env != "DEMO_WORKSPACE_ID" || m.Auth.Login.PollResponse.Contexts["workspace"] != "account.workspace_id" {
+		t.Errorf("unexpected contexts: manifest=%+v poll=%+v", m.Contexts, m.Auth.Login.PollResponse.Contexts)
 	}
 	if m.Auth.Validate.Method != "POST" || m.Auth.Validate.Path != "/whoami" {
 		t.Errorf("unexpected AuthValidate: %+v", m.Auth.Validate)
@@ -323,6 +331,21 @@ auth:
     token_path: /token
     start_request:
       client_id: ${unknown}
+`,
+		},
+		{
+			name: "unknown login context",
+			yaml: `
+cli:
+  name: demo
+auth:
+  login:
+    type: oauth_device
+    start_path: /start
+    token_path: /token
+    poll_response:
+      contexts:
+        workspace: account.workspace_id
 `,
 		},
 	}

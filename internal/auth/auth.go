@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	goruntime "runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,9 @@ func NewCommand(m *config.Manifest) *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newLogin(m), newStatus(), newLogout())
+	if len(m.Contexts) > 0 {
+		cmd.AddCommand(newContextCommand(m))
+	}
 	return cmd
 }
 
@@ -57,6 +61,7 @@ type oauthDeviceTokenResponse struct {
 	ExpiresIn    int64
 	UserEmail    string
 	UserName     string
+	Contexts     map[string]string
 }
 
 func rootString(cmd *cobra.Command, name string) string {
@@ -130,6 +135,7 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 		OAuthToken:        token.AccessToken,
 		OAuthRefreshToken: token.RefreshToken,
 		Insecure:          insecure,
+		Contexts:          token.Contexts,
 	}
 	if token.ExpiresIn > 0 {
 		entry.OAuthExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).Unix()
@@ -250,7 +256,7 @@ func decodeOAuthDeviceToken(data []byte, fields config.AuthLoginPollResponse) (o
 	if err != nil {
 		return oauthDeviceTokenResponse{}, err
 	}
-	return oauthDeviceTokenResponse{
+	token := oauthDeviceTokenResponse{
 		Status:       pluckString(raw, oauthField(fields.Status, "status")),
 		Error:        pluckString(raw, oauthField(fields.Error, "error")),
 		AccessToken:  pluckString(raw, oauthField(fields.AccessToken, "access_token")),
@@ -258,7 +264,14 @@ func decodeOAuthDeviceToken(data []byte, fields config.AuthLoginPollResponse) (o
 		ExpiresIn:    expiresIn,
 		UserEmail:    pluckString(raw, oauthField(fields.UserEmail, "user.email")),
 		UserName:     pluckString(raw, oauthField(fields.UserName, "user.name")),
-	}, nil
+		Contexts:     map[string]string{},
+	}
+	for name, path := range fields.Contexts {
+		if value := strings.TrimSpace(pluckString(raw, path)); value != "" {
+			token.Contexts[name] = value
+		}
+	}
+	return token, nil
 }
 
 func oauthField(configured, fallback string) string {
@@ -449,12 +462,10 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				}
 			}
 
-			hosts, err := config.LoadHosts()
-			if err != nil {
-				return err
-			}
-			hosts.Set(hostname, entry)
-			if err := hosts.Save(); err != nil {
+			if err := config.MutateHosts(cmd.Context(), func(hosts *config.Hosts) error {
+				hosts.Set(hostname, entry)
+				return nil
+			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "✓ Logged in to %s\n", hostname)
@@ -528,15 +539,200 @@ func newLogout() *cobra.Command {
 					return fmt.Errorf("multiple hosts configured, specify --hostname (have: %s)", strings.Join(names, ", "))
 				}
 			}
-			if !hosts.Delete(hostname) {
+			if _, ok := hosts.Get(hostname); !ok {
 				return runtime.NewNotAuthenticatedError()
 			}
-			if err := hosts.Save(); err != nil {
+			if err := config.MutateHosts(cmd.Context(), func(hosts *config.Hosts) error {
+				if !hosts.Delete(hostname) {
+					return runtime.NewNotAuthenticatedError()
+				}
+				return nil
+			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "✓ Logged out of %s\n", hostname)
 			return nil
 		},
+	}
+}
+
+type contextStatus struct {
+	Hostname string               `json:"hostname"`
+	Contexts []contextStatusEntry `json:"contexts"`
+}
+
+type contextStatusEntry struct {
+	Name     string `json:"name"`
+	Value    string `json:"value,omitempty"`
+	Source   string `json:"source"`
+	Env      string `json:"env,omitempty"`
+	LocalSet bool   `json:"local_set"`
+}
+
+func newContextCommand(m *config.Manifest) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "context",
+		Short: "Manage account-scoped command defaults",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newContextStatus(m), newContextUnset(m))
+	for _, info := range m.Contexts {
+		if info.LocalSet {
+			cmd.AddCommand(newContextSet(m))
+			break
+		}
+	}
+	return cmd
+}
+
+func newContextStatus(m *config.Manifest) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "View active context values",
+		Args:  runtime.UsageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateContextOutput(cmd); err != nil {
+				return err
+			}
+			hostname, entry, err := selectedHostEntry(cmd)
+			if err != nil {
+				return err
+			}
+			names := make([]string, 0, len(m.Contexts))
+			for name := range m.Contexts {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			out := contextStatus{Hostname: hostname, Contexts: make([]contextStatusEntry, 0, len(names))}
+			for _, name := range names {
+				info := m.Contexts[name]
+				item := contextStatusEntry{Name: name, Env: info.Env, LocalSet: info.LocalSet, Source: "unset"}
+				if info.Env != "" {
+					if value := strings.TrimSpace(os.Getenv(info.Env)); value != "" {
+						item.Value, item.Source = value, "env"
+					}
+				}
+				if item.Value == "" {
+					if value := strings.TrimSpace(entry.Contexts[name]); value != "" {
+						item.Value, item.Source = value, "stored"
+					}
+				}
+				out.Contexts = append(out.Contexts, item)
+			}
+			return writeContextOutput(cmd, out, runtime.OutputHints{ListPath: "contexts", DefaultColumns: []string{"name", "value", "source", "env", "local_set"}})
+		},
+	}
+}
+
+func newContextSet(m *config.Manifest) *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <name> <value>",
+		Short: "Set a locally managed context value",
+		Args:  runtime.UsageArgs(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateContextOutput(cmd); err != nil {
+				return err
+			}
+			name, value := args[0], strings.TrimSpace(args[1])
+			info, ok := m.Contexts[name]
+			if !ok {
+				return runtime.UsageError(cmd, fmt.Errorf("unknown context %q", name))
+			}
+			if !info.LocalSet {
+				return runtime.NewError(runtime.CodeUsage, runtime.ExitUsage, "context is server-managed", "use the generated selector operation or pass the bound flag explicitly", fmt.Errorf("context %q does not allow local set", name))
+			}
+			if value == "" {
+				return runtime.UsageError(cmd, errors.New("context value must not be empty"))
+			}
+			hostname, _, err := selectedHostEntry(cmd)
+			if err != nil {
+				return err
+			}
+			if err := mutateHostContext(cmd, hostname, func(contexts map[string]string) { contexts[name] = value }); err != nil {
+				return err
+			}
+			return writeContextOutput(cmd, map[string]string{"hostname": hostname, "name": name, "value": value}, runtime.OutputHints{})
+		},
+	}
+}
+
+func newContextUnset(m *config.Manifest) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unset <name>",
+		Short: "Clear a stored context value",
+		Args:  runtime.UsageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateContextOutput(cmd); err != nil {
+				return err
+			}
+			name := args[0]
+			if _, ok := m.Contexts[name]; !ok {
+				return runtime.UsageError(cmd, fmt.Errorf("unknown context %q", name))
+			}
+			hostname, _, err := selectedHostEntry(cmd)
+			if err != nil {
+				return err
+			}
+			if err := mutateHostContext(cmd, hostname, func(contexts map[string]string) { delete(contexts, name) }); err != nil {
+				return err
+			}
+			return writeContextOutput(cmd, map[string]string{"hostname": hostname, "name": name, "status": "unset"}, runtime.OutputHints{})
+		},
+	}
+}
+
+func selectedHostEntry(cmd *cobra.Command) (string, config.HostEntry, error) {
+	hostname, err := runtime.ResolveHost(cmd)
+	if err != nil {
+		return "", config.HostEntry{}, err
+	}
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		return "", config.HostEntry{}, err
+	}
+	entry, ok := hosts.Get(hostname)
+	if !ok {
+		return "", config.HostEntry{}, runtime.NewNotAuthenticatedError()
+	}
+	return hostname, entry, nil
+}
+
+func mutateHostContext(cmd *cobra.Command, hostname string, mutate func(map[string]string)) error {
+	return config.MutateHosts(cmd.Context(), func(hosts *config.Hosts) error {
+		entry, ok := hosts.Get(hostname)
+		if !ok {
+			return runtime.NewNotAuthenticatedError()
+		}
+		if entry.Contexts == nil {
+			entry.Contexts = map[string]string{}
+		}
+		mutate(entry.Contexts)
+		hosts.Set(hostname, entry)
+		return nil
+	})
+}
+
+func writeContextOutput(cmd *cobra.Command, value any, hints runtime.OutputHints) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	format := rootString(cmd, "output")
+	if format == "" {
+		format = "table"
+	}
+	return runtime.FormatOutput(data, format, cmd.OutOrStdout(), hints)
+}
+
+func validateContextOutput(cmd *cobra.Command) error {
+	switch format := rootString(cmd, "output"); format {
+	case "", "table", "json", "yaml", "raw":
+		return nil
+	default:
+		return runtime.UsageError(cmd, fmt.Errorf("unsupported output format %q", format))
 	}
 }
 

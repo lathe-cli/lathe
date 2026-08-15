@@ -8,9 +8,11 @@ import (
 	"unicode"
 
 	"github.com/spf13/cobra"
+
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 16
+const CatalogSchemaVersion = 17
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -49,29 +51,30 @@ type CatalogOutputFormats struct {
 }
 
 type CatalogCommand struct {
-	Kind          string            `json:"kind"`
-	Path          []string          `json:"path"`
-	Service       string            `json:"service"`
-	Group         string            `json:"group"`
-	Use           string            `json:"use"`
-	Aliases       []string          `json:"aliases,omitempty"`
-	Shortcuts     []CommandShortcut `json:"shortcuts,omitempty"`
-	Summary       string            `json:"summary,omitempty"`
-	Description   string            `json:"description,omitempty"`
-	Example       string            `json:"example,omitempty"`
-	Examples      []CommandExample  `json:"examples,omitempty"`
-	OperationID   string            `json:"operation_id,omitempty"`
-	HTTP          CatalogHTTP       `json:"http"`
-	Workflow      *CatalogWorkflow  `json:"workflow,omitempty"`
-	Auth          CatalogAuth       `json:"auth"`
-	Body          *CatalogBody      `json:"body,omitempty"`
-	Flags         []CatalogFlag     `json:"flags"`
-	Output        CatalogOutput     `json:"output"`
-	Hidden        bool              `json:"hidden"`
-	Deprecated    bool              `json:"deprecated"`
-	Notes         []string          `json:"notes,omitempty"`
-	Prerequisites []string          `json:"prerequisites,omitempty"`
-	KnownErrors   []KnownError      `json:"known_errors,omitempty"`
+	Kind          string             `json:"kind"`
+	Path          []string           `json:"path"`
+	Service       string             `json:"service"`
+	Group         string             `json:"group"`
+	Use           string             `json:"use"`
+	Aliases       []string           `json:"aliases,omitempty"`
+	Shortcuts     []CommandShortcut  `json:"shortcuts,omitempty"`
+	Summary       string             `json:"summary,omitempty"`
+	Description   string             `json:"description,omitempty"`
+	Example       string             `json:"example,omitempty"`
+	Examples      []CommandExample   `json:"examples,omitempty"`
+	OperationID   string             `json:"operation_id,omitempty"`
+	HTTP          CatalogHTTP        `json:"http"`
+	Workflow      *CatalogWorkflow   `json:"workflow,omitempty"`
+	Auth          CatalogAuth        `json:"auth"`
+	Body          *CatalogBody       `json:"body,omitempty"`
+	Flags         []CatalogFlag      `json:"flags"`
+	Output        CatalogOutput      `json:"output"`
+	Hidden        bool               `json:"hidden"`
+	Deprecated    bool               `json:"deprecated"`
+	Notes         []string           `json:"notes,omitempty"`
+	Prerequisites []string           `json:"prerequisites,omitempty"`
+	KnownErrors   []KnownError       `json:"known_errors,omitempty"`
+	SetsContext   *CatalogContextSet `json:"sets_context,omitempty"`
 }
 
 type CatalogWorkflow struct {
@@ -85,6 +88,8 @@ type CatalogWorkflowStep struct {
 	OperationID string                     `json:"operation_id,omitempty"`
 	HTTP        CatalogHTTP                `json:"http"`
 	When        []CatalogWorkflowCondition `json:"when,omitempty"`
+	Contexts    []CatalogContextBinding    `json:"contexts,omitempty"`
+	SetsContext *CatalogContextSet         `json:"sets_context,omitempty"`
 }
 
 type CatalogWorkflowCondition struct {
@@ -121,20 +126,32 @@ type CatalogRuntimeSchema struct {
 }
 
 type CatalogFlag struct {
+	Name       string                 `json:"name"`
+	Flag       string                 `json:"flag"`
+	Aliases    []string               `json:"aliases,omitempty"`
+	Argument   string                 `json:"argument,omitempty"`
+	Position   int                    `json:"position,omitempty"`
+	Location   string                 `json:"location"`
+	Type       string                 `json:"type"`
+	Required   bool                   `json:"required"`
+	Default    string                 `json:"default,omitempty"`
+	Enum       []string               `json:"enum,omitempty"`
+	Format     string                 `json:"format,omitempty"`
+	InputModes []string               `json:"input_modes,omitempty"`
+	Deprecated bool                   `json:"deprecated"`
+	Help       string                 `json:"help,omitempty"`
+	Context    *CatalogContextBinding `json:"context,omitempty"`
+}
+
+type CatalogContextBinding struct {
 	Name       string   `json:"name"`
-	Flag       string   `json:"flag"`
-	Aliases    []string `json:"aliases,omitempty"`
-	Argument   string   `json:"argument,omitempty"`
-	Position   int      `json:"position,omitempty"`
-	Location   string   `json:"location"`
-	Type       string   `json:"type"`
-	Required   bool     `json:"required"`
-	Default    string   `json:"default,omitempty"`
-	Enum       []string `json:"enum,omitempty"`
-	Format     string   `json:"format,omitempty"`
-	InputModes []string `json:"input_modes,omitempty"`
-	Deprecated bool     `json:"deprecated"`
-	Help       string   `json:"help,omitempty"`
+	Env        string   `json:"env,omitempty"`
+	Precedence []string `json:"precedence"`
+}
+
+type CatalogContextSet struct {
+	Name      string `json:"name"`
+	FromParam string `json:"from_param"`
 }
 
 type CatalogOutput struct {
@@ -394,6 +411,9 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		Prerequisites: append([]string(nil), spec.Prerequisites...),
 		KnownErrors:   append([]KnownError(nil), spec.KnownErrors...),
 	}
+	if spec.SetContext != nil {
+		cmd.SetsContext = &CatalogContextSet{Name: spec.SetContext.Name, FromParam: spec.SetContext.Param}
+	}
 	if spec.RequestBody != nil {
 		cmd.Body = &CatalogBody{
 			Required:  spec.RequestBody.Required,
@@ -438,7 +458,7 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 	steps := make([]CatalogWorkflowStep, 0, len(spec.Steps))
 	auth := CatalogAuth{Required: false}
 	for _, step := range spec.Steps {
-		steps = append(steps, CatalogWorkflowStep{
+		catalogStep := CatalogWorkflowStep{
 			ID:          step.ID,
 			OperationID: step.Operation.OperationID,
 			HTTP: CatalogHTTP{
@@ -446,8 +466,13 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 				PathTemplate:    step.Operation.PathTpl,
 				DefaultHostname: step.Operation.DefaultHostname,
 			},
-			When: catalogWorkflowConditions(step.When),
-		})
+			When:     catalogWorkflowConditions(step.When),
+			Contexts: catalogContextBindings(step.Operation.Params),
+		}
+		if step.Operation.SetContext != nil {
+			catalogStep.SetsContext = &CatalogContextSet{Name: step.Operation.SetContext.Name, FromParam: step.Operation.SetContext.Param}
+		}
+		steps = append(steps, catalogStep)
 		stepAuth := catalogAuth(step.Operation.Security)
 		if stepAuth.Required {
 			auth.Required = true
@@ -513,9 +538,33 @@ func catalogFlags(params []ParamSpec) []CatalogFlag {
 			InputModes: inputModes,
 			Deprecated: p.Deprecated,
 			Help:       p.Help,
+			Context:    catalogContextBinding(p),
 		})
 	}
 	return flags
+}
+
+func catalogContextBinding(param ParamSpec) *CatalogContextBinding {
+	if param.Context == "" {
+		return nil
+	}
+	info := config.Active().Contexts[param.Context]
+	precedence := []string{"flag"}
+	if info.Env != "" {
+		precedence = append(precedence, "env")
+	}
+	precedence = append(precedence, "stored")
+	return &CatalogContextBinding{Name: param.Context, Env: info.Env, Precedence: precedence}
+}
+
+func catalogContextBindings(params []ParamSpec) []CatalogContextBinding {
+	out := make([]CatalogContextBinding, 0)
+	for _, param := range params {
+		if binding := catalogContextBinding(param); binding != nil {
+			out = append(out, *binding)
+		}
+	}
+	return out
 }
 
 func cloneShortcuts(shortcuts []CommandShortcut) []CommandShortcut {

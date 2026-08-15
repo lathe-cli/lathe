@@ -27,9 +27,15 @@ type CommandSpec struct {
 	RequestBody     *RequestBody
 	Output          OutputHints
 	Security        *SecurityHint
-	Notes           []string     `json:",omitempty"`
-	Prerequisites   []string     `json:",omitempty"`
-	KnownErrors     []KnownError `json:",omitempty"`
+	Notes           []string        `json:",omitempty"`
+	Prerequisites   []string        `json:",omitempty"`
+	KnownErrors     []KnownError    `json:",omitempty"`
+	SetContext      *ContextSetHint `json:",omitempty"`
+}
+
+type ContextSetHint struct {
+	Name  string `json:"name"`
+	Param string `json:"param"`
 }
 
 type CommandExample struct {
@@ -63,6 +69,7 @@ type ParamSpec struct {
 	Enum       []string
 	Format     string
 	Deprecated bool
+	Context    string `json:",omitempty"`
 }
 
 const (

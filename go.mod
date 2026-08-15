@@ -3,6 +3,7 @@ module github.com/lathe-cli/lathe
 go 1.25.13
 
 require (
+	github.com/gofrs/flock v0.13.0
 	github.com/lathe-cli/kitup/go v0.1.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
@@ -18,6 +19,7 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 )

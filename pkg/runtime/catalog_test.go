@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
@@ -161,6 +163,26 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if len(roundTrip.Commands[0].Examples) != 1 || roundTrip.Commands[0].Examples[0].OutputHints.IDPath != "data.user.id" {
 		t.Fatalf("round-trip examples = %#v", roundTrip.Commands[0].Examples)
+	}
+}
+
+func TestBuildCatalog_ExposesContextContract(t *testing.T) {
+	config.Bind(&config.Manifest{CLI: config.CLIInfo{Name: "myctl"}, Contexts: map[string]config.ContextInfo{
+		"workspace": {Env: "MYCTL_WORKSPACE_ID"},
+	}})
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Apps", Use: "use", Method: "POST", PathTpl: "/workspaces/{workspace_id}",
+		Params:     []ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: InPath, GoType: "string", Required: true, Context: "workspace"}},
+		SetContext: &ContextSetHint{Name: "workspace", Param: "workspace_id"},
+	}})
+	command := BuildCatalog(root, CatalogOptions{CLIName: "myctl"}).Commands[0]
+	context := command.Flags[0].Context
+	if context == nil || context.Name != "workspace" || context.Env != "MYCTL_WORKSPACE_ID" || !reflect.DeepEqual(context.Precedence, []string{"flag", "env", "stored"}) {
+		t.Fatalf("flag context = %#v", context)
+	}
+	if command.SetsContext == nil || command.SetsContext.Name != "workspace" || command.SetsContext.FromParam != "workspace_id" {
+		t.Fatalf("sets context = %#v", command.SetsContext)
 	}
 }
 

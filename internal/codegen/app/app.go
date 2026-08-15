@@ -5,6 +5,8 @@
 package app
 
 import (
+	"fmt"
+
 	"github.com/lathe-cli/lathe/internal/codegen/render"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
@@ -49,7 +51,61 @@ func (a *App) Validate() error {
 		names = append(names, workflow.Use)
 		names = append(names, workflow.Aliases...)
 	}
-	return render.ValidateModuleNames(names)
+	if err := render.ValidateModuleNames(names); err != nil {
+		return err
+	}
+	for _, module := range a.Modules {
+		for _, spec := range module.Specs {
+			if err := validateCommandContexts(a.Manifest, spec); err != nil {
+				return fmt.Errorf("command %q: %w", spec.Use, err)
+			}
+		}
+	}
+	for _, workflow := range a.Workflows {
+		for _, step := range workflow.Steps {
+			if err := validateCommandContexts(a.Manifest, step.Operation); err != nil {
+				return fmt.Errorf("workflow %q step %q: %w", workflow.Use, step.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateCommandContexts(manifest *config.Manifest, spec runtime.CommandSpec) error {
+	contexts := map[string]config.ContextInfo(nil)
+	if manifest != nil {
+		contexts = manifest.Contexts
+	}
+	for _, param := range spec.Params {
+		if param.Context == "" {
+			continue
+		}
+		if _, ok := contexts[param.Context]; !ok {
+			return fmt.Errorf("parameter %q references unknown context %q", param.Name, param.Context)
+		}
+		if param.GoType != "string" {
+			return fmt.Errorf("context parameter %q must be a string", param.Name)
+		}
+	}
+	if spec.SetContext == nil {
+		return nil
+	}
+	if _, ok := contexts[spec.SetContext.Name]; !ok {
+		return fmt.Errorf("sets unknown context %q", spec.SetContext.Name)
+	}
+	matches := 0
+	for _, param := range spec.Params {
+		if param.Name == spec.SetContext.Param || param.Flag == spec.SetContext.Param {
+			matches++
+			if param.GoType != "string" {
+				return fmt.Errorf("context source parameter %q must be a string", spec.SetContext.Param)
+			}
+		}
+	}
+	if matches != 1 {
+		return fmt.Errorf("context source parameter %q must match exactly one operation parameter", spec.SetContext.Param)
+	}
+	return nil
 }
 
 // Write renders every collected output.

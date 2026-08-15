@@ -19,6 +19,7 @@ func TestHostsRoundTripOAuthLoginFields(t *testing.T) {
 		OAuthToken:        "access",
 		OAuthRefreshToken: "refresh",
 		OAuthExpiresAt:    1790000000,
+		Contexts:          map[string]string{"workspace": "ws-1"},
 	})
 	if err := hosts.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -34,5 +35,8 @@ func TestHostsRoundTripOAuthLoginFields(t *testing.T) {
 	}
 	if entry.AuthType != "bearer" || entry.LoginType != AuthLoginOAuthDevice || entry.LoginProvider != "github" || entry.OAuthToken != "access" || entry.OAuthRefreshToken != "refresh" || entry.OAuthExpiresAt != 1790000000 {
 		t.Fatalf("entry = %+v", entry)
+	}
+	if entry.Contexts["workspace"] != "ws-1" {
+		t.Fatalf("contexts = %#v", entry.Contexts)
 	}
 }

@@ -27,6 +27,16 @@ type Override struct {
 	KnownErrors   []KnownError             `yaml:"known_errors"`
 	Body          *BodyOverride            `yaml:"body"`
 	Output        *OutputOverride          `yaml:"output"`
+	Context       *ContextOverride         `yaml:"context"`
+}
+
+type ContextOverride struct {
+	SetOnSuccess *ContextSetOnSuccess `yaml:"set_on_success"`
+}
+
+type ContextSetOnSuccess struct {
+	Name      string `yaml:"name"`
+	FromParam string `yaml:"from_param"`
 }
 
 type BodyOverride struct {
@@ -102,6 +112,7 @@ type ParamOverride struct {
 	Default         string `yaml:"default"`
 	DeprecatedAlias bool   `yaml:"hidden"`
 	Deprecated      bool   `yaml:"deprecated"`
+	Context         string `yaml:"context"`
 }
 
 type KnownError struct {

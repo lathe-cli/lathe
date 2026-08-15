@@ -155,6 +155,10 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
 				return UsageError(cmd, err)
 			}
+			input := OperationInput{Values: vals, Changed: changed}
+			if err := resolveCommandContexts(cmd, s, &input); err != nil {
+				return err
+			}
 			if err := validateRequiredParams(s.Params, s.RequestBody != nil, changed); err != nil {
 				return UsageError(cmd, err)
 			}
@@ -168,14 +172,10 @@ func buildCmd(s CommandSpec) *cobra.Command {
 					return UsageError(cmd, err)
 				}
 			}
-			input := OperationInput{
-				Values:         vals,
-				Changed:        changed,
-				FileBody:       fileBody,
-				HasFile:        hasFile,
-				BodySets:       bodySets,
-				BodyStringSets: bodyStringSets,
-			}
+			input.FileBody = fileBody
+			input.HasFile = hasFile
+			input.BodySets = bodySets
+			input.BodyStringSets = bodyStringSets
 			if err := validateOperationInput(s, input); err != nil {
 				return UsageError(cmd, err)
 			}
@@ -297,7 +297,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		vals[key] = v
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
-		if p.Default == "" && p.Argument == "" && !isSensitiveStringParam(p) {
+		if p.Default == "" && p.Argument == "" && p.Context == "" && !isSensitiveStringParam(p) {
 			_ = cmd.MarkFlagRequired(p.Flag)
 		}
 		if p.Deprecated {
@@ -349,7 +349,7 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
 	}
-	if p.Required && p.Default == "" && p.Argument == "" && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
+	if p.Required && p.Default == "" && p.Argument == "" && p.Context == "" && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
 		_ = cmd.MarkFlagRequired(p.Flag)
 	}
 	if p.Deprecated {

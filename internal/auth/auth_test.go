@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
@@ -116,7 +117,10 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&pollBody); err != nil {
 				t.Errorf("decode poll body: %v", err)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"token": "access-1"})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"token":   "access-1",
+				"account": map[string]string{"workspace_id": "ws-1"},
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -124,14 +128,15 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 	defer srv.Close()
 
 	m := &config.Manifest{
-		CLI: config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		CLI:      config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		Contexts: map[string]config.ContextInfo{"workspace": {}},
 		Auth: config.AuthInfo{Login: &config.AuthLogin{
 			Type:         config.AuthLoginOAuthDevice,
 			StartPath:    "/start",
 			TokenPath:    "/token",
 			StartRequest: map[string]string{"client_id": "demo-cli", "device_label": "${device_label}"},
 			PollRequest:  map[string]string{"client_id": "demo-cli", "device_code": "${device_code}"},
-			PollResponse: config.AuthLoginPollResponse{AccessToken: "token"},
+			PollResponse: config.AuthLoginPollResponse{AccessToken: "token", Contexts: map[string]string{"workspace": "account.workspace_id"}},
 		}},
 	}
 	config.Bind(m)
@@ -156,8 +161,74 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 		t.Fatalf("LoadHosts: %v", err)
 	}
 	entry, ok := hosts.Get(srv.URL)
-	if !ok || entry.OAuthToken != "access-1" {
+	if !ok || entry.OAuthToken != "access-1" || entry.Contexts["workspace"] != "ws-1" {
 		t.Fatalf("entry = %+v, found = %v", entry, ok)
+	}
+}
+
+func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T) {
+	m := &config.Manifest{
+		CLI: config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		Contexts: map[string]config.ContextInfo{
+			"organization": {Env: "DEMO_ORG_ID", LocalSet: true},
+			"workspace":    {},
+		},
+	}
+	managedOnly := newContextCommand(&config.Manifest{Contexts: map[string]config.ContextInfo{"workspace": {}}})
+	for _, command := range managedOnly.Commands() {
+		if command.Name() == "set" {
+			t.Fatal("server-managed contexts exposed auth context set")
+		}
+	}
+	config.Bind(m)
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts.Set("api.example.com", config.HostEntry{AuthType: "bearer", OAuthToken: "token", Contexts: map[string]string{"organization": "org-1"}})
+	if err := hosts.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var out strings.Builder
+		root := &cobra.Command{Use: "demo"}
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.PersistentFlags().String("hostname", "api.example.com", "")
+		root.PersistentFlags().StringP("output", "o", "json", "")
+		root.AddCommand(NewCommand(m))
+		root.SetArgs(args)
+		err := root.Execute()
+		return out.String(), err
+	}
+
+	if _, err := run("auth", "context", "set", "organization", "org-2"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if _, err := run("auth", "context", "set", "organization", "org-3", "-o", "bogus"); err == nil {
+		t.Fatal("invalid output format succeeded")
+	}
+	t.Setenv("DEMO_ORG_ID", "org-env")
+	out, err := run("auth", "context", "status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(out, `"value": "org-env"`) || !strings.Contains(out, `"source": "env"`) {
+		t.Fatalf("status = %s", out)
+	}
+	if _, err := run("auth", "context", "set", "workspace", "ws-2"); err == nil || runtime.ClassifyError(err).Code != runtime.CodeUsage {
+		t.Fatalf("server-managed set error = %v", err)
+	}
+	reloaded, err := config.LoadHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := reloaded.Get("api.example.com")
+	if entry.Contexts["organization"] != "org-2" || entry.OAuthToken != "token" {
+		t.Fatalf("entry = %+v", entry)
 	}
 }
 

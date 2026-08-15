@@ -35,7 +35,8 @@ func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
 func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	dir := t.TempDir()
 	manifest := &config.Manifest{
-		CLI: config.CLIInfo{Name: "acmectl", Short: "Acme API CLI", HostEnv: "ACMECTL_HOST", ConfigDirEnv: "ACMECTL_CONFIG_DIR"},
+		CLI:      config.CLIInfo{Name: "acmectl", Short: "Acme API CLI", HostEnv: "ACMECTL_HOST", ConfigDirEnv: "ACMECTL_CONFIG_DIR"},
+		Contexts: map[string]config.ContextInfo{"organization": {Env: "ACMECTL_ORG_ID"}},
 	}
 	source := &sourceconfig.Source{
 		Name:      "users",
@@ -52,7 +53,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Method:  "POST",
 			PathTpl: "/users",
 			Params: []runtime.ParamSpec{
-				{Name: "type", Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type"},
+				{Name: "type", Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type", Context: "organization"},
 			},
 			RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json"},
 			Output: runtime.OutputHints{
@@ -61,7 +62,8 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 				Pagination:        &runtime.PaginationHint{Strategy: "cursor", TokenParam: "page_token"},
 				Streaming:         &runtime.StreamingHint{Strategy: "sse"},
 			},
-			Security: &runtime.SecurityHint{Scopes: []string{"users:write"}},
+			Security:   &runtime.SecurityHint{Scopes: []string{"users:write"}},
+			SetContext: &runtime.ContextSetHint{Name: "organization", Param: "type"},
 		},
 		{Group: "Users", Use: "delete-user", Short: "Delete user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
 	}
@@ -97,6 +99,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"flags[].input_modes",
 		"error.code",
 		"exit 0",
+		"auth context status -o json",
 	} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("SKILL.md missing %q", want)
@@ -132,7 +135,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Summary: Create a user",
 		"Auth: required; scopes: `users:write`",
 		"Body: required; media type `application/json`",
-		"argument 1 `[receiver]` or `--type` (query, required): Receiver type",
+		"argument 1 `[receiver]` or `--type` (query, required, context `organization` via `ACMECTL_ORG_ID`): Receiver type",
 		"pagination `cursor`",
 		"streaming `sse`",
 		"Notes:",
@@ -141,6 +144,8 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Find the cluster UUID first.",
 		"Known errors:",
 		"HTTP 400: missing start/end",
+		"context `organization` via `ACMECTL_ORG_ID`",
+		"Sets context `organization` from parameter `type` after success.",
 		"Example: `acmectl accounts create-user --set name=alice`",
 	} {
 		if !strings.Contains(module, want) {

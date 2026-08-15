@@ -1,12 +1,15 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,18 +25,19 @@ func NormalizeHostname(s string) string {
 
 // HostEntry mirrors gh's per-host record in hosts.yml.
 type HostEntry struct {
-	AuthType          string `yaml:"auth_type,omitempty"`
-	LoginType         string `yaml:"login_type,omitempty"`
-	LoginProvider     string `yaml:"login_provider,omitempty"`
-	User              string `yaml:"user,omitempty"`
-	OAuthToken        string `yaml:"oauth_token,omitempty"`
-	OAuthRefreshToken string `yaml:"oauth_refresh_token,omitempty"`
-	OAuthExpiresAt    int64  `yaml:"oauth_expires_at,omitempty"`
-	APIKey            string `yaml:"api_key,omitempty"`
-	APIKeyHeader      string `yaml:"api_key_header,omitempty"`
-	BasicUser         string `yaml:"basic_user,omitempty"`
-	BasicPassword     string `yaml:"basic_password,omitempty"`
-	Insecure          bool   `yaml:"insecure,omitempty"`
+	AuthType          string            `yaml:"auth_type,omitempty"`
+	LoginType         string            `yaml:"login_type,omitempty"`
+	LoginProvider     string            `yaml:"login_provider,omitempty"`
+	User              string            `yaml:"user,omitempty"`
+	OAuthToken        string            `yaml:"oauth_token,omitempty"`
+	OAuthRefreshToken string            `yaml:"oauth_refresh_token,omitempty"`
+	OAuthExpiresAt    int64             `yaml:"oauth_expires_at,omitempty"`
+	APIKey            string            `yaml:"api_key,omitempty"`
+	APIKeyHeader      string            `yaml:"api_key_header,omitempty"`
+	BasicUser         string            `yaml:"basic_user,omitempty"`
+	BasicPassword     string            `yaml:"basic_password,omitempty"`
+	Insecure          bool              `yaml:"insecure,omitempty"`
+	Contexts          map[string]string `yaml:"contexts,omitempty"`
 }
 
 type Hosts struct {
@@ -69,6 +73,10 @@ func LoadHosts() (*Hosts, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadHostsPath(p)
+}
+
+func loadHostsPath(p string) (*Hosts, error) {
 	h := &Hosts{entries: map[string]HostEntry{}, path: p}
 	data, err := os.ReadFile(p)
 	if err != nil {
@@ -119,6 +127,42 @@ func (h *Hosts) Names() []string {
 }
 
 func (h *Hosts) Save() error {
+	return h.saveAtomic()
+}
+
+func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
+	p, err := hostsPath()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	fileLock := flock.New(p+".lock", flock.SetPermissions(0o600))
+	locked, err := fileLock.TryLockContext(ctx, 25*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("lock %s: %w", p, err)
+	}
+	if !locked {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return fmt.Errorf("lock %s: unavailable", p)
+	}
+	defer func() { _ = fileLock.Unlock() }()
+
+	h, err := loadHostsPath(p)
+	if err != nil {
+		return err
+	}
+	if err := mutate(h); err != nil {
+		return err
+	}
+	return h.saveAtomic()
+}
+
+func (h *Hosts) saveAtomic() error {
 	dir := filepath.Dir(h.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -127,5 +171,26 @@ func (h *Hosts) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(h.path, data, 0o600)
+	tmp, err := os.CreateTemp(dir, ".hosts-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return replaceFile(tmpPath, h.path)
 }
