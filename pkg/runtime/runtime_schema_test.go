@@ -18,6 +18,9 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 			if r.URL.Query().Get("fields") != "input_schema" {
 				t.Errorf("fields = %q", r.URL.Query().Get("fields"))
 			}
+			if got := r.URL.Query()["mode"]; len(got) != 2 || got[0] != "chat" || got[1] != "workflow" {
+				t.Errorf("mode = %#v", got)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"input_schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"count":{"type":"integer"},"note":{"type":["string","null"]}},"required":["count"],"additionalProperties":false}}`)
 		case "/apps/app-1/run":
@@ -38,6 +41,7 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 		Params: []ParamSpec{
 			appID,
 			{Name: "fields", Flag: "fields", In: InQuery, GoType: "string"},
+			{Name: "mode", Flag: "mode", In: InQuery, GoType: "[]string"},
 		},
 		Output: OutputHints{ResponseMediaType: "application/json"},
 	}
@@ -45,7 +49,10 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 		OperationID: "runApp",
 		Method:      "POST",
 		PathTpl:     "/apps/{app_id}/run",
-		Params:      []ParamSpec{appID},
+		Params: []ParamSpec{
+			appID,
+			{Name: "mode", Flag: "mode", In: InQuery, GoType: "[]string"},
+		},
 		RequestBody: &RequestBody{
 			Required:  true,
 			MediaType: "application/json",
@@ -55,11 +62,15 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 				Params: map[string]string{
 					"app_id": "${params.app_id}",
 					"fields": "input_schema",
+					"mode":   "${params.mode}",
 				},
 			},
 		},
 	}
-	baseInput := OperationInput{Values: map[string]any{"app_id": "app-1"}, Changed: map[string]bool{"app_id": true}}
+	baseInput := OperationInput{
+		Values:  map[string]any{"app_id": "app-1", "mode": []string{"chat", "workflow"}},
+		Changed: map[string]bool{"app_id": true, "mode": true},
+	}
 	opts := OperationOptions{Hostname: srv.URL, Client: ClientOptions{MaxRetries: -1}}
 
 	invalid := baseInput

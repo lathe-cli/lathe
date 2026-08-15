@@ -374,6 +374,21 @@ func TestMergeOverlayModule_RuntimeSchema(t *testing.T) {
 		}
 	}
 
+	duplicateMapping := overlay.Module{Commands: map[string]overlay.Override{
+		"run-app": {Body: &overlay.BodyOverride{RuntimeSchema: &overlay.RuntimeSchemaOverride{
+			OperationID:  "describeApp",
+			ResponsePath: "input_schema",
+			Params: map[string]string{
+				"app_id": "${params.app-id}",
+				"app-id": "literal",
+				"fields": "input_schema",
+			},
+		}}},
+	}}
+	if err := ValidateOverlayModule(specs, duplicateMapping); err == nil || !strings.Contains(err.Error(), "mapped more than once") {
+		t.Fatalf("duplicate mapping error = %v", err)
+	}
+
 	for name, mutate := range map[string]func(*runtime.CommandSpec){
 		"non-GET":   func(source *runtime.CommandSpec) { source.Method = "HEAD" },
 		"body":      func(source *runtime.CommandSpec) { source.RequestBody = &runtime.RequestBody{} },

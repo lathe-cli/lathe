@@ -76,6 +76,7 @@ func runtimeSchemaInput(target CommandSpec, input OperationInput, binding Runtim
 	values := make(map[string]any, len(binding.Params))
 	changed := make(map[string]bool, len(binding.Params))
 	for key, value := range binding.Params {
+		mappedValue := any(value)
 		sourceIndex, ok := runtimeParamIndex(source.Params, key)
 		if !ok {
 			return CommandSpec{}, OperationInput{}, fmt.Errorf("runtime schema source param %q not found", key)
@@ -92,13 +93,13 @@ func runtimeSchemaInput(target CommandSpec, input OperationInput, binding Runtim
 			if !present {
 				continue
 			}
-			value = operationStringValue(resolved)
+			mappedValue = resolved
 			if isSensitiveStringParam(target.Params[targetIndex]) {
 				source.Params[sourceIndex].Format = "password"
 			}
 		}
 		key := boundParamKey(source.Params[sourceIndex])
-		values[key] = value
+		values[key] = mappedValue
 		changed[key] = true
 	}
 	return source, OperationInput{Values: values, Changed: changed}, nil

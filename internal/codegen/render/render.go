@@ -361,6 +361,9 @@ func validateRuntimeSchemaSource(target, source runtime.CommandSpec, binding *ov
 		if count != 1 {
 			return fmt.Errorf("source param %q is missing or ambiguous", key)
 		}
+		if mapped[sourceIndex] {
+			return fmt.Errorf("source param %q is mapped more than once", source.Params[sourceIndex].Name)
+		}
 		mapped[sourceIndex] = true
 		name, isRef, malformed := runtimeSchemaParamReference(value)
 		if malformed {
