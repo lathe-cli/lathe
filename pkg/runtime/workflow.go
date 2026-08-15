@@ -75,6 +75,10 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if err := validateOutputFormat(format); err != nil {
+				return newUsageError(cmd, err)
+			}
 			if err := resolveSafeInputFlags(cmd, spec.Params, vals); err != nil {
 				return newUsageError(cmd, err)
 			}
@@ -99,7 +103,6 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 					return marshalErr
 				}
 			}
-			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			return FormatOutput(data, format, cmd.OutOrStdout(), spec.Output)
 		},
 	}

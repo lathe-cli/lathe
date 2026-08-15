@@ -127,6 +127,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
+			if err := validateOutputFormat(format); err != nil {
+				return newUsageError(cmd, err)
+			}
 			if liveStream && format != "table" {
 				return newUsageError(cmd, fmt.Errorf("live stream output does not support -o %s", format))
 			}

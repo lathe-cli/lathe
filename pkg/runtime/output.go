@@ -12,11 +12,18 @@ func FormatOutput(data []byte, format string, w io.Writer, hints OutputHints) er
 	if len(data) == 0 {
 		return nil
 	}
-	f, ok := formatters[format]
-	if !ok {
+	if err := validateOutputFormat(format); err != nil {
+		return err
+	}
+	f := formatters[format]
+	return f.Format(w, data, hints)
+}
+
+func validateOutputFormat(format string) error {
+	if _, ok := formatters[format]; !ok {
 		return fmt.Errorf("unknown output format: %s (supported: table|json|yaml|raw)", format)
 	}
-	return f.Format(w, data, hints)
+	return nil
 }
 
 func renderJSON(data []byte, w io.Writer) error {

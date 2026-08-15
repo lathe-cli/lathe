@@ -1120,6 +1120,41 @@ func TestBuild_RequiredQueryParamBlocksBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestBuild_InvalidOutputBlocksBeforeRequest(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	root := newRootWithModuleGroup()
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Items", Use: "create-item", Method: "POST", PathTpl: "/items",
+		Security: &SecurityHint{Public: true},
+	}})
+	root.SetArgs([]string{"--hostname", srv.URL, "-o", "csv", "demo", "items", "create-item"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected output format error")
+	}
+	if classified := ClassifyError(err); classified.Code != CodeUsage || classified.ExitCode != ExitUsage {
+		t.Fatalf("classified error = %+v", classified)
+	}
+	if hits != 0 {
+		t.Fatalf("server hits = %d, want 0", hits)
+	}
+}
+
 func TestBuild_PaginationFlagsAttached(t *testing.T) {
 	specs := []CommandSpec{{
 		Group:   "Items",

@@ -19,7 +19,10 @@ const (
 	maxDebugRespBody = 4096
 )
 
-var authorizationPattern = regexp.MustCompile(`(?i)\b(Basic|Bearer)[ \t]+[A-Za-z0-9._~+/=-]+`)
+var (
+	authorizationPattern  = regexp.MustCompile(`(?i)\b(Basic|Bearer)[ \t]+[A-Za-z0-9._~+/=-]+`)
+	debugAssignmentPrefix = regexp.MustCompile(`[[:alnum:]_.-]+[ \t]*[=:][ \t]*`)
+)
 
 type debugTransport struct {
 	inner                http.RoundTripper
@@ -255,19 +258,19 @@ func isDebugEnvVarContainer(name string) bool {
 
 func redactDebugText(s string) string {
 	s = redactAuthorization(s)
-	fields := strings.FieldsFunc(s, func(r rune) bool {
-		return r == '&' || r == ';' || r == '\n' || r == '\r'
-	})
-	for _, field := range fields {
-		separator := strings.IndexAny(field, "=:")
-		if separator < 0 || separator == len(field)-1 {
+	matches := debugAssignmentPrefix.FindAllStringIndex(s, -1)
+	for i := len(matches) - 1; i >= 0; i-- {
+		start, valueStart := matches[i][0], matches[i][1]
+		prefix := s[start:valueStart]
+		separator := strings.IndexAny(prefix, "=:")
+		if separator < 0 || !isSensitiveDebugName(strings.TrimSpace(prefix[:separator])) {
 			continue
 		}
-		name := field[:separator]
-		if !isSensitiveDebugName(strings.TrimSpace(name)) {
-			continue
+		valueEnd := len(s)
+		if boundary := strings.IndexAny(s[valueStart:], "&;\n\r"); boundary >= 0 {
+			valueEnd = valueStart + boundary
 		}
-		s = strings.ReplaceAll(s, field, name+field[separator:separator+1]+"***")
+		s = s[:valueStart] + "***" + s[valueEnd:]
 	}
 	return s
 }
