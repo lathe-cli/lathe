@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -170,6 +171,23 @@ func TestOAuthDeviceRequestDistinguishesOmittedAndEmpty(t *testing.T) {
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("explicit empty request = %#v, error = %v", empty, err)
 	}
+}
+
+func TestStartBrowserCommandDoesNotWait(t *testing.T) {
+	started := time.Now()
+	if err := startBrowserCommand(os.Args[0], "-test.run=^TestBrowserOpenerHelperProcess$", "--", "browser-opener-helper"); err != nil {
+		t.Fatalf("startBrowserCommand: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("startBrowserCommand waited %s", elapsed)
+	}
+}
+
+func TestBrowserOpenerHelperProcess(t *testing.T) {
+	if os.Args[len(os.Args)-1] != "browser-opener-helper" {
+		return
+	}
+	time.Sleep(3 * time.Second)
 }
 
 func TestAPIKeyLoginUsesManifestDefaults(t *testing.T) {

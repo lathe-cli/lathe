@@ -295,9 +295,19 @@ func maybeOpenBrowser(rawURL string, noBrowser bool) {
 		name = "rundll32"
 		args = []string{"url.dll,FileProtocolHandler", rawURL}
 	}
-	if err := exec.Command(name, args...).Run(); err != nil {
+	if err := startBrowserCommand(name, args...); err != nil {
 		fmt.Fprintf(os.Stderr, "Browser could not be opened (%v); open the URL above manually.\n", err)
 	}
+}
+
+func startBrowserCommand(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// xdg-open may stay attached to the browser, so reap it without delaying token polling.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 func browserSkipReason(noBrowser bool) string {
