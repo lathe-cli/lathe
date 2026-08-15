@@ -247,8 +247,15 @@ func isDebugEnvVarPair(path []string, v map[string]any) bool {
 	if len(path) == 0 || !isDebugEnvVarContainer(path[len(path)-1]) {
 		return false
 	}
-	_, hasKey := v["key"]
-	_, hasValue := v["value"]
+	var hasKey, hasValue bool
+	for name := range v {
+		switch strings.ToLower(name) {
+		case "key", "name":
+			hasKey = true
+		case "value":
+			hasValue = true
+		}
+	}
 	return hasKey && hasValue
 }
 

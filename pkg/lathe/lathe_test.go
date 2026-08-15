@@ -164,3 +164,28 @@ func TestRunClassifiesCatalogArgumentErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestRunHonorsOutputAfterFlagError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(RunOptions{
+		Manifest: []byte("cli:\n  name: myctl\n"),
+		Mount: func(root *cobra.Command) error {
+			cmd := &cobra.Command{Use: "demo"}
+			cmd.Flags().Int("count", 0, "")
+			root.AddCommand(cmd)
+			return nil
+		},
+	}, []string{"demo", "--count", "nope", "-o", "json"}, &stdout, &stderr)
+	if code != runtime.ExitUsage {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
+	}
+	var envelope struct {
+		Error runtime.LatheError `json:"error"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON error: %v\n%s", err, stderr.String())
+	}
+	if envelope.Error.Code != runtime.CodeUsage {
+		t.Fatalf("error = %+v", envelope.Error)
+	}
+}

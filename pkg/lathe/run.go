@@ -7,6 +7,7 @@ import (
 	"os/signal"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
@@ -49,6 +50,7 @@ func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 
 	root := NewApp(m)
 	root.SetContext(ctx)
+	seedOutputFormat(root, args)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -60,6 +62,15 @@ func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 	}
 
 	return runtime.Execute(root)
+}
+
+func seedOutputFormat(root *cobra.Command, args []string) {
+	flags := pflag.NewFlagSet("output", pflag.ContinueOnError)
+	flags.ParseErrorsAllowlist.UnknownFlags = true
+	format := flags.StringP("output", "o", "", "")
+	if err := flags.Parse(args); err == nil && flags.Changed("output") {
+		_ = root.PersistentFlags().Set("output", *format)
+	}
 }
 
 func setVersionInfo(opts RunOptions) {
