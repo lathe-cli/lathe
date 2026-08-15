@@ -99,9 +99,9 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 	if start.DeviceCode == "" {
 		return config.HostEntry{}, errors.New("oauth start response missing device_code")
 	}
-	verificationURL := start.VerificationURI
+	verificationURL := start.VerificationURIComplete
 	if verificationURL == "" {
-		verificationURL = start.VerificationURIComplete
+		verificationURL = start.VerificationURI
 	}
 	if verificationURL == "" {
 		return config.HostEntry{}, errors.New("oauth start response missing verification_uri")
@@ -218,7 +218,7 @@ func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, login *config.Aut
 }
 
 func oauthDeviceRequest(configured, fallback, values map[string]string) (map[string]string, error) {
-	if len(configured) == 0 {
+	if configured == nil {
 		return fallback, nil
 	}
 	body := make(map[string]string, len(configured))

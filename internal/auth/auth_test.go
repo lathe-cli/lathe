@@ -160,6 +160,18 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 	}
 }
 
+func TestOAuthDeviceRequestDistinguishesOmittedAndEmpty(t *testing.T) {
+	fallback := map[string]string{"device_code": "device-1"}
+	omitted, err := oauthDeviceRequest(nil, fallback, nil)
+	if err != nil || omitted["device_code"] != "device-1" {
+		t.Fatalf("omitted request = %#v, error = %v", omitted, err)
+	}
+	empty, err := oauthDeviceRequest(map[string]string{}, fallback, nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("explicit empty request = %#v, error = %v", empty, err)
+	}
+}
+
 func TestAPIKeyLoginUsesManifestDefaults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Auth-Token"); got != "secret" {
