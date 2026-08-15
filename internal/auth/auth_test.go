@@ -117,6 +117,15 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&pollBody); err != nil {
 				t.Errorf("decode poll body: %v", err)
 			}
+			if err := config.MutateHosts(r.Context(), func(hosts *config.Hosts) error {
+				entry, _ := hosts.Get("http://" + r.Host)
+				entry.Contexts["organization"] = "org-concurrent"
+				entry.Contexts["workspace"] = "ws-concurrent"
+				hosts.Set("http://"+r.Host, entry)
+				return nil
+			}); err != nil {
+				t.Errorf("update context during login: %v", err)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"token":   "access-1",
 				"account": map[string]string{"workspace_id": "ws-1"},
@@ -129,7 +138,7 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 
 	m := &config.Manifest{
 		CLI:      config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
-		Contexts: map[string]config.ContextInfo{"workspace": {}},
+		Contexts: map[string]config.ContextInfo{"organization": {}, "workspace": {}},
 		Auth: config.AuthInfo{Login: &config.AuthLogin{
 			Type:         config.AuthLoginOAuthDevice,
 			StartPath:    "/start",
@@ -141,6 +150,14 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 	}
 	config.Bind(m)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts.Set(srv.URL, config.HostEntry{AuthType: "bearer", OAuthToken: "old", Contexts: map[string]string{"organization": "org-old", "workspace": "ws-old"}})
+	if err := hosts.Save(); err != nil {
+		t.Fatal(err)
+	}
 
 	root := &cobra.Command{Use: "demo"}
 	root.PersistentFlags().String("hostname", srv.URL, "")
@@ -156,12 +173,12 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 	if pollBody["client_id"] != "demo-cli" || pollBody["device_code"] != "device-1" || len(pollBody) != 2 {
 		t.Fatalf("poll body = %#v", pollBody)
 	}
-	hosts, err := config.LoadHosts()
+	hosts, err = config.LoadHosts()
 	if err != nil {
 		t.Fatalf("LoadHosts: %v", err)
 	}
 	entry, ok := hosts.Get(srv.URL)
-	if !ok || entry.OAuthToken != "access-1" || entry.Contexts["workspace"] != "ws-1" {
+	if !ok || entry.OAuthToken != "access-1" || entry.Contexts["workspace"] != "ws-1" || entry.Contexts["organization"] != "org-concurrent" {
 		t.Fatalf("entry = %+v, found = %v", entry, ok)
 	}
 }

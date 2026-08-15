@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -463,6 +464,15 @@ func newLogin(m *config.Manifest) *cobra.Command {
 			}
 
 			if err := config.MutateHosts(cmd.Context(), func(hosts *config.Hosts) error {
+				current, _ := hosts.Get(hostname)
+				contexts := maps.Clone(current.Contexts)
+				if contexts == nil {
+					contexts = map[string]string{}
+				}
+				for name, value := range entry.Contexts {
+					contexts[name] = value
+				}
+				entry.Contexts = contexts
 				hosts.Set(hostname, entry)
 				return nil
 			}); err != nil {
