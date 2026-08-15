@@ -96,6 +96,7 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
                 "properties": {
                   "nickname": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                   "choice": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                  "exclusive_null": {"oneOf": [{"type": ["string", "null"]}, {"type": "null"}]},
                   "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
                   "freeform": {"type": "object", "additionalProperties": true},
                   "closed": {"type": "object", "additionalProperties": false},
@@ -129,6 +130,9 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	}
 	if choice := schema.Properties["choice"]; len(choice.OneOf) != 2 || choice.OneOf[0].Type != "string" || choice.OneOf[1].Type != "integer" {
 		t.Fatalf("choice = %#v, want string/integer oneOf", choice)
+	}
+	if exclusive := schema.Properties["exclusive_null"]; len(exclusive.OneOf) != 2 || !exclusive.OneOf[0].Nullable || exclusive.OneOf[1].Type != "null" {
+		t.Fatalf("exclusive_null = %#v, want both oneOf branches", exclusive)
 	}
 	metadata := schema.Properties["metadata"].AdditionalProperties
 	if metadata == nil || metadata.Schema == nil || metadata.Schema.Type != "string" {

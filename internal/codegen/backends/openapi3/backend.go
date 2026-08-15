@@ -519,13 +519,6 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 			return out
 		}
 	}
-	if len(s.AnyOf) == 0 && len(s.AllOf) == 0 {
-		if option, ok := nullableAlternative(s, s.OneOf); ok {
-			out := convertSchema(option)
-			out.Nullable = true
-			return out
-		}
-	}
 	out := &rawir.RawSchema{
 		Type:     s.Type.Value,
 		Format:   s.Format,
