@@ -313,9 +313,24 @@ but not omitted. `.lathe-skill`, dotfiles, path traversal, and symlinks are
 rejected.
 
 OpenAPI parameter names are rendered as kebab-case flags. Generated commands
-continue accepting the previous snake-case spelling when it differs. An overlay
-can expose selected parameters as ordered positional alternatives without
-removing their flags:
+continue accepting the previous snake-case spelling when it differs.
+
+An overlay can replace the generic help text for a final command group without
+changing its path:
+
+```yaml
+groups:
+  users:
+    short: Manage users and access
+```
+
+Group keys match the final `group` value after command overrides. Unknown
+groups, empty descriptions, and multiline descriptions fail codegen. When no
+description is configured, existing CLIs keep the `<group> operations`
+fallback.
+
+An overlay can expose selected parameters as ordered positional alternatives
+without removing their flags:
 
 ```yaml
 commands:

@@ -60,11 +60,12 @@ func TestBuild_RejectsExistingRootCommandConflict(t *testing.T) {
 func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	specs := []CommandSpec{
 		{
-			Group:   "Users",
-			Use:     "get-user",
-			Short:   "Get a user",
-			Method:  "GET",
-			PathTpl: "/users/{id}",
+			Group:      "Users",
+			GroupShort: "Manage user accounts",
+			Use:        "get-user",
+			Short:      "Get a user",
+			Method:     "GET",
+			PathTpl:    "/users/{id}",
 			Params: []ParamSpec{
 				{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true, Help: "User id"},
 				{Name: "limit", Flag: "limit", In: InQuery, GoType: "int64", Help: "Page size"},
@@ -88,6 +89,12 @@ func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	svc := mustFindChild(t, root, "demo")
 	usersGroup := mustFindChild(t, svc, "users")
 	itemsGroup := mustFindChild(t, svc, "items")
+	if usersGroup.Short != "Manage user accounts" {
+		t.Errorf("users group short = %q", usersGroup.Short)
+	}
+	if itemsGroup.Short != "Items operations" {
+		t.Errorf("items group fallback short = %q", itemsGroup.Short)
+	}
 
 	if len(usersGroup.Commands()) != 1 || usersGroup.Commands()[0].Use != "get-user" {
 		t.Errorf("users group commands = %v, want [get-user]", cmdNames(usersGroup.Commands()))

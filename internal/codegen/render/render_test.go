@@ -251,11 +251,23 @@ func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
 	specs := []runtime.CommandSpec{
 		{Group: "Default", Use: "get-item", Short: "get", Method: "GET", PathTpl: "/item"},
 	}
-	overrides := map[string]overlay.Override{
-		"get-item": {Group: "Items", Hidden: &hidden},
+	mod := overlay.Module{
+		Groups: map[string]overlay.GroupOverride{
+			"Items": {Short: "Inspect inventory items"},
+		},
+		Commands: map[string]overlay.Override{
+			"get-item": {Group: "Items", Hidden: &hidden},
+		},
 	}
-	if err := RenderModule("demo", "", specs, overrides); err != nil {
-		t.Fatalf("RenderModule: %v", err)
+	if err := ValidateOverlayModule(specs, mod); err != nil {
+		t.Fatalf("ValidateOverlayModule: %v", err)
+	}
+	merged := MergeOverlayModule(specs, mod)
+	if merged[0].GroupShort != "Inspect inventory items" {
+		t.Fatalf("group short = %q", merged[0].GroupShort)
+	}
+	if err := renderModuleSpecs("demo", "demo", merged); err != nil {
+		t.Fatalf("renderModuleSpecs: %v", err)
 	}
 	got := generatedModule(t, "demo")
 	if strings.Contains(got, `"Default"`) {
@@ -264,8 +276,34 @@ func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
 	if !strings.Contains(got, `"Items"`) {
 		t.Error("group should be overridden to Items")
 	}
+	if !strings.Contains(got, `GroupShort: "Inspect inventory items"`) {
+		t.Error("group short should be generated")
+	}
 	if !strings.Contains(got, "Hidden:") {
 		t.Error("hidden should be set")
+	}
+}
+
+func TestValidateOverlayModule_RejectsInvalidGroups(t *testing.T) {
+	specs := []runtime.CommandSpec{{Group: "Users", Use: "list-users"}}
+	for _, tc := range []struct {
+		name  string
+		group string
+		short string
+		want  string
+	}{
+		{name: "unknown", group: "Missing", short: "Manage missing resources", want: `group "Missing" does not exist`},
+		{name: "empty short", group: "Users", want: `group "Users" short must be one non-empty trimmed line`},
+		{name: "multiline short", group: "Users", short: "Manage\nusers", want: `group "Users" short must be one non-empty trimmed line`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateOverlayModule(specs, overlay.Module{Groups: map[string]overlay.GroupOverride{
+				tc.group: {Short: tc.short},
+			}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("validation error = %v", err)
+			}
+		})
 	}
 }
 
