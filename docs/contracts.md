@@ -29,7 +29,8 @@ file; when this page and the code disagree, trust the code and fix this page.
 - This is the agent-facing discovery contract and the source of truth for
   generated operation details: HTTP method and path template, auth
   requirements, source parameter names, CLI flags and positional alternatives,
-  body schema, output, pagination, and stream collection hints.
+  body schema (including any runtime schema source), output, pagination, and
+  stream collection hints.
 - `catalog.cli.capabilities` lists compiled first-party capabilities such as
   `skill.bundle`. Capability commands are not catalog operations.
 - Only generated API operation commands carry catalog entries. Framework

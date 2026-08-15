@@ -109,6 +109,12 @@ commands:
     known_errors:
       - status: 400
         cause: "missing user name"
+    body:
+      runtime_schema:
+        operation_id: describeUser
+        response_path: input_schema
+        params:
+          user_id: ${params.user_id}
     params:
       status:
         flag: user-status
@@ -156,6 +162,9 @@ commands:
 	}
 	if len(cu.KnownErrors) != 1 || cu.KnownErrors[0].Status != 400 || cu.KnownErrors[0].Cause != "missing user name" {
 		t.Errorf("known errors = %#v", cu.KnownErrors)
+	}
+	if cu.Body == nil || cu.Body.RuntimeSchema == nil || cu.Body.RuntimeSchema.OperationID != "describeUser" || cu.Body.RuntimeSchema.ResponsePath != "input_schema" || cu.Body.RuntimeSchema.Params["user_id"] != "${params.user_id}" {
+		t.Errorf("runtime schema = %#v", cu.Body)
 	}
 	sp := cu.Params["status"]
 	if sp.Flag != "user-status" {

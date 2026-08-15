@@ -25,7 +25,18 @@ type Override struct {
 	Notes         []string                 `yaml:"notes"`
 	Prerequisites []string                 `yaml:"prerequisites"`
 	KnownErrors   []KnownError             `yaml:"known_errors"`
+	Body          *BodyOverride            `yaml:"body"`
 	Output        *OutputOverride          `yaml:"output"`
+}
+
+type BodyOverride struct {
+	RuntimeSchema *RuntimeSchemaOverride `yaml:"runtime_schema"`
+}
+
+type RuntimeSchemaOverride struct {
+	OperationID  string            `yaml:"operation_id"`
+	ResponsePath string            `yaml:"response_path"`
+	Params       map[string]string `yaml:"params"`
 }
 
 type OutputOverride struct {
