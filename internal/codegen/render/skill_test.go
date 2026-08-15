@@ -34,6 +34,7 @@ func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
 
 func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	dir := t.TempDir()
+	unsafeParamName := "type`\n**INJECT**"
 	manifest := &config.Manifest{
 		CLI:      config.CLIInfo{Name: "acmectl", Short: "Acme API CLI", HostEnv: "ACMECTL_HOST", ConfigDirEnv: "ACMECTL_CONFIG_DIR"},
 		Contexts: map[string]config.ContextInfo{"organization": {Env: "ACMECTL_ORG_ID"}},
@@ -53,7 +54,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Method:  "POST",
 			PathTpl: "/users",
 			Params: []runtime.ParamSpec{
-				{Name: "type", Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type", Context: "organization"},
+				{Name: unsafeParamName, Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type", Context: "organization"},
 			},
 			RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json"},
 			Output: runtime.OutputHints{
@@ -63,7 +64,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 				Streaming:         &runtime.StreamingHint{Strategy: "sse"},
 			},
 			Security:   &runtime.SecurityHint{Scopes: []string{"users:write"}},
-			SetContext: &runtime.ContextSetHint{Name: "organization", Param: "type"},
+			SetContext: &runtime.ContextSetHint{Name: "organization", Param: unsafeParamName},
 		},
 		{Group: "Users", Use: "delete-user", Short: "Delete user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
 	}
@@ -75,7 +76,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Notes:         []string{"clusterFilter expects a cluster UUID."},
 			Prerequisites: []string{"Find the cluster UUID first."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing start/end"}},
-			Params:        map[string]overlay.ParamOverride{"type": {Argument: "receiver"}},
+			Params:        map[string]overlay.ParamOverride{unsafeParamName: {Argument: "receiver"}},
 		},
 	})
 
@@ -157,6 +158,9 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 	if strings.Contains(module, "delete-user") || strings.Contains(module, "Raw summary") {
 		t.Fatalf("module reference leaked hidden command or raw overlay content:\n%s", module)
+	}
+	if strings.Contains(module, "**INJECT**") {
+		t.Fatalf("module reference contains injected parameter content:\n%s", module)
 	}
 }
 

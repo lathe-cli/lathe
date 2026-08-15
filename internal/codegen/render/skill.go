@@ -758,7 +758,11 @@ func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
 	writeStringList(b, "Notes", spec.Notes)
 	writeStringList(b, "Prerequisites", spec.Prerequisites)
 	if spec.SetContext != nil {
-		fmt.Fprintf(b, "- Sets context `%s` from parameter `%s` after success.\n", spec.SetContext.Name, spec.SetContext.Param)
+		param := spec.SetContext.Param
+		if index, count := paramByNameOrFlag(spec.Params, param); count == 1 {
+			param = spec.Params[index].Flag
+		}
+		fmt.Fprintf(b, "- Sets context `%s` from parameter `%s` after success.\n", spec.SetContext.Name, strings.ReplaceAll(oneLine(param), "`", "'"))
 	}
 	if len(spec.KnownErrors) == 0 {
 		return
