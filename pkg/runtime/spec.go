@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 10
+const SchemaVersion = 11
 
 type CommandSpec struct {
 	Group           string
@@ -53,6 +53,8 @@ type CommandShortcut struct {
 type ParamSpec struct {
 	Name       string
 	Flag       string
+	Aliases    []string `json:",omitempty"`
+	Argument   string   `json:",omitempty"`
 	In         string
 	GoType     string
 	Help       string

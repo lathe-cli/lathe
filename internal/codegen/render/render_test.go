@@ -279,10 +279,14 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	overrides := map[string]overlay.Override{
 		"list-users": {
 			Params: map[string]overlay.ParamOverride{
-				"status": {Flag: "user-status", Help: "override help", Default: "active", Deprecated: true},
+				"status": {Flag: "user-status", Argument: "state", Help: "override help", Default: "active", Deprecated: true},
 				"legacy": {DeprecatedAlias: true},
 			},
 		},
+	}
+	merged := MergeOverlay(specs, overrides)
+	if merged[0].Params[0].Argument != "state" {
+		t.Fatalf("merged positional mapping = %#v", merged[0].Params[0])
 	}
 	if err := RenderModule("demo", "", specs, overrides); err != nil {
 		t.Fatalf("RenderModule: %v", err)
@@ -302,6 +306,23 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	}
 	if strings.Count(got, `Deprecated: true`) != 2 {
 		t.Errorf("deprecated and legacy hidden alias should both mark params deprecated; output:\n%s", got)
+	}
+	if !strings.Contains(got, `Argument: "state"`) {
+		t.Errorf("positional mapping should be generated; output:\n%s", got)
+	}
+}
+
+func TestValidateOverlayModule_RejectsUnknownArgumentParameter(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group: "Users", Use: "get-user", Params: []runtime.ParamSpec{{Name: "id", Flag: "id"}},
+	}}
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"get-user": {Params: map[string]overlay.ParamOverride{"missing": {Argument: "id"}}},
+	}}
+
+	err := ValidateOverlayModule(specs, mod)
+	if err == nil || !strings.Contains(err.Error(), `argument parameter "missing" does not exist`) {
+		t.Fatalf("validation error = %v", err)
 	}
 }
 

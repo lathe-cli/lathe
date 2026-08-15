@@ -116,6 +116,76 @@ func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	}
 }
 
+func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	tests := []struct {
+		name    string
+		input   []string
+		wantErr string
+	}{
+		{name: "primary flag", input: []string{"--app-id", "a-1", "--workspace-id", "w-1"}},
+		{name: "legacy flag", input: []string{"--app_id", "a-1", "--workspace_id", "w-1"}},
+		{name: "positional", input: []string{"a-1", "--workspace-id", "w-1"}},
+		{name: "conflicting inputs", input: []string{"a-1", "--app-id", "a-2", "--workspace-id", "w-1"}, wantErr: "both argument 1 and --app-id"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var requestURL string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestURL = r.URL.String()
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer srv.Close()
+
+			root := newRootWithModuleGroup()
+			root.SetOut(io.Discard)
+			root.SetErr(io.Discard)
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "raw", "")
+			mustBuild(t, root, "demo", []CommandSpec{{
+				Group: "Apps", Use: "describe", Method: "GET", PathTpl: "/apps/{app_id}",
+				Params: []ParamSpec{{
+					Name: "app_id", Flag: "app-id", Aliases: []string{"app_id"}, In: InPath,
+					GoType: "string", Required: true, Argument: "id",
+				}, {
+					Name: "workspace_id", Flag: "workspace-id", Aliases: []string{"workspace_id"}, In: InQuery,
+					GoType: "string", Required: true,
+				}},
+				Security: &SecurityHint{Public: true},
+			}})
+			describe := findChildCommand(mustFindChild(t, mustFindChild(t, root, "demo"), "apps"), "describe")
+			if describe == nil {
+				t.Fatal("describe command was not mounted")
+			}
+			if describe.Use != "describe [id]" {
+				t.Fatalf("use = %q, want describe [id]", describe.Use)
+			}
+			args := []string{"--hostname", srv.URL, "demo", "apps", "describe"}
+			root.SetArgs(append(args, tc.input...))
+
+			err := root.Execute()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Execute error = %v, want %q", err, tc.wantErr)
+				}
+				if requestURL != "" {
+					t.Fatalf("request sent to %q", requestURL)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if requestURL != "/apps/a-1?workspace_id=w-1" {
+				t.Fatalf("URL = %q, want /apps/a-1?workspace_id=w-1", requestURL)
+			}
+		})
+	}
+}
+
 func TestAssertSchema_Match(t *testing.T) {
 	if err := AssertSchema(SchemaVersion); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -732,7 +802,7 @@ func TestBuild_SensitiveVariableSafeInputModes(t *testing.T) {
 		}
 	}
 
-	root.SetArgs([]string{"--hostname", url, "demo", "credentials", "create-credential", "--input-api-key-env", "OPENAI_API_KEY"})
+	root.SetArgs([]string{"--hostname", url, "demo", "credentials", "create-credential", "--input_api_key-env", "OPENAI_API_KEY"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -829,7 +899,7 @@ func createCredentialSpec() CommandSpec {
 		Method:  "POST",
 		PathTpl: "/graphql",
 		Params: []ParamSpec{
-			{Name: "input.apiKey", Flag: "input-api-key", In: InVariable, GoType: "string", Required: true, Help: "API key"},
+			{Name: "input.apiKey", Flag: "input-api-key", Aliases: []string{"input_api_key"}, In: InVariable, GoType: "string", Required: true, Help: "API key"},
 		},
 		RequestBody: &RequestBody{
 			Required:  true,

@@ -65,6 +65,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			disambiguateMultipartParamFlags(spec.Params, bodyParams)
 			spec.Params = append(spec.Params, bodyParams...)
 		}
+		normalizeParamFlags(spec.Params)
 		lp, itemRef := deriveList(op, mod.Schemas)
 		spec.Output.ListPath = lp
 		if itemRef != "" {
@@ -419,6 +420,22 @@ func variableParam(p rawir.RawParameter) runtime.ParamSpec {
 
 func variableFlagName(name string) string {
 	return strings.ReplaceAll(camelToKebab(name), ".", "-")
+}
+
+func normalizeParamFlags(params []runtime.ParamSpec) {
+	desired := make([]string, len(params))
+	desiredCount := make(map[string]int, len(params))
+	for i, param := range params {
+		desired[i] = strings.Trim(collapseDashes(strings.ReplaceAll(param.Flag, "_", "-")), "-")
+		desiredCount[desired[i]]++
+	}
+	for i := range params {
+		if desired[i] == "" || desired[i] == params[i].Flag || desiredCount[desired[i]] > 1 {
+			continue
+		}
+		params[i].Aliases = []string{params[i].Flag}
+		params[i].Flag = desired[i]
+	}
 }
 
 func headerParam(p rawir.RawParameter) runtime.ParamSpec {

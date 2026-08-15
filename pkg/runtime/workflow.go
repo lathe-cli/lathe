@@ -72,12 +72,13 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 			if err := resolveSafeInputFlags(cmd, spec.Params, vals); err != nil {
 				return err
 			}
-			if err := validateRequiredSafeParams(cmd, spec.Params, false); err != nil {
+			changed := operationChangedFlags(cmd, spec.Params)
+			if err := validateRequiredParams(spec.Params, false, changed); err != nil {
 				return err
 			}
 			if err := validateOperationEnums(CommandSpec{Params: spec.Params}, OperationInput{
 				Values:  vals,
-				Changed: operationChangedFlags(cmd, spec.Params),
+				Changed: changed,
 			}); err != nil {
 				return err
 			}

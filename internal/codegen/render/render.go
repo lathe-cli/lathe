@@ -282,14 +282,61 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) error {
 	for _, spec := range specs {
 		override, ok := mod.Commands[spec.Use]
-		if !ok || !overrideMatches(spec, override) || override.Output == nil || override.Output.Streaming == nil {
+		if !ok || !overrideMatches(spec, override) {
 			continue
 		}
-		if err := validateStreamingOverride(spec, *override.Output.Streaming); err != nil {
-			return fmt.Errorf("command %q stream policy: %w", spec.Use, err)
+		if err := validateArguments(spec, override.Params); err != nil {
+			return fmt.Errorf("command %q: %w", spec.Use, err)
+		}
+		if override.Output != nil && override.Output.Streaming != nil {
+			if err := validateStreamingOverride(spec, *override.Output.Streaming); err != nil {
+				return fmt.Errorf("command %q stream policy: %w", spec.Use, err)
+			}
 		}
 	}
 	return nil
+}
+
+func validateArguments(spec runtime.CommandSpec, overrides map[string]overlay.ParamOverride) error {
+	seenNames := map[string]bool{}
+	for paramName, override := range overrides {
+		if override.Argument == "" {
+			continue
+		}
+		matches := 0
+		for _, param := range spec.Params {
+			if param.Name == paramName {
+				matches++
+			}
+		}
+		if matches == 0 {
+			return fmt.Errorf("argument parameter %q does not exist", paramName)
+		}
+		if matches > 1 {
+			return fmt.Errorf("argument parameter %q is ambiguous", paramName)
+		}
+		if !validArgumentName(override.Argument) {
+			return fmt.Errorf("argument name %q must contain only letters, digits, dots, underscores, or hyphens", override.Argument)
+		}
+		if seenNames[override.Argument] {
+			return fmt.Errorf("argument name %q is mapped more than once", override.Argument)
+		}
+		seenNames[override.Argument] = true
+	}
+	return nil
+}
+
+func validArgumentName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateStreamingOverride(spec runtime.CommandSpec, stream overlay.StreamingOverride) error {
@@ -370,6 +417,7 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	cloned.KnownErrors = append([]runtime.KnownError(nil), spec.KnownErrors...)
 	cloned.Params = append([]runtime.ParamSpec(nil), spec.Params...)
 	for i := range cloned.Params {
+		cloned.Params[i].Aliases = append([]string(nil), spec.Params[i].Aliases...)
 		cloned.Params[i].Enum = append([]string(nil), spec.Params[i].Enum...)
 	}
 	if spec.Output.Streaming != nil {
@@ -460,6 +508,9 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 			}
 			if po.Flag != "" {
 				spec.Params[j].Flag = po.Flag
+			}
+			if po.Argument != "" {
+				spec.Params[j].Argument = po.Argument
 			}
 			if po.Help != "" {
 				spec.Params[j].Help = po.Help
@@ -858,6 +909,8 @@ func paramSpecsLiteral(params []runtime.ParamSpec) string {
 		b.WriteString("runtime.ParamSpec{")
 		writeStringField(&b, "Name", param.Name)
 		writeStringField(&b, "Flag", param.Flag)
+		writeStringSliceField(&b, "Aliases", param.Aliases)
+		writeStringField(&b, "Argument", param.Argument)
 		writeStringField(&b, "In", param.In)
 		writeStringField(&b, "GoType", param.GoType)
 		writeStringField(&b, "Help", param.Help)
@@ -1227,7 +1280,7 @@ var Specs = []runtime.CommandSpec{
 		{{- if $op.Params}}
 		Params: []runtime.ParamSpec{
 			{{- range $op.Params}}
-			{Name: {{printf "%q" .Name}}, Flag: {{printf "%q" .Flag}}, In: {{printf "%q" .In}}, GoType: {{printf "%q" .GoType}}, Help: {{printf "%q" .Help}}, Required: {{.Required}}{{- if .Default}}, Default: {{printf "%q" .Default}}{{end}}{{- if .Enum}}, Enum: []string{ {{- range .Enum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Format}}, Format: {{printf "%q" .Format}}{{end}}{{- if .Deprecated}}, Deprecated: true{{end}}},
+			{Name: {{printf "%q" .Name}}, Flag: {{printf "%q" .Flag}}{{- if .Aliases}}, Aliases: []string{ {{- range .Aliases}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Argument}}, Argument: {{printf "%q" .Argument}}{{end}}, In: {{printf "%q" .In}}, GoType: {{printf "%q" .GoType}}, Help: {{printf "%q" .Help}}, Required: {{.Required}}{{- if .Default}}, Default: {{printf "%q" .Default}}{{end}}{{- if .Enum}}, Enum: []string{ {{- range .Enum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Format}}, Format: {{printf "%q" .Format}}{{end}}{{- if .Deprecated}}, Deprecated: true{{end}}},
 			{{- end}}
 		},
 		{{- end}}

@@ -112,6 +112,7 @@ commands:
     params:
       status:
         flag: user-status
+        argument: state
         help: "Account status"
         required: true
         default: "active"
@@ -159,6 +160,9 @@ commands:
 	sp := cu.Params["status"]
 	if sp.Flag != "user-status" {
 		t.Errorf("param flag = %q, want user-status", sp.Flag)
+	}
+	if sp.Argument != "state" {
+		t.Errorf("param argument = %q, want state", sp.Argument)
 	}
 	if sp.Help != "Account status" {
 		t.Errorf("param help = %q, want Account status", sp.Help)

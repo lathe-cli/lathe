@@ -627,6 +627,7 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 				b.WriteString("- Flags: none\n")
 			} else {
 				b.WriteString("- Flags:\n")
+				position := 0
 				for _, p := range spec.Params {
 					req := ""
 					if p.Required {
@@ -648,7 +649,12 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					if p.Deprecated {
 						deprecated = ", deprecated"
 					}
-					fmt.Fprintf(&b, "  - `--%s` (%s%s%s%s%s%s): %s\n", p.Flag, p.In, req, def, format, enum, deprecated, oneLine(stripHelpMeta(p.Help)))
+					input := fmt.Sprintf("`--%s`", p.Flag)
+					if p.Argument != "" {
+						position++
+						input = fmt.Sprintf("argument %d `[%s]` or `--%s`", position, p.Argument, p.Flag)
+					}
+					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s): %s\n", input, p.In, req, def, format, enum, deprecated, oneLine(stripHelpMeta(p.Help)))
 				}
 
 			}

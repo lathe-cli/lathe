@@ -73,6 +73,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Notes:         []string{"clusterFilter expects a cluster UUID."},
 			Prerequisites: []string{"Find the cluster UUID first."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing start/end"}},
+			Params:        map[string]overlay.ParamOverride{"type": {Argument: "receiver"}},
 		},
 	})
 
@@ -129,7 +130,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Summary: Create a user",
 		"Auth: required; scopes: `users:write`",
 		"Body: required; media type `application/json`",
-		"`--type` (query, required): Receiver type",
+		"argument 1 `[receiver]` or `--type` (query, required): Receiver type",
 		"pagination `cursor`",
 		"streaming `sse`",
 		"Notes:",

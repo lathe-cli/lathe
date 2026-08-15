@@ -304,6 +304,24 @@ also removed from generated `SKILL.md`. `SKILL.md` may be appended or replaced,
 but not omitted. `.lathe-skill`, dotfiles, path traversal, and symlinks are
 rejected.
 
+OpenAPI parameter names are rendered as kebab-case flags. Generated commands
+continue accepting the previous snake-case spelling when it differs. An overlay
+can expose selected parameters as ordered positional alternatives without
+removing their flags:
+
+```yaml
+commands:
+  get-user:
+    params:
+      user_id:
+        argument: id
+```
+
+This renders `get-user [id]`; both `get-user 123` and
+`get-user --user-id 123` map to the source parameter `user_id`. Command catalog
+entries retain `name`, `flag`, accepted `aliases`, `argument`, and `position` so
+agents do not infer the mapping from help text.
+
 Generated outputs:
 
 ```text
