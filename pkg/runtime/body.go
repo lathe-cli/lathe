@@ -56,12 +56,12 @@ func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, st
 	}
 	if hasFile {
 		if mergePath == "" {
-			return nil, fmt.Errorf("--file is not supported for this command's body template")
+			return nil, NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("--file is not supported for this command's body template"))
 		}
 		var v any
 		if len(strings.TrimSpace(string(fileData))) > 0 {
 			if err := json.Unmarshal(fileData, &v); err != nil {
-				return nil, fmt.Errorf("invalid --file JSON: %w", err)
+				return nil, NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("invalid --file JSON: %w", err))
 			}
 		}
 		if err := setNestedPath(envelope, mergePath, v); err != nil {
@@ -76,19 +76,19 @@ func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, st
 	for _, kv := range sets {
 		path, value, err := parseSet(kv, "--set")
 		if err != nil {
-			return nil, err
+			return nil, NewLatheError(CodeUsage, ExitUsage, err)
 		}
 		if err := setNestedPath(envelope, joinBodyPath(mergePath, path), inferValue(value)); err != nil {
-			return nil, err
+			return nil, NewLatheError(CodeUsage, ExitUsage, err)
 		}
 	}
 	for _, kv := range stringSets {
 		path, value, err := parseSet(kv, "--set-str")
 		if err != nil {
-			return nil, err
+			return nil, NewLatheError(CodeUsage, ExitUsage, err)
 		}
 		if err := setNestedPath(envelope, joinBodyPath(mergePath, path), value); err != nil {
-			return nil, err
+			return nil, NewLatheError(CodeUsage, ExitUsage, err)
 		}
 	}
 	return json.Marshal(envelope)

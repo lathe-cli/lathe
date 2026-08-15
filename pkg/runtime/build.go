@@ -625,7 +625,7 @@ func validateRequiredVariableParams(s CommandSpec, body any) error {
 	}
 	raw, ok := body.([]byte)
 	if !ok || len(raw) == 0 {
-		return fmt.Errorf("required body field missing: %s", required[0].Name)
+		return NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("required body field missing: %s", required[0].Name))
 	}
 	var doc any
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -634,7 +634,7 @@ func validateRequiredVariableParams(s CommandSpec, body any) error {
 	for _, p := range required {
 		v, ok := getNestedPath(doc, joinBodyPath(s.RequestBody.MergePath, p.Name))
 		if !ok || v == nil {
-			return fmt.Errorf("required body field missing: %s", p.Name)
+			return NewLatheError(CodeUsage, ExitUsage, fmt.Errorf("required body field missing: %s", p.Name))
 		}
 	}
 	return nil

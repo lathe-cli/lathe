@@ -857,6 +857,17 @@ func TestBuild_RequiredVariableCanComeFromBodyInput(t *testing.T) {
 			name:    "missing",
 			wantErr: true,
 		},
+		{
+			name:    "invalid set",
+			args:    []string{"--set", "missing-equals"},
+			wantErr: true,
+		},
+		{
+			name:     "invalid file JSON",
+			args:     []string{"--file", "BODY_FILE"},
+			fileBody: `{`,
+			wantErr:  true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -878,6 +889,9 @@ func TestBuild_RequiredVariableCanComeFromBodyInput(t *testing.T) {
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
+				}
+				if classified := ClassifyError(err); classified.Code != CodeUsage || classified.ExitCode != ExitUsage {
+					t.Fatalf("classified error = %+v", classified)
 				}
 				_, called := recorded()
 				if called {
