@@ -22,6 +22,7 @@ const (
 var (
 	authorizationPattern  = regexp.MustCompile(`(?i)\b(Basic|Bearer)[ \t]+[A-Za-z0-9._~+/=-]+`)
 	debugAssignmentPrefix = regexp.MustCompile(`[[:alnum:]_.-]+[ \t]*[=:][ \t]*`)
+	debugURLPattern       = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>]+`)
 )
 
 type debugTransport struct {
@@ -258,6 +259,9 @@ func isDebugEnvVarContainer(name string) bool {
 
 func redactDebugText(s string) string {
 	s = redactAuthorization(s)
+	s = debugURLPattern.ReplaceAllStringFunc(s, func(raw string) string {
+		return redactDebugURLString(raw, nil)
+	})
 	matches := debugAssignmentPrefix.FindAllStringIndex(s, -1)
 	for i := len(matches) - 1; i >= 0; i-- {
 		start, valueStart := matches[i][0], matches[i][1]
