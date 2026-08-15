@@ -84,7 +84,7 @@ func loadHostOptionsMaybeRefresh(cmd *cobra.Command, defaultHostname string, ref
 		insecure = true
 	}
 	if refresh {
-		e, err = refreshHostAuthIfNeeded(cmd.Context(), hostname, hosts, e, insecure)
+		e, err = refreshHostAuthIfNeeded(cmd.Context(), hostname, e, insecure)
 		if err != nil {
 			return "", ClientOptions{}, err
 		}
@@ -133,7 +133,7 @@ func tryLoadHostOptionsMaybeRefresh(cmd *cobra.Command, defaultHostname string, 
 		insecure = true
 	}
 	if refresh {
-		if refreshed, err := refreshHostAuthIfNeeded(cmd.Context(), hostname, hosts, e, insecure); err == nil {
+		if refreshed, err := refreshHostAuthIfNeeded(cmd.Context(), hostname, e, insecure); err == nil {
 			e = refreshed
 		}
 	}

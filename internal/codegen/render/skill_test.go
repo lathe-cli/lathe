@@ -34,8 +34,10 @@ func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
 
 func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	dir := t.TempDir()
+	unsafeParamName := "type`\n**INJECT**"
 	manifest := &config.Manifest{
-		CLI: config.CLIInfo{Name: "acmectl", Short: "Acme API CLI", HostEnv: "ACMECTL_HOST", ConfigDirEnv: "ACMECTL_CONFIG_DIR"},
+		CLI:      config.CLIInfo{Name: "acmectl", Short: "Acme API CLI", HostEnv: "ACMECTL_HOST", ConfigDirEnv: "ACMECTL_CONFIG_DIR"},
+		Contexts: map[string]config.ContextInfo{"organization": {Env: "ACMECTL_ORG_ID"}},
 	}
 	source := &sourceconfig.Source{
 		Name:      "users",
@@ -52,7 +54,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Method:  "POST",
 			PathTpl: "/users",
 			Params: []runtime.ParamSpec{
-				{Name: "type", Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type"},
+				{Name: unsafeParamName, Flag: "type", In: runtime.InQuery, GoType: "string", Required: true, Help: "Receiver type", Context: "organization"},
 			},
 			RequestBody: &runtime.RequestBody{Required: true, MediaType: "application/json"},
 			Output: runtime.OutputHints{
@@ -61,7 +63,8 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 				Pagination:        &runtime.PaginationHint{Strategy: "cursor", TokenParam: "page_token"},
 				Streaming:         &runtime.StreamingHint{Strategy: "sse"},
 			},
-			Security: &runtime.SecurityHint{Scopes: []string{"users:write"}},
+			Security:   &runtime.SecurityHint{Scopes: []string{"users:write"}},
+			SetContext: &runtime.ContextSetHint{Name: "organization", Param: unsafeParamName},
 		},
 		{Group: "Users", Use: "delete-user", Short: "Delete user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
 	}
@@ -73,7 +76,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Notes:         []string{"clusterFilter expects a cluster UUID."},
 			Prerequisites: []string{"Find the cluster UUID first."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing start/end"}},
-			Params:        map[string]overlay.ParamOverride{"type": {Argument: "receiver"}},
+			Params:        map[string]overlay.ParamOverride{unsafeParamName: {Argument: "receiver"}},
 		},
 	})
 
@@ -97,6 +100,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"flags[].input_modes",
 		"error.code",
 		"exit 0",
+		"auth context status -o json",
 	} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("SKILL.md missing %q", want)
@@ -132,7 +136,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Summary: Create a user",
 		"Auth: required; scopes: `users:write`",
 		"Body: required; media type `application/json`",
-		"argument 1 `[receiver]` or `--type` (query, required): Receiver type",
+		"argument 1 `[receiver]` or `--type` (query, required, context `organization` via `ACMECTL_ORG_ID`): Receiver type",
 		"pagination `cursor`",
 		"streaming `sse`",
 		"Notes:",
@@ -141,6 +145,8 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Find the cluster UUID first.",
 		"Known errors:",
 		"HTTP 400: missing start/end",
+		"context `organization` via `ACMECTL_ORG_ID`",
+		"Sets context `organization` from parameter `type` after success.",
 		"Example: `acmectl accounts create-user --set name=alice`",
 	} {
 		if !strings.Contains(module, want) {
@@ -152,6 +158,9 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 	if strings.Contains(module, "delete-user") || strings.Contains(module, "Raw summary") {
 		t.Fatalf("module reference leaked hidden command or raw overlay content:\n%s", module)
+	}
+	if strings.Contains(module, "**INJECT**") {
+		t.Fatalf("module reference contains injected parameter content:\n%s", module)
 	}
 }
 

@@ -160,6 +160,9 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 			}
 			return fail(err)
 		}
+		if err := resolveCommandContexts(cmd, step.Operation, &input); err != nil {
+			return fail(err)
+		}
 		if err := validateOperationInput(step.Operation, input); err != nil {
 			return fail(UsageError(cmd, err))
 		}

@@ -109,6 +109,10 @@ commands:
     known_errors:
       - status: 400
         cause: "missing user name"
+    context:
+      set_on_success:
+        name: workspace
+        from_param: status
     body:
       runtime_schema:
         operation_id: describeUser
@@ -123,6 +127,7 @@ commands:
         required: true
         default: "active"
         deprecated: true
+        context: workspace
       legacy:
         hidden: true
   delete-user:
@@ -163,6 +168,9 @@ commands:
 	if len(cu.KnownErrors) != 1 || cu.KnownErrors[0].Status != 400 || cu.KnownErrors[0].Cause != "missing user name" {
 		t.Errorf("known errors = %#v", cu.KnownErrors)
 	}
+	if cu.Context == nil || cu.Context.SetOnSuccess == nil || cu.Context.SetOnSuccess.Name != "workspace" || cu.Context.SetOnSuccess.FromParam != "status" {
+		t.Errorf("context = %#v", cu.Context)
+	}
 	if cu.Body == nil || cu.Body.RuntimeSchema == nil || cu.Body.RuntimeSchema.OperationID != "describeUser" || cu.Body.RuntimeSchema.ResponsePath != "input_schema" || cu.Body.RuntimeSchema.Params["user_id"] != "${params.user_id}" {
 		t.Errorf("runtime schema = %#v", cu.Body)
 	}
@@ -184,6 +192,9 @@ commands:
 	}
 	if !sp.Deprecated {
 		t.Error("param deprecated = false, want true")
+	}
+	if sp.Context != "workspace" {
+		t.Errorf("param context = %q", sp.Context)
 	}
 	lp := cu.Params["legacy"]
 	if !lp.DeprecatedAlias {

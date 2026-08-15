@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -10,11 +11,17 @@ import (
 )
 
 type Manifest struct {
-	CLI      CLIInfo      `yaml:"cli"`
-	Auth     AuthInfo     `yaml:"auth"`
-	Update   UpdateInfo   `yaml:"update,omitempty"`
-	Skill    SkillInfo    `yaml:"skill,omitempty"`
-	Workflow WorkflowInfo `yaml:"workflow,omitempty"`
+	CLI      CLIInfo                `yaml:"cli"`
+	Auth     AuthInfo               `yaml:"auth"`
+	Contexts map[string]ContextInfo `yaml:"contexts,omitempty"`
+	Update   UpdateInfo             `yaml:"update,omitempty"`
+	Skill    SkillInfo              `yaml:"skill,omitempty"`
+	Workflow WorkflowInfo           `yaml:"workflow,omitempty"`
+}
+
+type ContextInfo struct {
+	Env      string `yaml:"env,omitempty"`
+	LocalSet bool   `yaml:"local_set,omitempty"`
 }
 
 type CLIInfo struct {
@@ -156,13 +163,14 @@ type AuthLogin struct {
 }
 
 type AuthLoginPollResponse struct {
-	Status       string `yaml:"status,omitempty"`
-	Error        string `yaml:"error,omitempty"`
-	AccessToken  string `yaml:"access_token,omitempty"`
-	RefreshToken string `yaml:"refresh_token,omitempty"`
-	ExpiresIn    string `yaml:"expires_in,omitempty"`
-	UserEmail    string `yaml:"user_email,omitempty"`
-	UserName     string `yaml:"user_name,omitempty"`
+	Status       string            `yaml:"status,omitempty"`
+	Error        string            `yaml:"error,omitempty"`
+	AccessToken  string            `yaml:"access_token,omitempty"`
+	RefreshToken string            `yaml:"refresh_token,omitempty"`
+	ExpiresIn    string            `yaml:"expires_in,omitempty"`
+	UserEmail    string            `yaml:"user_email,omitempty"`
+	UserName     string            `yaml:"user_name,omitempty"`
+	Contexts     map[string]string `yaml:"contexts,omitempty"`
 }
 
 type GitHubUpdate struct {
@@ -214,6 +222,9 @@ func Load(bytes []byte) (*Manifest, error) {
 	}
 	if m.CLI.Name == "" {
 		return nil, fmt.Errorf("cli.name is required")
+	}
+	if err := normalizeContexts(m.Contexts); err != nil {
+		return nil, err
 	}
 	if err := normalizeWorkflow(&m.Workflow); err != nil {
 		return nil, err
@@ -274,6 +285,16 @@ func Load(bytes []byte) (*Manifest, error) {
 		fields.ExpiresIn = strings.TrimSpace(fields.ExpiresIn)
 		fields.UserEmail = strings.TrimSpace(fields.UserEmail)
 		fields.UserName = strings.TrimSpace(fields.UserName)
+		for name, path := range fields.Contexts {
+			if _, ok := m.Contexts[name]; !ok {
+				return nil, fmt.Errorf("auth.login.poll_response.contexts references unknown context %q", name)
+			}
+			path = strings.TrimSpace(path)
+			if path == "" {
+				return nil, fmt.Errorf("auth.login.poll_response.contexts.%s must not be empty", name)
+			}
+			fields.Contexts[name] = path
+		}
 	} else if m.Auth.DefaultType == "oauth" {
 		return nil, fmt.Errorf("auth.default_type oauth requires an auth.login block")
 	}
@@ -296,8 +317,40 @@ func Load(bytes []byte) (*Manifest, error) {
 	if m.CLI.HostEnv == "" {
 		m.CLI.HostEnv = upper + "_HOST"
 	}
+	for name, info := range m.Contexts {
+		if info.Env != "" && (strings.EqualFold(info.Env, m.CLI.HostEnv) || strings.EqualFold(info.Env, m.CLI.ConfigDirEnv)) {
+			return nil, fmt.Errorf("contexts.%s.env %q is reserved by CLI configuration", name, info.Env)
+		}
+	}
 	return &m, nil
 }
+
+func normalizeContexts(contexts map[string]ContextInfo) error {
+	seenEnv := map[string]string{}
+	for name, info := range contexts {
+		if !contextNamePattern.MatchString(name) {
+			return fmt.Errorf("context name %q must contain only letters, digits, hyphens, or underscores and start with a letter", name)
+		}
+		info.Env = strings.TrimSpace(info.Env)
+		if info.Env != "" {
+			if !validEnvName(info.Env) {
+				return fmt.Errorf("contexts.%s.env %q is not a valid environment variable name", name, info.Env)
+			}
+			envKey := strings.ToUpper(info.Env)
+			if prior := seenEnv[envKey]; prior != "" {
+				return fmt.Errorf("contexts %q and %q use the same environment variable %s", prior, name, info.Env)
+			}
+			seenEnv[envKey] = name
+		}
+		contexts[name] = info
+	}
+	return nil
+}
+
+var contextNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func validEnvName(name string) bool { return envNamePattern.MatchString(name) }
 
 func validateAuthLoginRequest(name string, request map[string]string, allowed map[string]bool) error {
 	for field, value := range request {

@@ -382,7 +382,7 @@ func validateRuntimeSchemaSource(target, source runtime.CommandSpec, binding *ov
 		}
 	}
 	for i, param := range source.Params {
-		if param.Required && param.Default == "" && !mapped[i] {
+		if param.Required && param.Default == "" && param.Context == "" && !mapped[i] {
 			return fmt.Errorf("required source param %q is not mapped", param.Name)
 		}
 	}
@@ -589,6 +589,10 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	cloned.Notes = append([]string(nil), spec.Notes...)
 	cloned.Prerequisites = append([]string(nil), spec.Prerequisites...)
 	cloned.KnownErrors = append([]runtime.KnownError(nil), spec.KnownErrors...)
+	if spec.SetContext != nil {
+		setContext := *spec.SetContext
+		cloned.SetContext = &setContext
+	}
 	cloned.Params = append([]runtime.ParamSpec(nil), spec.Params...)
 	for i := range cloned.Params {
 		cloned.Params[i].Aliases = append([]string(nil), spec.Params[i].Aliases...)
@@ -707,7 +711,14 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 			if po.Deprecated || po.DeprecatedAlias {
 				spec.Params[j].Deprecated = true
 			}
+			if po.Context != "" {
+				spec.Params[j].Context = po.Context
+			}
 		}
+	}
+	if override.Context != nil && override.Context.SetOnSuccess != nil {
+		set := override.Context.SetOnSuccess
+		spec.SetContext = &runtime.ContextSetHint{Name: set.Name, Param: set.FromParam}
 	}
 	if override.Output != nil && override.Output.Streaming != nil {
 		stream := override.Output.Streaming
@@ -1026,6 +1037,9 @@ func commandSpecLiteral(spec runtime.CommandSpec) string {
 	if len(spec.KnownErrors) > 0 {
 		fmt.Fprintf(&b, "KnownErrors: %s,", knownErrorsLiteral(spec.KnownErrors))
 	}
+	if spec.SetContext != nil {
+		fmt.Fprintf(&b, "SetContext: &runtime.ContextSetHint{Name: %q, Param: %q},", spec.SetContext.Name, spec.SetContext.Param)
+	}
 	b.WriteByte('}')
 	return b.String()
 }
@@ -1102,6 +1116,7 @@ func paramSpecsLiteral(params []runtime.ParamSpec) string {
 		writeStringSliceField(&b, "Enum", param.Enum)
 		writeStringField(&b, "Format", param.Format)
 		writeBoolField(&b, "Deprecated", param.Deprecated)
+		writeStringField(&b, "Context", param.Context)
 		b.WriteString("},")
 	}
 	b.WriteByte('}')
@@ -1462,6 +1477,9 @@ var Specs = []runtime.CommandSpec{
 			{{- end}}
 		},
 		{{- end}}
+		{{- if $op.SetContext}}
+		SetContext: &runtime.ContextSetHint{Name: {{printf "%q" $op.SetContext.Name}}, Param: {{printf "%q" $op.SetContext.Param}}},
+		{{- end}}
 		{{- if $op.OperationID}}
 		OperationID: {{printf "%q" $op.OperationID}},
 		{{- end}}
@@ -1479,7 +1497,7 @@ var Specs = []runtime.CommandSpec{
 		{{- if $op.Params}}
 		Params: []runtime.ParamSpec{
 			{{- range $op.Params}}
-			{Name: {{printf "%q" .Name}}, Flag: {{printf "%q" .Flag}}{{- if .Aliases}}, Aliases: []string{ {{- range .Aliases}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Argument}}, Argument: {{printf "%q" .Argument}}{{end}}, In: {{printf "%q" .In}}, GoType: {{printf "%q" .GoType}}, Help: {{printf "%q" .Help}}, Required: {{.Required}}{{- if .Default}}, Default: {{printf "%q" .Default}}{{end}}{{- if .Enum}}, Enum: []string{ {{- range .Enum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Format}}, Format: {{printf "%q" .Format}}{{end}}{{- if .Deprecated}}, Deprecated: true{{end}}},
+			{Name: {{printf "%q" .Name}}, Flag: {{printf "%q" .Flag}}{{- if .Aliases}}, Aliases: []string{ {{- range .Aliases}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Argument}}, Argument: {{printf "%q" .Argument}}{{end}}, In: {{printf "%q" .In}}, GoType: {{printf "%q" .GoType}}, Help: {{printf "%q" .Help}}, Required: {{.Required}}{{- if .Default}}, Default: {{printf "%q" .Default}}{{end}}{{- if .Enum}}, Enum: []string{ {{- range .Enum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Format}}, Format: {{printf "%q" .Format}}{{end}}{{- if .Deprecated}}, Deprecated: true{{end}}{{- if .Context}}, Context: {{printf "%q" .Context}}{{end}}},
 			{{- end}}
 		},
 		{{- end}}

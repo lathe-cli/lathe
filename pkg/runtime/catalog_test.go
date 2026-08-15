@@ -5,9 +5,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
+	config.Bind(&config.Manifest{CLI: config.CLIInfo{Name: "myctl"}, Contexts: map[string]config.ContextInfo{
+		"workspace": {Env: "MYCTL_WORKSPACE_ID"},
+	}})
 	root := newRootWithModuleGroup()
 	mustBuild(t, root, "demo", []CommandSpec{
 		{
@@ -37,7 +42,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 				MediaType: "application/json",
 				Schema:    &SchemaSpec{Type: "object", Properties: map[string]*SchemaSpec{"name": {Type: "string"}}},
 				RuntimeSchema: &RuntimeSchemaSpec{
-					Operation:    CommandSpec{OperationID: "describeUser", Method: "GET", PathTpl: "/users/{id}", DefaultHostname: "api.example.com"},
+					Operation: CommandSpec{OperationID: "describeUser", Method: "GET", PathTpl: "/users/{id}", DefaultHostname: "api.example.com", Params: []ParamSpec{
+						{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"},
+					}},
 					ResponsePath: "input_schema",
 					Params:       map[string]string{"id": "${params.user_id}"},
 				},
@@ -108,6 +115,10 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if cmd.Body.RuntimeSchema == nil || cmd.Body.RuntimeSchema.OperationID != "describeUser" || cmd.Body.RuntimeSchema.HTTP.PathTemplate != "/users/{id}" || cmd.Body.RuntimeSchema.ResponsePath != "input_schema" || cmd.Body.RuntimeSchema.Params["id"] != "${params.user_id}" {
 		t.Fatalf("runtime schema = %+v", cmd.Body.RuntimeSchema)
 	}
+	contexts := cmd.Body.RuntimeSchema.Contexts
+	if len(contexts) != 1 || contexts[0].Name != "workspace" || contexts[0].Env != "MYCTL_WORKSPACE_ID" || !reflect.DeepEqual(contexts[0].Precedence, []string{"flag", "env", "stored"}) {
+		t.Fatalf("runtime schema contexts = %#v", contexts)
+	}
 	if len(cmd.Flags) != 2 {
 		t.Fatalf("flags = %d, want 2", len(cmd.Flags))
 	}
@@ -153,7 +164,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if roundTrip.Commands[0].Body.Schema.Properties["name"].Type != "string" {
 		t.Fatalf("round-trip body schema = %+v", roundTrip.Commands[0].Body.Schema)
 	}
-	if roundTrip.Commands[0].Body.RuntimeSchema == nil || roundTrip.Commands[0].Body.RuntimeSchema.OperationID != "describeUser" {
+	if roundTrip.Commands[0].Body.RuntimeSchema == nil || roundTrip.Commands[0].Body.RuntimeSchema.OperationID != "describeUser" || !reflect.DeepEqual(roundTrip.Commands[0].Body.RuntimeSchema.Contexts, contexts) {
 		t.Fatalf("round-trip runtime schema = %+v", roundTrip.Commands[0].Body.RuntimeSchema)
 	}
 	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
@@ -161,6 +172,26 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if len(roundTrip.Commands[0].Examples) != 1 || roundTrip.Commands[0].Examples[0].OutputHints.IDPath != "data.user.id" {
 		t.Fatalf("round-trip examples = %#v", roundTrip.Commands[0].Examples)
+	}
+}
+
+func TestBuildCatalog_ExposesContextContract(t *testing.T) {
+	config.Bind(&config.Manifest{CLI: config.CLIInfo{Name: "myctl"}, Contexts: map[string]config.ContextInfo{
+		"workspace": {Env: "MYCTL_WORKSPACE_ID"},
+	}})
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Apps", Use: "use", Method: "POST", PathTpl: "/workspaces/{workspace_id}",
+		Params:     []ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: InPath, GoType: "string", Required: true, Context: "workspace"}},
+		SetContext: &ContextSetHint{Name: "workspace", Param: "workspace_id"},
+	}})
+	command := BuildCatalog(root, CatalogOptions{CLIName: "myctl"}).Commands[0]
+	context := command.Flags[0].Context
+	if context == nil || context.Name != "workspace" || context.Env != "MYCTL_WORKSPACE_ID" || !reflect.DeepEqual(context.Precedence, []string{"flag", "env", "stored"}) {
+		t.Fatalf("flag context = %#v", context)
+	}
+	if command.SetsContext == nil || command.SetsContext.Name != "workspace" || command.SetsContext.FromParam != "workspace_id" {
+		t.Fatalf("sets context = %#v", command.SetsContext)
 	}
 }
 

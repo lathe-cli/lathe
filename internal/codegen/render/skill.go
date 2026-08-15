@@ -495,7 +495,12 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	fmt.Fprintf(&b, "1. Search for candidates with `%s search \"<intent>\" --json`; use `--limit` when needed. Search is only candidate discovery.\n", cli)
 	fmt.Fprintf(&b, "2. Inspect the exact command with `%s commands show <path...> --json` before executing an unfamiliar command.\n", cli)
 	fmt.Fprintf(&b, "3. If the command detail has `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`.\n", cli, manifest.CLI.HostEnv)
-	fmt.Fprintf(&b, "4. Execute only after flags, body, auth, HTTP path, and output hints are clear from `commands show`.\n\n")
+	if len(manifest.Contexts) > 0 {
+		fmt.Fprintf(&b, "4. If a flag has `context`, inspect `%s auth context status -o json`. Explicit flags override the declared environment variable, which overrides the value stored for the selected host.\n", cli)
+		b.WriteString("5. Execute only after flags, body, auth, HTTP path, and output hints are clear from `commands show`.\n\n")
+	} else {
+		b.WriteString("4. Execute only after flags, body, auth, HTTP path, and output hints are clear from `commands show`.\n\n")
+	}
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
 		b.WriteString("## Auth Login\n\n")
 		fmt.Fprintf(&b, "- Use `%s auth login --device-auth --hostname <host> --provider <provider>` when the user needs browser-based OAuth login. The browser opens by default in an interactive terminal; use `--no-browser` for manual login.\n", cli)
@@ -507,6 +512,9 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	fmt.Fprintf(&b, "- `%s commands show <path...> --json`: source of truth for one command.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands schema --json`: catalog schema version for parser compatibility.\n", cli)
 	fmt.Fprintf(&b, "- `%s search \"<intent>\" --json`: ranked candidate commands.\n\n", cli)
+	if len(manifest.Contexts) > 0 {
+		fmt.Fprintf(&b, "- `%s auth context status -o json`: effective account-scoped context values for the selected host.\n\n", cli)
+	}
 	b.WriteString("## Maintenance Commands\n\n")
 	fmt.Fprintf(&b, "- `%s --version` or `%s -v`: print CLI build version.\n", cli, cli)
 	if manifest.Update.GitHub != nil {
@@ -556,10 +564,12 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `http`: HTTP method and path template.\n")
 	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host selected after explicit `--hostname` and `$%s`; when present it is used before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, input modes, and help.\n")
-	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source.\n")
+	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source, including its active-context prerequisites.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
 	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
 	b.WriteString("- `output`: list path, default columns, response media type, pagination, and streaming hints; a streaming policy describes collection, terminal outcomes, and optional live projection.\n")
+	b.WriteString("- `flags[].context`: an optional account-scoped default with explicit flag, declared environment, then stored-value precedence.\n")
+	b.WriteString("- `sets_context`: a successful operation persists its declared parameter as the selected host's active context.\n")
 	b.WriteString("- `notes`, `prerequisites`, and `known_errors`: overlay-provided operation context that is not inferred from the API spec.\n\n")
 	b.WriteString("## Command Detail\n\n")
 	fmt.Fprintf(&b, "Run `%s commands show <path...> --json` before executing an unfamiliar command. This is the source of truth for flags, body, auth, HTTP path, and output hints.\n\n", cli)
@@ -585,6 +595,9 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
 		fmt.Fprintf(&b, "For browser-based OAuth login, run `%s auth login --device-auth --hostname <host> --provider <provider>`. The browser opens by default in an interactive terminal; use `--no-browser` for manual login. `auth_type: bearer` in `hosts.yml` is expected after login because API requests use the issued bearer token.\n", cli)
+	}
+	if len(manifest.Contexts) > 0 {
+		fmt.Fprintf(&b, "Inspect effective account-scoped defaults with `%s auth context status -o json`; `local_set` reports whether `auth context set` is allowed. A command's explicit bound flag wins over its declared environment variable and stored host value.\n", cli)
 	}
 	return b.String()
 }
@@ -653,6 +666,14 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					deprecated := ""
 					if p.Deprecated {
 						deprecated = ", deprecated"
+					}
+					if p.Context != "" {
+						info := manifest.Contexts[p.Context]
+						contextSource := ", context `" + p.Context + "`"
+						if info.Env != "" {
+							contextSource += " via `" + info.Env + "`"
+						}
+						deprecated += contextSource
 					}
 					input := fmt.Sprintf("`--%s`", p.Flag)
 					if p.Argument != "" {
@@ -736,6 +757,13 @@ func commandExample(example, cli, module string, spec runtime.CommandSpec, flat 
 func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
 	writeStringList(b, "Notes", spec.Notes)
 	writeStringList(b, "Prerequisites", spec.Prerequisites)
+	if spec.SetContext != nil {
+		param := spec.SetContext.Param
+		if index, count := paramByNameOrFlag(spec.Params, param); count == 1 {
+			param = spec.Params[index].Flag
+		}
+		fmt.Fprintf(b, "- Sets context `%s` from parameter `%s` after success.\n", spec.SetContext.Name, strings.ReplaceAll(oneLine(param), "`", "'"))
+	}
 	if len(spec.KnownErrors) == 0 {
 		return
 	}

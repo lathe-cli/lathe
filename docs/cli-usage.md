@@ -330,6 +330,40 @@ This renders `get-user [id]`; both `get-user 123` and
 entries retain `name`, `flag`, accepted `aliases`, `argument`, and `position` so
 agents do not infer the mapping from help text.
 
+Account-scoped defaults such as an organization or workspace are opt-in. Declare
+their names and optional environment variables in `cli.yaml`:
+
+```yaml
+contexts:
+  organization:
+    env: ACMECTL_ORG_ID
+    local_set: true
+```
+
+Bind an operation parameter and, when the API has a selector operation, persist
+that parameter only after a successful response:
+
+```yaml
+commands:
+  list-projects:
+    params:
+      organization_id:
+        context: organization
+  switch-organization:
+    context:
+      set_on_success:
+        name: organization
+        from_param: organization_id
+```
+
+The value order is explicit operation flag, declared environment variable, then
+the selected host's stored value in `hosts.yml`. Generated CLIs add
+`auth context status|unset` only when `contexts` is declared, and add `set` only
+when at least one entry has `local_set: true`. Server-managed contexts are
+changed through their generated selector operation. OAuth device login may seed
+stored values by mapping response paths under
+`auth.login.poll_response.contexts`.
+
 Generated outputs:
 
 ```text

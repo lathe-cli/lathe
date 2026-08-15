@@ -117,6 +117,11 @@ func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 	if err != nil {
 		return OperationResult{}, err
 	}
+	if outcome == OperationOutcomeCompleted {
+		if err := persistOperationContext(ctx, s, input, opts.Hostname); err != nil {
+			return OperationResult{}, err
+		}
+	}
 	return OperationResult{Data: data, Outcome: outcome}, nil
 }
 

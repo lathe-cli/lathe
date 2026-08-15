@@ -54,7 +54,8 @@ func TestResolveHost_UsesBoundHostEnv(t *testing.T) {
 }
 
 func TestLoadHostOptionsRefreshesExpiredOAuthToken(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/refresh" {
 			http.NotFound(w, r)
 			return
@@ -65,6 +66,14 @@ func TestLoadHostOptionsRefreshesExpiredOAuthToken(t *testing.T) {
 		}
 		if body["refresh_token"] != "refresh-old" {
 			t.Errorf("refresh_token = %q, want refresh-old", body["refresh_token"])
+		}
+		if err := config.MutateHosts(r.Context(), func(hosts *config.Hosts) error {
+			entry, _ := hosts.Get(srv.URL)
+			entry.Contexts["workspace"] = "ws-new"
+			hosts.Set(srv.URL, entry)
+			return nil
+		}); err != nil {
+			t.Errorf("update context during refresh: %v", err)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "access-new",
@@ -93,6 +102,7 @@ func TestLoadHostOptionsRefreshesExpiredOAuthToken(t *testing.T) {
 		OAuthToken:        "access-old",
 		OAuthRefreshToken: "refresh-old",
 		OAuthExpiresAt:    time.Now().Add(-time.Hour).Unix(),
+		Contexts:          map[string]string{"workspace": "ws-old"},
 	})
 	if err := hosts.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -127,5 +137,8 @@ func TestLoadHostOptionsRefreshesExpiredOAuthToken(t *testing.T) {
 	}
 	if entry.OAuthToken != "access-new" || entry.OAuthRefreshToken != "refresh-new" || entry.OAuthExpiresAt <= time.Now().Unix() {
 		t.Fatalf("entry = %+v", entry)
+	}
+	if entry.Contexts["workspace"] != "ws-new" {
+		t.Fatalf("context overwritten during refresh: %+v", entry.Contexts)
 	}
 }
