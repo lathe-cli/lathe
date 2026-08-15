@@ -317,6 +317,11 @@ func Load(bytes []byte) (*Manifest, error) {
 	if m.CLI.HostEnv == "" {
 		m.CLI.HostEnv = upper + "_HOST"
 	}
+	for name, info := range m.Contexts {
+		if info.Env != "" && (strings.EqualFold(info.Env, m.CLI.HostEnv) || strings.EqualFold(info.Env, m.CLI.ConfigDirEnv)) {
+			return nil, fmt.Errorf("contexts.%s.env %q is reserved by CLI configuration", name, info.Env)
+		}
+	}
 	return &m, nil
 }
 

@@ -103,6 +103,15 @@ func TestLoadRejectsCaseInsensitiveDuplicateContextEnv(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsContextEnvReservedByCLI(t *testing.T) {
+	for _, env := range []string{"demo_host", "DEMO_CONFIG_DIR"} {
+		_, err := Load([]byte("cli:\n  name: demo\ncontexts:\n  workspace:\n    env: " + env + "\n"))
+		if err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("env %q error = %v, want reserved environment variable", env, err)
+		}
+	}
+}
+
 func TestLoad_NoAuthValidate(t *testing.T) {
 	data := []byte(`
 cli:
