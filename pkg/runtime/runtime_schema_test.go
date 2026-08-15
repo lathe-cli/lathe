@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func TestInvokeOperation_RuntimeSchema(t *testing.T) {
@@ -15,6 +17,9 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 		switch r.URL.Path {
 		case "/apps/app-1":
 			schemaHits.Add(1)
+			if r.URL.Query().Get("workspace_id") != "ws-1" {
+				t.Errorf("workspace_id = %q", r.URL.Query().Get("workspace_id"))
+			}
 			if r.URL.Query().Get("fields") != "input_schema" {
 				t.Errorf("fields = %q", r.URL.Query().Get("fields"))
 			}
@@ -33,6 +38,20 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	config.Bind(&config.Manifest{
+		CLI:      config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+		Contexts: map[string]config.ContextInfo{"workspace": {}},
+	})
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	hosts, err := config.LoadHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts.Set(srv.URL, config.HostEntry{Contexts: map[string]string{"workspace": "ws-1"}})
+	if err := hosts.Save(); err != nil {
+		t.Fatal(err)
+	}
+
 	appID := ParamSpec{Name: "app_id", Flag: "app-id", In: InPath, GoType: "string", Required: true}
 	source := CommandSpec{
 		OperationID: "describeApp",
@@ -40,6 +59,7 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 		PathTpl:     "/apps/{app_id}",
 		Params: []ParamSpec{
 			appID,
+			{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"},
 			{Name: "fields", Flag: "fields", In: InQuery, GoType: "string"},
 			{Name: "mode", Flag: "mode", In: InQuery, GoType: "[]string"},
 		},
