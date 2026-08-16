@@ -613,24 +613,9 @@ func securityScopes() *rawir.RawModule {
 	}
 }
 
-func TestDisambiguateUseCollisions(t *testing.T) {
-	// Same group, same derived name: distinct operations must both survive with
-	// distinct command names rather than aborting codegen.
-	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
-		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/groups"},
-		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/Groups"},
-	}}
-	specs := Normalize(mod)
-	if len(specs) != 2 {
-		t.Fatalf("want 2 specs, got %d", len(specs))
-	}
-	if specs[0].Use == specs[1].Use {
-		t.Errorf("colliding command names not disambiguated: both %q", specs[0].Use)
-	}
-}
-
-// A leading id segment is redundant only when it repeats the group. Stripping
-// it unconditionally collapsed every CRUD verb onto the same command name.
+// A leading id segment is not redundant merely because it precedes an
+// underscore. Stripping it unconditionally collapsed every CRUD verb onto one
+// command name.
 func TestOpNameKeepsVerbWhenPrefixIsNotTheGroup(t *testing.T) {
 	mod := &rawir.RawModule{Operations: []rawir.RawOperation{
 		{Group: "Chunk", OperationID: "create_chunk", Method: "POST", Path: "/api/chunk"},
@@ -665,6 +650,27 @@ func TestOpNameDropsModulePrefix(t *testing.T) {
 	specs := Normalize(mod)
 	if got := specs[0].Use; got != "list-apps" {
 		t.Fatalf("Use = %q, want list-apps", got)
+	}
+}
+
+func TestOpNameDropsExactRepeatedPrefix(t *testing.T) {
+	mod := &rawir.RawModule{
+		Name: "skoala",
+		Operations: []rawir.RawOperation{
+			{Group: "Gateway", OperationID: "GatewayOverview_GatewayOverviewAPIStats", Method: "GET", Path: "/stats/api"},
+			{Group: "Gateway", OperationID: "User_UserlandStats", Method: "GET", Path: "/stats/userland"},
+		},
+	}
+	got := map[string]string{}
+	for _, spec := range Normalize(mod) {
+		got[spec.OperationID] = spec.Use
+	}
+	want := map[string]string{
+		"GatewayOverview_GatewayOverviewAPIStats": "gateway-overview-api-stats",
+		"User_UserlandStats":                      "user-userland-stats",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("uses = %#v, want %#v", got, want)
 	}
 }
 

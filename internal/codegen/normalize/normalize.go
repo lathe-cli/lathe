@@ -87,7 +87,6 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		}
 		return specs[i].OperationID < specs[j].OperationID
 	})
-	disambiguateUse(specs)
 	return specs
 }
 
@@ -220,31 +219,6 @@ func collapseDashes(s string) string {
 	return b.String()
 }
 
-// disambiguateUse makes each command's Group+Use unique. Distinct operations can
-// still normalize to the same command name (e.g. GET /groups and GET /Groups);
-// without this, codegen aborts on the collision instead of exposing both
-// endpoints. Runs after the sort so the suffix assignment is deterministic.
-func disambiguateUse(specs []runtime.CommandSpec) {
-	used := map[string]bool{}
-	for i := range specs {
-		key := specs[i].Group + "\x00" + specs[i].Use
-		if !used[key] {
-			used[key] = true
-			continue
-		}
-		base := specs[i].Use
-		for n := 2; ; n++ {
-			cand := base + "-" + strconv.Itoa(n)
-			ck := specs[i].Group + "\x00" + cand
-			if !used[ck] {
-				specs[i].Use = cand
-				used[ck] = true
-				break
-			}
-		}
-	}
-}
-
 func applyRawOutputHints(spec *runtime.CommandSpec, hints *rawir.RawOutputHints) {
 	if hints == nil {
 		return
@@ -278,10 +252,27 @@ func group(op rawir.RawOperation) string {
 // Blind prefix stripping collapses create_chunk/update_chunk/delete_chunk onto one name.
 func opNameFromID(id, group, module string) string {
 	idx := strings.Index(id, "_")
-	if idx <= 0 || !sameToken(id[:idx], group) && !sameToken(id[:idx], module) {
+	if idx <= 0 {
 		return id
 	}
-	return id[idx+1:]
+	prefix, suffix := id[:idx], id[idx+1:]
+	if repeatsIDPrefix(prefix, suffix) {
+		return suffix
+	}
+	if sameToken(prefix, group) || sameToken(prefix, module) {
+		return suffix
+	}
+	return id
+}
+
+func repeatsIDPrefix(prefix, suffix string) bool {
+	if !strings.HasPrefix(suffix, prefix) {
+		return false
+	}
+	for _, next := range suffix[len(prefix):] {
+		return next == '_' || next == '-' || unicode.IsUpper(next) || unicode.IsDigit(next)
+	}
+	return true
 }
 
 // kebabFromID renders an operationId as a command name. Edge separators are

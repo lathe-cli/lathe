@@ -45,6 +45,36 @@ func TestDoRaw_SendsMethodPathAndQuery(t *testing.T) {
 	}
 }
 
+func TestDoRaw_PreservesHostnameBasePath(t *testing.T) {
+	tests := []struct {
+		name string
+		base string
+		path string
+		want string
+	}{
+		{name: "intentional repetition", base: "/api", path: "/api/users", want: "/api/api/users"},
+		{name: "relative", base: "/api/v1", path: "/users", want: "/api/v1/users"},
+		{name: "partial prefix", base: "/api", path: "/apiary/users", want: "/api/apiary/users"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.URL.Path
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+
+			if _, err := DoRaw(context.Background(), srv.URL+tc.base, http.MethodGet, tc.path, nil, ClientOptions{Timeout: 5 * time.Second}); err != nil {
+				t.Fatalf("DoRaw: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("request path = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDoRaw_SendsAuthorizationWhenTokenProvided(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

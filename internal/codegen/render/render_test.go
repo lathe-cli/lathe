@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/overlay"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
@@ -307,6 +309,82 @@ func TestValidateOverlayModule_RejectsInvalidGroups(t *testing.T) {
 	}
 }
 
+func TestMergeOverlayModule_IgnoresCollisionBeforeDisambiguation(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/v1/groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/v2/groups"},
+	}})
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"list": {Match: overlay.OperationMatch{Path: "/v2/groups"}, Ignore: true},
+	}}
+	merged := MergeOverlayModule(specs, mod)
+	if len(merged) != 1 {
+		t.Fatalf("merged command count = %d, want 1", len(merged))
+	}
+	if got := merged[0].Use; got != "list" {
+		t.Fatalf("surviving Use = %q, want list", got)
+	}
+	if got := merged[0].PathTpl; got != "/v1/groups" {
+		t.Fatalf("surviving path = %q, want /v1/groups", got)
+	}
+}
+
+func TestMergeOverlayModule_PreservesLegacyCollisionOverlayKey(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/v1/groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/v2/groups"},
+	}})
+
+	t.Run("ignore", func(t *testing.T) {
+		mod := overlay.Module{Commands: map[string]overlay.Override{
+			"list-2": {Match: overlay.OperationMatch{Path: "/v2/groups"}, Ignore: true},
+		}}
+		if err := ValidateOverlayModule(specs, mod); err != nil {
+			t.Fatalf("ValidateOverlayModule: %v", err)
+		}
+		merged := MergeOverlayModule(specs, mod)
+		if len(merged) != 1 || merged[0].PathTpl != "/v1/groups" || merged[0].Use != "list" {
+			t.Fatalf("merged = %#v, want only /v1/groups as list", merged)
+		}
+	})
+
+	t.Run("override", func(t *testing.T) {
+		mod := overlay.Module{Commands: map[string]overlay.Override{
+			"list-2": {Match: overlay.OperationMatch{Path: "/v2/groups"}, Short: "Legacy second command"},
+		}}
+		if err := ValidateOverlayModule(specs, mod); err != nil {
+			t.Fatalf("ValidateOverlayModule: %v", err)
+		}
+		merged := MergeOverlayModule(specs, mod)
+		if len(merged) != 2 || merged[0].Short == "Legacy second command" || merged[1].Short != "Legacy second command" {
+			t.Fatalf("merged = %#v, want override only on second command", merged)
+		}
+	})
+
+	t.Run("unsuffixed override remains first", func(t *testing.T) {
+		merged := MergeOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
+			"list": {Short: "First command only"},
+		}})
+		if len(merged) != 2 || merged[0].Short != "First command only" || merged[1].Short == "First command only" {
+			t.Fatalf("merged = %#v, want unsuffixed override only on first command", merged)
+		}
+	})
+}
+
+func TestMergeOverlayModule_DisambiguatesSurvivingCollisions(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/Groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/groups"},
+	}})
+	merged := MergeOverlayModule(specs, overlay.Module{})
+	if len(merged) != 2 {
+		t.Fatalf("merged command count = %d, want 2", len(merged))
+	}
+	if merged[0].Use == merged[1].Use {
+		t.Fatalf("colliding commands both use %q", merged[0].Use)
+	}
+}
+
 func TestRenderModule_ParamOverride(t *testing.T) {
 	chdirWithGoMod(t)
 	specs := []runtime.CommandSpec{
@@ -592,6 +670,20 @@ func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
 	}
 	if got := paramDefault(t, bulk, "get-user", "id"); got != "" {
 		t.Fatalf("non-matching command default = %q, want empty", got)
+	}
+}
+
+func TestMergeOverlayModule_BulkDefaultsUseLegacyCollisionName(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/v1/groups", Parameters: []rawir.RawParameter{{Name: "page", In: "query", Type: "integer"}}},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/v2/groups", Parameters: []rawir.RawParameter{{Name: "page", In: "query", Type: "integer"}}},
+	}})
+	merged := MergeOverlayModule(specs, overlay.Module{Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
+		MatchCommands: []string{"list-2"},
+		Params:        map[string]string{"page": "2"},
+	}}})
+	if len(merged) != 2 || merged[0].Params[0].Default != "" || merged[1].Params[0].Default != "2" {
+		t.Fatalf("merged = %#v, want bulk default only on list-2", merged)
 	}
 }
 
