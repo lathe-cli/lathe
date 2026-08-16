@@ -329,6 +329,39 @@ func TestMergeOverlayModule_IgnoresCollisionBeforeDisambiguation(t *testing.T) {
 	}
 }
 
+func TestMergeOverlayModule_PreservesLegacyCollisionOverlayKey(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/v1/groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/v2/groups"},
+	}})
+
+	t.Run("ignore", func(t *testing.T) {
+		mod := overlay.Module{Commands: map[string]overlay.Override{
+			"list-2": {Match: overlay.OperationMatch{Path: "/v2/groups"}, Ignore: true},
+		}}
+		if err := ValidateOverlayModule(specs, mod); err != nil {
+			t.Fatalf("ValidateOverlayModule: %v", err)
+		}
+		merged := MergeOverlayModule(specs, mod)
+		if len(merged) != 1 || merged[0].PathTpl != "/v1/groups" || merged[0].Use != "list" {
+			t.Fatalf("merged = %#v, want only /v1/groups as list", merged)
+		}
+	})
+
+	t.Run("override", func(t *testing.T) {
+		mod := overlay.Module{Commands: map[string]overlay.Override{
+			"list-2": {Match: overlay.OperationMatch{Path: "/v2/groups"}, Short: "Legacy second command"},
+		}}
+		if err := ValidateOverlayModule(specs, mod); err != nil {
+			t.Fatalf("ValidateOverlayModule: %v", err)
+		}
+		merged := MergeOverlayModule(specs, mod)
+		if len(merged) != 2 || merged[0].Short == "Legacy second command" || merged[1].Short != "Legacy second command" {
+			t.Fatalf("merged = %#v, want override only on second command", merged)
+		}
+	})
+}
+
 func TestMergeOverlayModule_DisambiguatesSurvivingCollisions(t *testing.T) {
 	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
 		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/Groups"},

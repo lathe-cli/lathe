@@ -269,11 +269,9 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtim
 	var merged []runtime.CommandSpec
 	var overrides []overlay.Override
 	var matched []bool
-	for _, s := range specs {
-		o, ok := mod.Commands[s.Use]
-		if ok && !overrideMatches(s, o) {
-			ok = false
-		}
+	legacyUses := legacyOverlayUses(specs)
+	for i, s := range specs {
+		o, ok := commandOverride(mod, s, legacyUses[i])
 		if ok && o.Ignore {
 			continue
 		}
@@ -290,6 +288,28 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtim
 		}
 	}
 	return merged
+}
+
+// legacyOverlayUses reproduces the pre-v0.6 collision keys so existing
+// overlays still resolve before ignored operations are removed.
+func legacyOverlayUses(specs []runtime.CommandSpec) []string {
+	legacy := append([]runtime.CommandSpec(nil), specs...)
+	disambiguateUse(legacy)
+	uses := make([]string, len(legacy))
+	for i := range legacy {
+		uses[i] = legacy[i].Use
+	}
+	return uses
+}
+
+func commandOverride(mod overlay.Module, spec runtime.CommandSpec, legacyUse string) (overlay.Override, bool) {
+	if legacyUse != spec.Use {
+		if override, ok := mod.Commands[legacyUse]; ok && overrideMatches(spec, override) {
+			return override, true
+		}
+	}
+	override, ok := mod.Commands[spec.Use]
+	return override, ok && overrideMatches(spec, override)
 }
 
 // disambiguateUse runs after ignored operations are removed so a filtered
@@ -316,9 +336,10 @@ func disambiguateUse(specs []runtime.CommandSpec) {
 }
 
 func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) error {
-	for _, spec := range specs {
-		override, ok := mod.Commands[spec.Use]
-		if !ok || !overrideMatches(spec, override) {
+	legacyUses := legacyOverlayUses(specs)
+	for i, spec := range specs {
+		override, ok := commandOverride(mod, spec, legacyUses[i])
+		if !ok {
 			continue
 		}
 		if err := validateArguments(spec, override.Params); err != nil {
@@ -362,9 +383,10 @@ func applyGroupOverrides(specs []runtime.CommandSpec, groups map[string]overlay.
 }
 
 func validateRuntimeSchemaBindings(original, merged []runtime.CommandSpec, mod overlay.Module) error {
-	for _, spec := range original {
-		override, ok := mod.Commands[spec.Use]
-		if !ok || override.Ignore || !overrideMatches(spec, override) || override.Body == nil || override.Body.RuntimeSchema == nil {
+	legacyUses := legacyOverlayUses(original)
+	for i, spec := range original {
+		override, ok := commandOverride(mod, spec, legacyUses[i])
+		if !ok || override.Ignore || override.Body == nil || override.Body.RuntimeSchema == nil {
 			continue
 		}
 		target, count := operationByID(merged, spec.OperationID)
@@ -448,9 +470,10 @@ func validateRuntimeSchemaSource(target, source runtime.CommandSpec, binding *ov
 }
 
 func applyRuntimeSchemaBindings(original, merged []runtime.CommandSpec, mod overlay.Module) {
-	for _, spec := range original {
-		override, ok := mod.Commands[spec.Use]
-		if !ok || override.Ignore || !overrideMatches(spec, override) || override.Body == nil || override.Body.RuntimeSchema == nil {
+	legacyUses := legacyOverlayUses(original)
+	for i, spec := range original {
+		override, ok := commandOverride(mod, spec, legacyUses[i])
+		if !ok || override.Ignore || override.Body == nil || override.Body.RuntimeSchema == nil {
 			continue
 		}
 		target, targetCount := operationByID(merged, spec.OperationID)

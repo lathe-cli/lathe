@@ -227,25 +227,11 @@ func resolveRequest(ctx context.Context, hostname, method, path string, body any
 	if err != nil {
 		return nil, nil, "", err
 	}
-	req, err := newRequest(ctx, method, joinRequestURL(base, path), bodyBytes, contentType, opts)
+	req, err := newRequest(ctx, method, base+path, bodyBytes, contentType, opts)
 	if err != nil {
 		return nil, nil, "", err
 	}
 	return req, bodyBytes, contentType, nil
-}
-
-func joinRequestURL(base, requestPath string) string {
-	u, err := url.Parse(base)
-	if err != nil || u.RawQuery != "" || u.Fragment != "" {
-		return base + requestPath
-	}
-	basePath := strings.TrimRight(u.EscapedPath(), "/")
-	if basePath == "" || requestPath != basePath && !strings.HasPrefix(requestPath, basePath+"/") && !strings.HasPrefix(requestPath, basePath+"?") {
-		return base + requestPath
-	}
-	u.Path = ""
-	u.RawPath = ""
-	return strings.TrimRight(u.String(), "/") + requestPath
 }
 
 func newRequest(ctx context.Context, method, u string, body []byte, contentType string, opts ClientOptions) (*http.Request, error) {
