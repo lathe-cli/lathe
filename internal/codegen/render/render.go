@@ -269,6 +269,7 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtim
 	var merged []runtime.CommandSpec
 	var overrides []overlay.Override
 	var matched []bool
+	var matchedLegacyUses []string
 	legacyUses := legacyOverlayUses(specs)
 	for i, s := range specs {
 		o, ok := commandOverride(mod, s, legacyUses[i])
@@ -276,13 +277,14 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtim
 			continue
 		}
 		cs := cloneCommandSpec(s)
-		applyBulkDefaults(&cs, mod.Defaults)
 		merged = append(merged, cs)
 		overrides = append(overrides, o)
 		matched = append(matched, ok)
+		matchedLegacyUses = append(matchedLegacyUses, legacyUses[i])
 	}
 	disambiguateUse(merged)
 	for i := range merged {
+		applyBulkDefaults(&merged[i], mod.Defaults, matchedLegacyUses[i])
 		if matched[i] {
 			applyCommandOverride(&merged[i], overrides[i])
 		}
@@ -307,6 +309,11 @@ func commandOverride(mod overlay.Module, spec runtime.CommandSpec, legacyUse str
 		if override, ok := mod.Commands[legacyUse]; ok && overrideMatches(spec, override) {
 			return override, true
 		}
+		override, ok := mod.Commands[spec.Use]
+		if !ok || override.Match.Method == "" && override.Match.Path == "" {
+			return overlay.Override{}, false
+		}
+		return override, overrideMatches(spec, override)
 	}
 	override, ok := mod.Commands[spec.Use]
 	return override, ok && overrideMatches(spec, override)
@@ -695,8 +702,8 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	return cloned
 }
 
-func applyBulkDefaults(spec *runtime.CommandSpec, defaults overlay.Defaults) {
-	if defaults.Pagination == nil || !matchesAny(defaults.Pagination.MatchCommands, spec.Use) {
+func applyBulkDefaults(spec *runtime.CommandSpec, defaults overlay.Defaults, legacyUse string) {
+	if defaults.Pagination == nil || !matchesAny(defaults.Pagination.MatchCommands, spec.Use) && !matchesAny(defaults.Pagination.MatchCommands, legacyUse) {
 		return
 	}
 	for i := range spec.Params {
