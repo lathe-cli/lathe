@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/overlay"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
@@ -304,6 +306,40 @@ func TestValidateOverlayModule_RejectsInvalidGroups(t *testing.T) {
 				t.Fatalf("validation error = %v", err)
 			}
 		})
+	}
+}
+
+func TestMergeOverlayModule_IgnoresCollisionBeforeDisambiguation(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/v1/groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/v2/groups"},
+	}})
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"list": {Match: overlay.OperationMatch{Path: "/v1/groups"}, Ignore: true},
+	}}
+	merged := MergeOverlayModule(specs, mod)
+	if len(merged) != 1 {
+		t.Fatalf("merged command count = %d, want 1", len(merged))
+	}
+	if got := merged[0].Use; got != "list" {
+		t.Fatalf("surviving Use = %q, want list", got)
+	}
+	if got := merged[0].PathTpl; got != "/v2/groups" {
+		t.Fatalf("surviving path = %q, want /v2/groups", got)
+	}
+}
+
+func TestMergeOverlayModule_DisambiguatesSurvivingCollisions(t *testing.T) {
+	specs := normalize.Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{
+		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/Groups"},
+		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/groups"},
+	}})
+	merged := MergeOverlayModule(specs, overlay.Module{})
+	if len(merged) != 2 {
+		t.Fatalf("merged command count = %d, want 2", len(merged))
+	}
+	if merged[0].Use == merged[1].Use {
+		t.Fatalf("colliding commands both use %q", merged[0].Use)
 	}
 }
 

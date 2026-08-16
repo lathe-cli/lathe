@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -266,6 +267,8 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runti
 
 func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
 	var merged []runtime.CommandSpec
+	var overrides []overlay.Override
+	var matched []bool
 	for _, s := range specs {
 		o, ok := mod.Commands[s.Use]
 		if ok && !overrideMatches(s, o) {
@@ -276,14 +279,40 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtim
 		}
 		cs := cloneCommandSpec(s)
 		applyBulkDefaults(&cs, mod.Defaults)
-		if !ok {
-			merged = append(merged, cs)
-			continue
-		}
-		applyCommandOverride(&cs, o)
 		merged = append(merged, cs)
+		overrides = append(overrides, o)
+		matched = append(matched, ok)
+	}
+	disambiguateUse(merged)
+	for i := range merged {
+		if matched[i] {
+			applyCommandOverride(&merged[i], overrides[i])
+		}
 	}
 	return merged
+}
+
+// disambiguateUse runs after ignored operations are removed so a filtered
+// collision cannot leave the surviving public command with a stale -N suffix.
+func disambiguateUse(specs []runtime.CommandSpec) {
+	used := map[string]bool{}
+	for i := range specs {
+		key := specs[i].Group + "\x00" + specs[i].Use
+		if !used[key] {
+			used[key] = true
+			continue
+		}
+		base := specs[i].Use
+		for n := 2; ; n++ {
+			candidate := base + "-" + strconv.Itoa(n)
+			key = specs[i].Group + "\x00" + candidate
+			if !used[key] {
+				specs[i].Use = candidate
+				used[key] = true
+				break
+			}
+		}
+	}
 }
 
 func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) error {
