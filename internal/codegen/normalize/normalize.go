@@ -85,7 +85,18 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		if specs[i].Use != specs[j].Use {
 			return specs[i].Use < specs[j].Use
 		}
-		return specs[i].OperationID < specs[j].OperationID
+		if specs[i].OperationID != specs[j].OperationID {
+			return specs[i].OperationID < specs[j].OperationID
+		}
+		// Group+Use+OperationID is not a total order: a spec can reuse one
+		// operationId across API versions, e.g. the same Foo_Get on /v1alpha1
+		// and /v1alpha2. sort.Slice is not stable, so without a tie-break on
+		// the HTTP identity those specs come out in a different order on every
+		// run, and any later step keyed on position becomes nondeterministic.
+		if specs[i].PathTpl != specs[j].PathTpl {
+			return specs[i].PathTpl < specs[j].PathTpl
+		}
+		return specs[i].Method < specs[j].Method
 	})
 	return specs
 }

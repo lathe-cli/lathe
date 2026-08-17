@@ -613,6 +613,31 @@ func securityScopes() *rawir.RawModule {
 	}
 }
 
+// One operationId reused across API versions leaves Group+Use+OperationID
+// equal for both specs. sort.Slice is not stable, so without a tie-break on the
+// HTTP identity they swap places between runs and every position-keyed step
+// downstream — command numbering, overlay legacy keys — becomes nondeterministic.
+func TestNormalizeIsDeterministicForDuplicateOperationIDs(t *testing.T) {
+	newModule := func() *rawir.RawModule {
+		return &rawir.RawModule{Operations: []rawir.RawOperation{
+			{Group: "Svc", OperationID: "Svc_Get", Method: "GET", Path: "/apis/v1alpha2/things/{id}"},
+			{Group: "Svc", OperationID: "Svc_Get", Method: "GET", Path: "/apis/v1alpha1/things/{id}"},
+		}}
+	}
+	want := Normalize(newModule())
+	if len(want) != 2 {
+		t.Fatalf("want 2 specs, got %d", len(want))
+	}
+	for i := 0; i < 50; i++ {
+		got := Normalize(newModule())
+		for j := range got {
+			if got[j].PathTpl != want[j].PathTpl {
+				t.Fatalf("run %d: spec %d PathTpl = %q, want %q", i, j, got[j].PathTpl, want[j].PathTpl)
+			}
+		}
+	}
+}
+
 // A leading id segment is not redundant merely because it precedes an
 // underscore. Stripping it unconditionally collapsed every CRUD verb onto one
 // command name.
