@@ -180,6 +180,29 @@ func TestBuildWorkflows_StopsOnPausedStream(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflows_RejectsCompletionNameAndAlias(t *testing.T) {
+	spec := WorkflowSpec{
+		Use:   "completion",
+		Steps: []WorkflowStepSpec{{ID: "health", Operation: publicGetSpec("health", "/health")}},
+	}
+	root := newWorkflowRoot(io.Discard)
+	if err := BuildWorkflows(root, []WorkflowSpec{spec}); err == nil || !strings.Contains(err.Error(), `workflow command "completion" conflicts`) {
+		t.Fatalf("expected completion conflict error, got %v", err)
+	}
+	if len(root.Commands()) != 0 {
+		t.Fatalf("completion workflow must not be mounted; root commands = %v", cmdNames(root.Commands()))
+	}
+
+	aliased := spec
+	aliased.Use = "doctor"
+	aliased.Aliases = []string{"completion"}
+	root = newWorkflowRoot(io.Discard)
+	err := BuildWorkflows(root, []WorkflowSpec{aliased})
+	if err == nil || !strings.Contains(err.Error(), `alias "completion" conflicts`) {
+		t.Fatalf("expected completion alias conflict error, got %v", err)
+	}
+}
+
 func TestBuildWorkflows_RejectsInvalidInputEnum(t *testing.T) {
 	root := newWorkflowRoot(io.Discard)
 	if err := BuildWorkflows(root, []WorkflowSpec{{
