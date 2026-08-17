@@ -615,25 +615,21 @@ func securityScopes() *rawir.RawModule {
 
 // One operationId reused across API versions leaves Group+Use+OperationID
 // equal for both specs. sort.Slice is not stable, so without a tie-break on the
-// HTTP identity they swap places between runs and every position-keyed step
-// downstream — command numbering, overlay legacy keys — becomes nondeterministic.
+// HTTP identity the output follows the backend emission order — random per run
+// for map-iterated paths — and every position-keyed step downstream (command
+// numbering, overlay legacy keys) becomes nondeterministic. The contract is
+// that the output does not depend on the input order.
 func TestNormalizeIsDeterministicForDuplicateOperationIDs(t *testing.T) {
-	newModule := func() *rawir.RawModule {
-		return &rawir.RawModule{Operations: []rawir.RawOperation{
-			{Group: "Svc", OperationID: "Svc_Get", Method: "GET", Path: "/apis/v1alpha2/things/{id}"},
-			{Group: "Svc", OperationID: "Svc_Get", Method: "GET", Path: "/apis/v1alpha1/things/{id}"},
-		}}
+	opA := rawir.RawOperation{Group: "Svc", OperationID: "Svc_Get", Method: "GET", Path: "/apis/v1alpha2/things/{id}"}
+	opB := rawir.RawOperation{Group: "Svc", OperationID: "Svc_Get", Method: "GET", Path: "/apis/v1alpha1/things/{id}"}
+	fwd := Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{opA, opB}})
+	rev := Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{opB, opA}})
+	if len(fwd) != 2 || len(rev) != 2 {
+		t.Fatalf("want 2 specs, got %d and %d", len(fwd), len(rev))
 	}
-	want := Normalize(newModule())
-	if len(want) != 2 {
-		t.Fatalf("want 2 specs, got %d", len(want))
-	}
-	for i := 0; i < 50; i++ {
-		got := Normalize(newModule())
-		for j := range got {
-			if got[j].PathTpl != want[j].PathTpl {
-				t.Fatalf("run %d: spec %d PathTpl = %q, want %q", i, j, got[j].PathTpl, want[j].PathTpl)
-			}
+	for j := range fwd {
+		if fwd[j].PathTpl != rev[j].PathTpl {
+			t.Fatalf("output depends on input order: fwd[%d]=%q, rev[%d]=%q", j, fwd[j].PathTpl, j, rev[j].PathTpl)
 		}
 	}
 }
