@@ -57,6 +57,39 @@ func TestBuild_RejectsExistingRootCommandConflict(t *testing.T) {
 	}
 }
 
+func TestBuild_RejectsCompletionModuleName(t *testing.T) {
+	root := newRootWithModuleGroup()
+	if err := Build(root, "completion", nil); err == nil || !strings.Contains(err.Error(), `module command "completion" conflicts`) {
+		t.Fatalf("expected completion conflict error, got %v", err)
+	}
+	if len(root.Commands()) != 0 {
+		t.Fatalf("completion module must not be mounted; root commands = %v", cmdNames(root.Commands()))
+	}
+
+	root = newRootWithModuleGroup()
+	err := Build(root, "demo", []CommandSpec{{
+		Group:     "Users",
+		Use:       "get-user",
+		Method:    "GET",
+		PathTpl:   "/users/{id}",
+		Shortcuts: []CommandShortcut{{Use: "completion"}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected completion shortcut conflict error, got %v", err)
+	}
+}
+
+func TestBuildFlat_RejectsCompletionGroupName(t *testing.T) {
+	root := newRootWithModuleGroup()
+	err := BuildFlat(root, "demo", []CommandSpec{{Group: "Completion", Use: "list", Method: "GET", PathTpl: "/x"}})
+	if err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("expected completion group conflict error, got %v", err)
+	}
+	if len(root.Commands()) != 0 {
+		t.Fatalf("completion group must not be mounted; root commands = %v", cmdNames(root.Commands()))
+	}
+}
+
 func TestBuild_PopulatesGroupAndOpTree(t *testing.T) {
 	specs := []CommandSpec{
 		{
