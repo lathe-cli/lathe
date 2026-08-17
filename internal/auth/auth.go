@@ -78,7 +78,10 @@ func rootBool(cmd *cobra.Command, name string) bool {
 func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, provider string, insecure, noBrowser bool) (config.HostEntry, error) {
 	login := m.Auth.Login
 	if login == nil || login.Type != config.AuthLoginOAuthDevice {
-		return config.HostEntry{}, errors.New("auth.login with type oauth_device is required for --auth-type oauth")
+		return config.HostEntry{}, runtime.NewError(runtime.CodeUsage, runtime.ExitUsage,
+			"oauth login is not configured for this CLI",
+			fmt.Sprintf("use bearer, apikey, or basic auth; to enable oauth, add an auth.login block with type %q to cli.yaml and regenerate the CLI", config.AuthLoginOAuthDevice),
+			errors.New("auth.login with type oauth_device is required for --auth-type oauth"))
 	}
 	provider = strings.TrimSpace(provider)
 	deviceHostname, _ := os.Hostname()
