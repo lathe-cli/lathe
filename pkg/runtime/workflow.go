@@ -39,11 +39,11 @@ func (e *WorkflowError) Unwrap() error {
 
 func BuildWorkflows(root *cobra.Command, specs []WorkflowSpec) error {
 	for _, spec := range specs {
-		if findChildCommand(root, spec.Use) != nil {
+		if findChildCommand(root, spec.Use) != nil || spec.Use == completionRootName {
 			return fmt.Errorf("workflow command %q conflicts with existing root command", spec.Use)
 		}
 		for _, alias := range spec.Aliases {
-			if findChildCommand(root, alias) != nil {
+			if findChildCommand(root, alias) != nil || alias == completionRootName {
 				return fmt.Errorf("workflow command %q alias %q conflicts with existing root command", spec.Use, alias)
 			}
 		}

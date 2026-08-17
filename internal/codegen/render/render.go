@@ -224,14 +224,15 @@ func rootCommandName(use string) string {
 }
 
 var reservedRootCommands = map[string]bool{
-	"__lathe":  true,
-	"auth":     true,
-	"commands": true,
-	"help":     true,
-	"login":    true,
-	"search":   true,
-	"skill":    true,
-	"update":   true,
+	"__lathe":    true,
+	"auth":       true,
+	"commands":   true,
+	"completion": true,
+	"help":       true,
+	"login":      true,
+	"search":     true,
+	"skill":      true,
+	"update":     true,
 }
 
 // ValidateModuleNames rejects namespaced module mount names that would shadow

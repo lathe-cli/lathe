@@ -27,11 +27,16 @@ func AssertSchema(generated int) error {
 	return nil
 }
 
+// completionRootName is cobra's shell completion command. Cobra adds it
+// lazily at Execute time, so findChildCommand cannot observe it while
+// mounting; a mounted command using that name would silently suppress it.
+const completionRootName = "completion"
+
 // Build mounts a service command tree under root, driven entirely by specs.
 // Replaces the previous per-operation function approach: every operation is
 // data, the execution path is a single function.
 func Build(root *cobra.Command, service string, specs []CommandSpec) error {
-	if findChildCommand(root, service) != nil {
+	if findChildCommand(root, service) != nil || service == completionRootName {
 		return fmt.Errorf("module command %q conflicts with an existing root command", service)
 	}
 	groups, err := buildGroups(service, specs)
@@ -63,7 +68,7 @@ func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
 			return fmt.Errorf("flat mount command %q conflicts with another generated command", name)
 		}
 		seen[name] = true
-		if findChildCommand(root, name) != nil {
+		if findChildCommand(root, name) != nil || name == completionRootName {
 			return fmt.Errorf("flat mount command %q conflicts with existing root command", name)
 		}
 	}
@@ -584,7 +589,7 @@ func ValidateShortcuts(specs []CommandSpec, rootNames []string) error {
 }
 
 func rootCommandNames(root *cobra.Command, planned ...*cobra.Command) []string {
-	var names []string
+	names := []string{completionRootName}
 	for _, cmd := range root.Commands() {
 		names = append(names, cmd.Name())
 		names = append(names, cmd.Aliases...)

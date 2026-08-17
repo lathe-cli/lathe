@@ -46,7 +46,6 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return runtime.UsageError(cmd, err)
 	})
-	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.SetVersionTemplate("{{.Use}} {{.Version}}\n")
 	cmd.PersistentFlags().String("hostname", "", fmt.Sprintf("Server hostname (overrides $%s)", m.CLI.HostEnv))
 	cmd.PersistentFlags().StringP("output", "o", "table", "Output format: table|json|yaml|raw")

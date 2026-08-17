@@ -1044,7 +1044,7 @@ func TestValidateModuleNames(t *testing.T) {
 	if err := ValidateModuleNames([]string{"pets", "billing"}); err != nil {
 		t.Fatalf("distinct module names should pass: %v", err)
 	}
-	for _, reserved := range []string{"__lathe", "auth", "commands", "help", "login", "search", "skill", "update"} {
+	for _, reserved := range []string{"__lathe", "auth", "commands", "completion", "help", "login", "search", "skill", "update"} {
 		err := ValidateModuleNames([]string{"pets", reserved})
 		if err == nil || !strings.Contains(err.Error(), "reserved root command") {
 			t.Fatalf("module name %q should be rejected, got %v", reserved, err)

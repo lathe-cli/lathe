@@ -37,7 +37,7 @@ workflow:
 
 `use` must be one root command name. Codegen rejects conflicts with generated
 modules, shortcuts, other workflows, and the reserved roots `__lathe`,
-`auth`, `commands`, `help`, `login`, `search`, `skill`, and `update`.
+`auth`, `commands`, `completion`, `help`, `login`, `search`, `skill`, and `update`.
 
 Workflow inputs become Cobra flags. Supported types are `string`, `int64`,
 `float64`, `bool`, and their slice forms. Inputs also support the normal
