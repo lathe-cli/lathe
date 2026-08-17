@@ -433,9 +433,9 @@ Rules:
    `--<flag>-stdin` for sensitive values.
 8. Branch on structured `error.code` and process exit status, not error prose.
 
-Framework commands such as `auth`, `commands`, `search`, `skill`, `update`,
-and `__lathe` are documented by `--help`; generated API operations and
-workflows are documented by the runtime catalog.
+Framework commands such as `auth`, `commands`, `completion`, `search`,
+`skill`, `update`, and `__lathe` are documented by `--help`; generated API
+operations and workflows are documented by the runtime catalog.
 
 ## Examples
 

@@ -32,6 +32,39 @@ func TestRootHelpExposesAgentHint(t *testing.T) {
 	}
 }
 
+func TestTopLevelCompletionExposed(t *testing.T) {
+	root := NewApp(testManifest())
+
+	out, err := execute(root, "completion", "bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "# bash completion V2 for myctl") {
+		t.Fatalf("completion bash output missing script header:\n%s", out)
+	}
+
+	help, err := execute(root, "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(help, "completion") {
+		t.Fatalf("--help missing completion:\n%s", help)
+	}
+
+	meta, _, err := root.Find([]string{metaCommandName, "completion", "bash"})
+	if err != nil || meta == nil || meta.Name() != "bash" {
+		t.Fatalf("%s completion missing: %v", metaCommandName, err)
+	}
+
+	catalogOut, err := execute(root, "commands", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(catalogOut, "completion") {
+		t.Fatalf("catalog must not list framework completion commands:\n%s", catalogOut)
+	}
+}
+
 func TestNewAppBindsManifest(t *testing.T) {
 	m := testManifest()
 	root := NewApp(m)
