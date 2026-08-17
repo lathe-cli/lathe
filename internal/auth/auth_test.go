@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -96,6 +97,34 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 	}
 	if entry.AuthType != "bearer" || entry.LoginType != config.AuthLoginOAuthDevice || entry.LoginProvider != "github" || entry.OAuthToken != "access-1" || entry.OAuthRefreshToken != "refresh-1" || entry.User != "octo@example.com" || entry.OAuthExpiresAt == 0 {
 		t.Fatalf("entry = %+v", entry)
+	}
+}
+
+func TestOAuthDeviceLoginRequiresAuthLoginConfig(t *testing.T) {
+	m := &config.Manifest{
+		CLI: config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"},
+	}
+	config.Bind(m)
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+
+	root := &cobra.Command{Use: "demo"}
+	root.PersistentFlags().String("hostname", "api.example.com", "")
+	root.PersistentFlags().Bool("insecure", false, "")
+	root.AddCommand(NewCommand(m))
+	root.SetArgs([]string{"auth", "login", "--auth-type", "oauth"})
+
+	err := root.Execute()
+	var le *runtime.LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("error = %T %v, want *runtime.LatheError", err, err)
+	}
+	if le.Code != runtime.CodeUsage || le.ExitCode != runtime.ExitUsage {
+		t.Fatalf("code = %q exit = %d, want %q/%d", le.Code, le.ExitCode, runtime.CodeUsage, runtime.ExitUsage)
+	}
+	var buf strings.Builder
+	runtime.FormatError(err, "", &buf)
+	if !strings.Contains(buf.String(), "oauth login is not configured for this CLI") || !strings.Contains(buf.String(), "auth.login") {
+		t.Fatalf("formatted error = %q", buf.String())
 	}
 }
 
