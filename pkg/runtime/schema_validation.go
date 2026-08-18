@@ -50,6 +50,9 @@ func validateSchemaValue(
 	}
 	expected := schema.Type
 	if value == nil && schema.Nullable {
+		if err := validateSchemaCompositions(schema, value, path, definitions, resolving); err != nil {
+			return err
+		}
 		return nil
 	}
 	if schema.Ref != "" {

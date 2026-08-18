@@ -224,7 +224,8 @@ func TestValidateOperationInput_ComposedSchemas(t *testing.T) {
 		{name: "oneOf one match", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "number"}, {Type: "integer"}}}, body: `1.5`},
 		{name: "oneOf overlapping matches", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "number"}, {Type: "integer"}}}, body: `1`},
 		{name: "oneOf no match", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `true`, want: `oneOf`},
-		{name: "nullable composition", schema: &SchemaSpec{Nullable: true, AllOf: []*SchemaSpec{{Type: "object"}}}, body: `null`},
+		{name: "nullable composition enforces branches", schema: &SchemaSpec{Nullable: true, AllOf: []*SchemaSpec{{Type: "object"}}}, body: `null`, want: `expected object, got null`},
+		{name: "nullable composition with null branch", schema: &SchemaSpec{Nullable: true, AnyOf: []*SchemaSpec{{Type: "object"}, {Type: "null"}}}, body: `null`},
 		{name: "non nullable composition", schema: &SchemaSpec{AllOf: []*SchemaSpec{{Type: "object"}}}, body: `null`, want: `expected object, got null`},
 	}
 

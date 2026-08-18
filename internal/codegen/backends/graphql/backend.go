@@ -270,8 +270,7 @@ func (g *generator) variableSchema(typ *ast.Type) (*rawir.RawSchema, error) {
 }
 
 func graphqlCustomScalarSchema(nullable bool) *rawir.RawSchema {
-	return &rawir.RawSchema{
-		Nullable: nullable,
+	schema := &rawir.RawSchema{
 		AnyOf: []*rawir.RawSchema{
 			{Type: "object"},
 			{Type: "array"},
@@ -280,6 +279,10 @@ func graphqlCustomScalarSchema(nullable bool) *rawir.RawSchema {
 			{Type: "number"},
 		},
 	}
+	if nullable {
+		schema.AnyOf = append(schema.AnyOf, &rawir.RawSchema{Type: "null"})
+	}
+	return schema
 }
 
 func (g *generator) selectionSet(typeName string, depth int, onPath map[string]bool) (string, error) {

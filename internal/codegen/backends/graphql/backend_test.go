@@ -566,7 +566,7 @@ type App { id: ID! }
 		t.Fatalf("id schema = %#v, want nullable ID accepting integers", id)
 	}
 	payload := schema.Properties["payload"]
-	if payload == nil || !payload.Nullable || payload.Type != "" || len(payload.AnyOf) != 5 {
+	if payload == nil || payload.Nullable || payload.Type != "" || len(payload.AnyOf) != 6 || payload.AnyOf[5].Type != "null" {
 		t.Fatalf("payload schema = %#v, want unconstrained nullable custom scalar", payload)
 	}
 	strictPayload := schema.Properties["strictPayload"]
