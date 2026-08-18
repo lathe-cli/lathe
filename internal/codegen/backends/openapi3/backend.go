@@ -245,6 +245,7 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		applyServerBasePaths(&doc, src.Name, p)
+		applyEffectiveSecurity(&doc)
 		countExposedOperationIDs(&doc, allowedOperationIDs, matchedOperationIDs)
 		mergeDoc(all, &doc, src.Name, p)
 	}
@@ -311,6 +312,20 @@ func applyServerBasePaths(doc *oas3Doc, module, origin string) {
 			op.serverBasePath = basePath
 			if op.Servers != nil {
 				op.serverBasePath = resolveServerBasePath(*op.Servers, module, origin)
+			}
+		}
+	}
+}
+
+func applyEffectiveSecurity(doc *oas3Doc) {
+	security := doc.Security
+	if security == nil {
+		security = []map[string][]string{}
+	}
+	for _, item := range doc.Paths {
+		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+			if op != nil && op.Security == nil {
+				op.Security = &security
 			}
 		}
 	}

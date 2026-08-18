@@ -98,9 +98,25 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		if err := json.Unmarshal(data, &sw); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
+		applyEffectiveSecurity(&sw)
 		mergeDoc(all, &sw, src.Name, p)
 	}
 	return toRawIR(src.Name, all), nil
+}
+
+func applyEffectiveSecurity(doc *swaggerDoc) {
+	security := doc.Security
+	if security == nil {
+		security = []map[string][]string{}
+	}
+	for _, methods := range doc.Paths {
+		for method, op := range methods {
+			if op.Security == nil {
+				op.Security = &security
+				methods[method] = op
+			}
+		}
+	}
 }
 
 func mergeDoc(dst, add *swaggerDoc, module, origin string) {

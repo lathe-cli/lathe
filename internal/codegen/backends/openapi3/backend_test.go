@@ -435,6 +435,30 @@ func TestParse_ServerOverridePrecedence(t *testing.T) {
 	}
 }
 
+func TestParse_SecuritySemantics(t *testing.T) {
+	cases := []struct {
+		name              string
+		documentSecurity  string
+		operationSecurity string
+		wantPublic        bool
+		wantScopes        []string
+	}{
+		{name: "absent is public", wantPublic: true},
+		{name: "document inherited", documentSecurity: `,"security":[{"oauth":["read"]}]`, wantScopes: []string{"read"}},
+		{name: "operation empty is public", documentSecurity: `,"security":[{"oauth":["read"]}]`, operationSecurity: `,"security":[]`, wantPublic: true},
+		{name: "operation overrides document", documentSecurity: `,"security":[{"oauth":["read"]}]`, operationSecurity: `,"security":[{"oauth":["write"]}]`, wantScopes: []string{"write"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"openapi":"3.0.3"` + tc.documentSecurity + `,"paths":{"/health":{"get":{"operationId":"Health_Get"` + tc.operationSecurity + `,"responses":{"200":{}}}}}}`
+			security := parseNormalized(t, input)[0].Security
+			if security == nil || security.Public != tc.wantPublic || !reflect.DeepEqual(security.Scopes, tc.wantScopes) {
+				t.Fatalf("security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
+			}
+		})
+	}
+}
+
 func parseNormalized(t *testing.T, input string) []runtime.CommandSpec {
 	t.Helper()
 	syncDir := t.TempDir()
