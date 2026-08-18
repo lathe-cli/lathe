@@ -242,6 +242,60 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	}
 }
 
+func TestParse_OpenAPI30IgnoresSchemaReferenceSiblings(t *testing.T) {
+	input := `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/widgets": {
+      "post": {
+        "operationId": "Widget_Create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Widget",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {"201": {}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Widget": {
+        "type": "object",
+        "properties": {"id": {"type": "string"}}
+      }
+    }
+  }
+}`
+	schema := parseNormalized(t, input)[0].RequestBody.Schema
+	if schema.Type != "object" || schema.Properties["id"] == nil || len(schema.AllOf) != 0 {
+		t.Fatalf("schema = %#v, want referenced Widget without ignored sibling", schema)
+	}
+}
+
+func TestSchemaReferenceSiblingsAllowed(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "3.0.3"},
+		{version: "3.1.0", want: true},
+		{version: "3.2.0", want: true},
+		{version: "2.0"},
+		{version: ""},
+	}
+	for _, tc := range tests {
+		if got := schemaReferenceSiblingsAllowed(tc.version); got != tc.want {
+			t.Errorf("schemaReferenceSiblingsAllowed(%q) = %t, want %t", tc.version, got, tc.want)
+		}
+	}
+}
+
 func TestParse_MultipartBodyFields(t *testing.T) {
 	input := `{
   "openapi": "3.0.3",

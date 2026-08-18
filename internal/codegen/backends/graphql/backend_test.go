@@ -578,6 +578,9 @@ type App { id: ID! }
 		t.Fatal("profile schema reference did not resolve")
 		return
 	}
+	if profile.AdditionalProperties == nil || profile.AdditionalProperties.Allowed || profile.AdditionalProperties.Schema != nil {
+		t.Fatalf("profile additional properties = %#v, want closed input object", profile.AdditionalProperties)
+	}
 	if nickname := profile.Properties["nickname"]; nickname == nil || !nickname.Nullable {
 		t.Fatalf("nickname schema = %#v, want nullable string", nickname)
 	}

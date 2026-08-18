@@ -247,7 +247,11 @@ func (g *generator) variableSchema(typ *ast.Type) (*rawir.RawSchema, error) {
 		return &rawir.RawSchema{Type: "object", Nullable: nullable}, nil
 	}
 	if _, ok := g.schemas[def.Name]; !ok {
-		definition := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
+		definition := &rawir.RawSchema{
+			Type:                 "object",
+			Properties:           map[string]*rawir.RawSchema{},
+			AdditionalProperties: &rawir.RawAdditionalProperties{Allowed: false},
+		}
 		g.schemas[def.Name] = definition
 		for _, field := range def.Fields {
 			fieldSchema, err := g.variableSchema(field.Type)

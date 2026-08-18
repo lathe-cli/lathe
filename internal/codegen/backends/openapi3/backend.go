@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -17,6 +18,7 @@ import (
 )
 
 type oas3Doc struct {
+	OpenAPI    string                `json:"openapi" yaml:"openapi"`
 	Paths      map[string]*pathItem  `json:"paths" yaml:"paths"`
 	Components *components           `json:"components,omitempty" yaml:"components,omitempty"`
 	Security   []map[string][]string `json:"security,omitempty" yaml:"security,omitempty"`
@@ -97,6 +99,7 @@ type schemaNode struct {
 	OneOf                []*schemaNode               `json:"oneOf,omitempty" yaml:"oneOf,omitempty"`
 	AllOf                []*schemaNode               `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 	AdditionalProperties *schemaAdditionalProperties `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
+	allowRefSiblings     bool
 }
 
 type schemaType struct {
@@ -245,6 +248,7 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		if err := unmarshalAuto(p, data, &doc); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
+		markSchemaReferenceSemantics(&doc)
 		applyServerBasePaths(&doc, src.Name, p)
 		applyEffectiveSecurity(&doc)
 		countExposedOperationIDs(&doc, allowedOperationIDs, matchedOperationIDs)
@@ -255,6 +259,52 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		return mod, nil
 	}
 	return filterExposedOperations(src.Name, mod, src.OpenAPI3.Expose.OperationIDs, matchedOperationIDs)
+}
+
+func markSchemaReferenceSemantics(doc *oas3Doc) {
+	allowRefSiblings := schemaReferenceSiblingsAllowed(doc.OpenAPI)
+	mark := func(schema *schemaNode) {
+		if schema != nil {
+			schema.allowRefSiblings = allowRefSiblings
+		}
+	}
+	if doc.Components != nil {
+		for _, schema := range doc.Components.Schemas {
+			mark(schema)
+		}
+	}
+	for _, item := range doc.Paths {
+		for _, parameter := range item.Parameters {
+			mark(parameter.Schema)
+		}
+		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+			if op == nil {
+				continue
+			}
+			for _, parameter := range op.Parameters {
+				mark(parameter.Schema)
+			}
+			if op.RequestBody != nil {
+				for _, mediaType := range op.RequestBody.Content {
+					mark(mediaType.Schema)
+				}
+			}
+			for _, response := range op.Responses {
+				for _, mediaType := range response.Content {
+					mark(mediaType.Schema)
+				}
+			}
+		}
+	}
+}
+
+func schemaReferenceSiblingsAllowed(version string) bool {
+	parts := strings.SplitN(strings.TrimSpace(version), ".", 3)
+	if len(parts) < 2 || parts[0] != "3" {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	return err == nil && minor >= 1
 }
 
 func countExposedOperationIDs(doc *oas3Doc, allowed map[string]bool, matched map[string]int) {
@@ -582,9 +632,19 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 	if s == nil {
 		return nil
 	}
+	return convertSchemaWithReferenceSemantics(s, s.allowRefSiblings)
+}
+
+func convertSchemaWithReferenceSemantics(s *schemaNode, allowRefSiblings bool) *rawir.RawSchema {
+	if s == nil {
+		return nil
+	}
+	if s.Ref != "" && !allowRefSiblings {
+		return &rawir.RawSchema{Ref: normalizedSchemaRef(s.Ref)}
+	}
 	if len(s.OneOf) == 0 && len(s.AllOf) == 0 {
 		if option, ok := nullableAlternative(s, s.AnyOf); ok {
-			out := convertSchema(option)
+			out := convertSchemaWithReferenceSemantics(option, allowRefSiblings)
 			out.Nullable = true
 			out.ReadOnly = out.ReadOnly || s.ReadOnly
 			return out
@@ -597,34 +657,37 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		ReadOnly: s.ReadOnly,
 	}
 	if s.Ref != "" {
-		if strings.HasPrefix(s.Ref, oas3RefPrefix) {
-			out.Ref = rawir.RefPrefix + s.Ref[len(oas3RefPrefix):]
-		} else {
-			out.Ref = s.Ref
-		}
+		out.Ref = normalizedSchemaRef(s.Ref)
 	}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*rawir.RawSchema, len(s.Properties))
 		for k, v := range s.Properties {
-			out.Properties[k] = convertSchema(v)
+			out.Properties[k] = convertSchemaWithReferenceSemantics(v, allowRefSiblings)
 		}
 	}
 	if len(s.Required) > 0 {
 		out.Required = append([]string(nil), s.Required...)
 	}
 	if s.Items != nil {
-		out.Items = convertSchema(s.Items)
+		out.Items = convertSchemaWithReferenceSemantics(s.Items, allowRefSiblings)
 	}
-	out.AnyOf = convertSchemas(s.AnyOf)
-	out.OneOf = convertSchemas(s.OneOf)
-	out.AllOf = convertSchemas(s.AllOf)
+	out.AnyOf = convertSchemas(s.AnyOf, allowRefSiblings)
+	out.OneOf = convertSchemas(s.OneOf, allowRefSiblings)
+	out.AllOf = convertSchemas(s.AllOf, allowRefSiblings)
 	if s.AdditionalProperties != nil {
 		out.AdditionalProperties = &rawir.RawAdditionalProperties{
 			Allowed: s.AdditionalProperties.Allowed,
-			Schema:  convertSchema(s.AdditionalProperties.Schema),
+			Schema:  convertSchemaWithReferenceSemantics(s.AdditionalProperties.Schema, allowRefSiblings),
 		}
 	}
 	return out
+}
+
+func normalizedSchemaRef(ref string) string {
+	if strings.HasPrefix(ref, oas3RefPrefix) {
+		return rawir.RefPrefix + ref[len(oas3RefPrefix):]
+	}
+	return ref
 }
 
 func nullableAlternative(schema *schemaNode, options []*schemaNode) (*schemaNode, bool) {
@@ -644,13 +707,13 @@ func isNullSchema(schema *schemaNode) bool {
 	return schema != nil && schema.Type.Value == "null"
 }
 
-func convertSchemas(schemas []*schemaNode) []*rawir.RawSchema {
+func convertSchemas(schemas []*schemaNode, allowRefSiblings bool) []*rawir.RawSchema {
 	if len(schemas) == 0 {
 		return nil
 	}
 	out := make([]*rawir.RawSchema, len(schemas))
 	for i, schema := range schemas {
-		out[i] = convertSchema(schema)
+		out[i] = convertSchemaWithReferenceSemantics(schema, allowRefSiblings)
 	}
 	return out
 }
