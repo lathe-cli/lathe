@@ -340,20 +340,19 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 			t.Fatalf("catalog JSON missing %q:\n%s", want, raw)
 		}
 	}
-	if strings.Contains(string(raw), "AcceptStringEncodedInteger") || strings.Contains(string(raw), "acceptStringEncodedInteger") {
-		t.Fatalf("runtime-only integer encoding metadata leaked into catalog JSON:\n%s", raw)
+	for _, want := range []string{
+		`"x-lathe-accepts-string-encoded-integer":true`,
+		`"x-lathe-accepts-string-encoded-number":true`,
+		`"x-lathe-accepts-integer-enum":true`,
+		`"x-lathe-accepts-integer-id":true`,
+		`"x-lathe-accepts-singleton-array":true`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("catalog JSON missing %q:\n%s", want, raw)
+		}
 	}
-	if strings.Contains(string(raw), "AcceptIntegerEnum") || strings.Contains(string(raw), "acceptIntegerEnum") {
-		t.Fatalf("runtime-only enum encoding metadata leaked into catalog JSON:\n%s", raw)
-	}
-	if strings.Contains(string(raw), "AcceptIntegerID") || strings.Contains(string(raw), "acceptIntegerID") {
-		t.Fatalf("runtime-only GraphQL ID metadata leaked into catalog JSON:\n%s", raw)
-	}
-	if strings.Contains(string(raw), "AcceptSingletonArray") || strings.Contains(string(raw), "acceptSingletonArray") {
-		t.Fatalf("runtime-only GraphQL list metadata leaked into catalog JSON:\n%s", raw)
-	}
-	if strings.Contains(string(raw), "AcceptStringEncodedNumber") || strings.Contains(string(raw), "acceptStringEncodedNumber") {
-		t.Fatalf("runtime-only number encoding metadata leaked into catalog JSON:\n%s", raw)
+	if strings.Contains(string(raw), "AcceptStringEncoded") || strings.Contains(string(raw), "AcceptInteger") || strings.Contains(string(raw), "AcceptSingleton") {
+		t.Fatalf("Go field names leaked into catalog JSON:\n%s", raw)
 	}
 	var roundTrip Catalog
 	if err := json.Unmarshal(raw, &roundTrip); err != nil {
@@ -368,6 +367,9 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	}
 	if node := rt.Schema.Definitions["Node"]; node == nil || node.Properties["next"] == nil || node.Properties["next"].Ref != "#/definitions/Node" {
 		t.Fatalf("round-trip schema definitions = %#v, want recursive Node", rt.Schema.Definitions)
+	}
+	if !rt.Schema.Properties["count"].AcceptStringEncodedInteger || !rt.Schema.Properties["ratio"].AcceptStringEncodedNumber || !rt.Schema.Properties["state"].AcceptIntegerEnum || !rt.Schema.Properties["id"].AcceptIntegerID || !rt.Schema.Properties["tags"].AcceptSingletonArray {
+		t.Fatalf("round-trip alternate encodings = %#v", rt.Schema.Properties)
 	}
 	labels := rt.Schema.Properties["labels"]
 	if labels == nil || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {

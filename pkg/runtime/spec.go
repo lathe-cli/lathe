@@ -103,11 +103,11 @@ type SchemaSpec struct {
 	Ref                        string                    `json:"ref,omitempty"`
 	Type                       string                    `json:"type,omitempty"`
 	Nullable                   bool                      `json:"nullable,omitempty"`
-	AcceptStringEncodedInteger bool                      `json:"-"`
-	AcceptStringEncodedNumber  bool                      `json:"-"`
-	AcceptIntegerEnum          bool                      `json:"-"`
-	AcceptIntegerID            bool                      `json:"-"`
-	AcceptSingletonArray       bool                      `json:"-"`
+	AcceptStringEncodedInteger bool                      `json:"x-lathe-accepts-string-encoded-integer,omitempty"`
+	AcceptStringEncodedNumber  bool                      `json:"x-lathe-accepts-string-encoded-number,omitempty"`
+	AcceptIntegerEnum          bool                      `json:"x-lathe-accepts-integer-enum,omitempty"`
+	AcceptIntegerID            bool                      `json:"x-lathe-accepts-integer-id,omitempty"`
+	AcceptSingletonArray       bool                      `json:"x-lathe-accepts-singleton-array,omitempty"`
 	Definitions                map[string]*SchemaSpec    `json:"definitions,omitempty"`
 	Properties                 map[string]*SchemaSpec    `json:"properties,omitempty"`
 	Required                   []string                  `json:"required,omitempty"`

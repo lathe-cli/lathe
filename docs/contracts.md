@@ -47,6 +47,11 @@ Request body schemas publish reachable recursive targets under
 `body.schema.definitions`, so `#/definitions/...` references remain resolvable
 from the catalog contract.
 
+Schema nodes use `x-lathe-accepts-*` extensions when the runtime accepts an
+additional wire representation: string-encoded integers or numbers, integer
+protobuf enums, integer GraphQL IDs, and singleton values coerced to GraphQL
+lists. The declared `type` remains the canonical representation.
+
 ## Verify report
 
 `<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a

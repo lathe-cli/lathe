@@ -583,6 +583,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `stdin`: pass `--<flag>-stdin` to read the value from stdin.\n")
 	b.WriteString("- Use only one input mode for the same flag.\n\n")
 	b.WriteString("## Request Bodies\n\n")
+	b.WriteString("Treat `body.schema` as the canonical request shape. A schema node may also advertise accepted wire representations with `x-lathe-accepts-string-encoded-integer`, `x-lathe-accepts-string-encoded-number`, `x-lathe-accepts-integer-enum`, `x-lathe-accepts-integer-id`, or `x-lathe-accepts-singleton-array`. Recursive targets are published under `body.schema.definitions`.\n\n")
 	b.WriteString("- `--file path`: read a JSON body from a file.\n")
 	b.WriteString("- `--file -`: read a JSON body from stdin.\n")
 	b.WriteString("- `--set key.path=value`: build JSON with type inference for booleans, null, integers, and floats.\n")
