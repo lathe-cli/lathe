@@ -234,8 +234,8 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 		t.Fatalf("related = %#v, want expanded nullable Base", related)
 	}
 	extended := schema.Properties["extended"]
-	if extended == nil || len(extended.AllOf) != 2 || extended.AllOf[0] == nil || extended.AllOf[1] == nil || extended.AllOf[0].Properties["id"] == nil || extended.AllOf[0].Properties["id"].Nullable || extended.AllOf[1].Properties["id"] == nil || !extended.AllOf[1].Properties["id"].Nullable {
-		t.Fatalf("extended = %#v, want referenced and sibling constraints", extended)
+	if extended == nil || len(extended.AllOf) != 2 || extended.AllOf[0] == nil || extended.AllOf[1] == nil || extended.AllOf[0].Properties["id"] == nil || extended.AllOf[0].Properties["id"].Nullable || extended.AllOf[1].Properties["id"] == nil || extended.AllOf[1].Properties["id"].Nullable {
+		t.Fatalf("extended = %#v, want referenced and sibling constraints without legacy nullable", extended)
 	}
 	if composed := schema.Properties["composed"]; len(composed.AllOf) != 2 || composed.AllOf[0].Properties["id"].Type != "string" || composed.AllOf[1].Properties["name"].Type != "string" {
 		t.Fatalf("composed = %#v, want both allOf branches", composed)
@@ -289,8 +289,11 @@ func TestParse_OpenAPI30NullableRequiresLocalType(t *testing.T) {
           "content": {
             "application/json": {
               "schema": {
-                "nullable": true,
-                "allOf": [{"type": "object"}]
+                "type": "object",
+                "properties": {
+                  "typed": {"type": "string", "nullable": true},
+                  "composed": {"nullable": true, "allOf": [{"type": "object"}]}
+                }
               }
             }
           }
@@ -301,8 +304,10 @@ func TestParse_OpenAPI30NullableRequiresLocalType(t *testing.T) {
   }
 }`
 	schema := parseNormalized(t, input)[0].RequestBody.Schema
-	if schema.Nullable || len(schema.AllOf) != 1 || schema.AllOf[0].Type != "object" {
-		t.Fatalf("schema = %#v, want non-null composed object", schema)
+	typed := schema.Properties["typed"]
+	composed := schema.Properties["composed"]
+	if typed == nil || !typed.Nullable || composed == nil || composed.Nullable || len(composed.AllOf) != 1 || composed.AllOf[0].Type != "object" {
+		t.Fatalf("schema = %#v, want nullable typed string and non-null composed object", schema)
 	}
 }
 
