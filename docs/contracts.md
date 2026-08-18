@@ -43,6 +43,10 @@ Search is discovery only. Inspect the selected command with `commands show`
 before execution. Generated Skill files explain this loop but never override
 the catalog.
 
+Request body schemas publish reachable recursive targets under
+`body.schema.definitions`, so `#/definitions/...` references remain resolvable
+from the catalog contract.
+
 ## Verify report
 
 `<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a

@@ -299,11 +299,20 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 					"labels": {Type: "object", AdditionalProperties: &AdditionalPropertiesSpec{Schema: &SchemaSpec{Type: "string"}}},
 					"count":  {Type: "integer", AcceptStringEncodedInteger: true},
 					"id":     {Type: "string", AcceptIntegerID: true},
+					"node":   {Ref: "#/definitions/Node"},
 					"ratio":  {Type: "number", AcceptStringEncodedNumber: true},
 					"state":  {Type: "string", AcceptIntegerEnum: true},
 					"tags":   {Type: "array", AcceptSingletonArray: true, Items: &SchemaSpec{Type: "string"}},
 				},
 				Required: []string{"name"},
+			},
+			SchemaDefinitions: map[string]*SchemaSpec{
+				"Node": {
+					Type: "object",
+					Properties: map[string]*SchemaSpec{
+						"next": {Ref: "#/definitions/Node", Nullable: true},
+					},
+				},
 			},
 			Template:  tmpl,
 			MergePath: "variables",
@@ -317,6 +326,9 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	body := catalog.Commands[0].Body
 	if body == nil || body.Template != tmpl || body.MergePath != "variables" {
 		t.Fatalf("catalog body envelope = %+v", body)
+	}
+	if node := body.Schema.Definitions["Node"]; node == nil || node.Properties["next"] == nil || node.Properties["next"].Ref != "#/definitions/Node" {
+		t.Fatalf("catalog schema definitions = %#v, want recursive Node", body.Schema.Definitions)
 	}
 
 	raw, err := json.Marshal(catalog)
@@ -353,6 +365,9 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	}
 	if rt.Schema == nil || !reflect.DeepEqual(rt.Schema.Required, []string{"name"}) || rt.Schema.Properties["name"] == nil || !rt.Schema.Properties["name"].Nullable {
 		t.Fatalf("round-trip body schema = %+v", rt.Schema)
+	}
+	if node := rt.Schema.Definitions["Node"]; node == nil || node.Properties["next"] == nil || node.Properties["next"].Ref != "#/definitions/Node" {
+		t.Fatalf("round-trip schema definitions = %#v, want recursive Node", rt.Schema.Definitions)
 	}
 	labels := rt.Schema.Properties["labels"]
 	if labels == nil || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {

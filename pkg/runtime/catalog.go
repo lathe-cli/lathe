@@ -12,7 +12,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 17
+const CatalogSchemaVersion = 18
 const DefaultSearchLimit = 20
 
 const catalogCommandAnnotation = "lathe.catalog.command"
@@ -419,7 +419,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		cmd.Body = &CatalogBody{
 			Required:  spec.RequestBody.Required,
 			MediaType: spec.RequestBody.MediaType,
-			Schema:    spec.RequestBody.Schema,
+			Schema:    catalogRequestSchema(spec.RequestBody.Schema, spec.RequestBody.SchemaDefinitions),
 			Template:  spec.RequestBody.Template,
 			MergePath: spec.RequestBody.MergePath,
 		}
@@ -438,6 +438,18 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		}
 	}
 	return cmd
+}
+
+func catalogRequestSchema(schema *SchemaSpec, definitions map[string]*SchemaSpec) *SchemaSpec {
+	if schema == nil || len(definitions) == 0 {
+		return schema
+	}
+	projected := *schema
+	projected.Definitions = make(map[string]*SchemaSpec, len(definitions))
+	for name, definition := range definitions {
+		projected.Definitions[name] = definition
+	}
+	return &projected
 }
 
 func catalogWorkflowConditions(conditions []WorkflowCondition) []CatalogWorkflowCondition {
