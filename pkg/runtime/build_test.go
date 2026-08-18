@@ -218,6 +218,7 @@ func TestBuild_ParameterFlagAliasesAndPositionalArgument(t *testing.T) {
 			describe := findChildCommand(mustFindChild(t, mustFindChild(t, root, "demo"), "apps"), "describe")
 			if describe == nil {
 				t.Fatal("describe command was not mounted")
+				return
 			}
 			if describe.Use != "describe [id] [tags]" {
 				t.Fatalf("use = %q, want describe [id] [tags]", describe.Use)
