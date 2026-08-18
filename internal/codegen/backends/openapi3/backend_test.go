@@ -278,6 +278,34 @@ func TestParse_OpenAPI30IgnoresSchemaReferenceSiblings(t *testing.T) {
 	}
 }
 
+func TestParse_OpenAPI30NullableRequiresLocalType(t *testing.T) {
+	input := `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/widgets": {
+      "post": {
+        "operationId": "Widget_Create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "nullable": true,
+                "allOf": [{"type": "object"}]
+              }
+            }
+          }
+        },
+        "responses": {"201": {}}
+      }
+    }
+  }
+}`
+	schema := parseNormalized(t, input)[0].RequestBody.Schema
+	if schema.Nullable || len(schema.AllOf) != 1 || schema.AllOf[0].Type != "object" {
+		t.Fatalf("schema = %#v, want non-null composed object", schema)
+	}
+}
+
 func TestSchemaReferenceSiblingsAllowed(t *testing.T) {
 	tests := []struct {
 		version string

@@ -162,6 +162,25 @@ func TestBodyWildcardSchema_MapsProtoJSONWellKnownRequest(t *testing.T) {
 	}
 }
 
+func TestBodyWildcardSchema_PreservesProtoJSONFieldNames(t *testing.T) {
+	entry := &messageEntry{
+		file: &descriptorpb.FileDescriptorProto{Package: proto.String("demo")},
+		msg: &descriptorpb.DescriptorProto{
+			Name:  proto.String("UpdateUserRequest"),
+			Field: []*descriptorpb.FieldDescriptorProto{scalarField("user_id", 1, descriptorpb.FieldDescriptorProto_TYPE_INT64)},
+		},
+	}
+	idx := &index{messages: map[string]*messageEntry{".demo.UpdateUserRequest": entry}}
+
+	schema := idx.bodyWildcardSchema(entry, nil, map[string]*rawir.RawSchema{})
+	for _, name := range []string{"userId", "user_id"} {
+		field := schema.Properties[name]
+		if field == nil || field.Type != "integer" || !field.AcceptStringEncodedInteger {
+			t.Fatalf("property %q = %#v, want ProtoJSON integer schema", name, field)
+		}
+	}
+}
+
 func TestFieldToSchema_PreservesProtoJSONFieldSemantics(t *testing.T) {
 	idx := &index{}
 

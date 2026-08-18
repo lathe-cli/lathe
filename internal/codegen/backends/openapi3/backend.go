@@ -653,7 +653,7 @@ func convertSchemaWithReferenceSemantics(s *schemaNode, allowRefSiblings bool) *
 	out := &rawir.RawSchema{
 		Type:     s.Type.Value,
 		Format:   s.Format,
-		Nullable: s.Nullable || s.Type.Nullable,
+		Nullable: s.Type.Nullable || s.Nullable && s.Type.Value != "",
 		ReadOnly: s.ReadOnly,
 	}
 	if s.Ref != "" {

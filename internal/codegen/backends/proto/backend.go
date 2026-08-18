@@ -382,7 +382,7 @@ func (idx *index) messageToSchema(entry *messageEntry, out map[string]*rawir.Raw
 		}
 		out[key] = sch
 		for _, f := range entry.msg.Field {
-			sch.Properties[jsonName(f)] = idx.fieldToSchema(f, out, visiting)
+			addProtoJSONFieldSchemas(sch.Properties, f, idx.fieldToSchema(f, out, visiting))
 		}
 	}
 	return &rawir.RawSchema{Ref: rawir.RefPrefix + key}
@@ -413,12 +413,20 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 		if pathParamSet[f.GetName()] {
 			continue
 		}
-		schema.Properties[jsonName(f)] = idx.fieldToSchema(f, out, map[string]bool{})
+		addProtoJSONFieldSchemas(schema.Properties, f, idx.fieldToSchema(f, out, map[string]bool{}))
 	}
 	if len(schema.Properties) == 0 {
 		schema.Properties = nil
 	}
 	return schema
+}
+
+func addProtoJSONFieldSchemas(properties map[string]*rawir.RawSchema, field *descriptorpb.FieldDescriptorProto, schema *rawir.RawSchema) {
+	jsonFieldName := jsonName(field)
+	properties[jsonFieldName] = schema
+	if protoFieldName := field.GetName(); protoFieldName != jsonFieldName {
+		properties[protoFieldName] = schema
+	}
 }
 
 func (idx *index) fieldToSchema(f *descriptorpb.FieldDescriptorProto, out map[string]*rawir.RawSchema, visiting map[string]bool) *rawir.RawSchema {
