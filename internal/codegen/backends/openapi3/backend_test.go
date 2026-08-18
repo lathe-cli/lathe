@@ -187,6 +187,10 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
                   "freeform": {"type": "object", "additionalProperties": true},
                   "closed": {"type": "object", "additionalProperties": false},
                   "related": {"anyOf": [{"$ref": "#/components/schemas/Base"}, {"type": "null"}]},
+                  "nested_nullable": {"anyOf": [
+                    {"allOf": [{"type": "object", "properties": {"id": {"type": "string"}}}]},
+                    {"type": "null"}
+                  ]},
                   "extended": {
                     "$ref": "#/components/schemas/Base",
                     "properties": {"id": {"type": "string", "nullable": true}}
@@ -232,6 +236,10 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	}
 	if related := schema.Properties["related"]; !related.Nullable || related.Properties["id"] == nil || related.Properties["id"].Type != "string" {
 		t.Fatalf("related = %#v, want expanded nullable Base", related)
+	}
+	nestedNullable := schema.Properties["nested_nullable"]
+	if nestedNullable == nil || nestedNullable.Nullable || len(nestedNullable.AnyOf) != 2 || len(nestedNullable.AnyOf[0].AllOf) != 1 || nestedNullable.AnyOf[1].Type != "null" {
+		t.Fatalf("nested_nullable = %#v, want preserved composed anyOf with null branch", nestedNullable)
 	}
 	extended := schema.Properties["extended"]
 	if extended == nil || len(extended.AllOf) != 2 || extended.AllOf[0] == nil || extended.AllOf[1] == nil || extended.AllOf[0].Properties["id"] == nil || extended.AllOf[0].Properties["id"].Nullable || extended.AllOf[1].Properties["id"] == nil || extended.AllOf[1].Properties["id"].Nullable {

@@ -695,12 +695,26 @@ func nullableAlternative(schema *schemaNode, options []*schemaNode) (*schemaNode
 		return nil, false
 	}
 	if isNullSchema(options[0]) {
-		return options[1], options[1] != nil && !isNullSchema(options[1])
+		return nullableAlternativeCandidate(options[1])
 	}
 	if isNullSchema(options[1]) {
-		return options[0], options[0] != nil && !isNullSchema(options[0])
+		return nullableAlternativeCandidate(options[0])
 	}
 	return nil, false
+}
+
+func nullableAlternativeCandidate(schema *schemaNode) (*schemaNode, bool) {
+	if schema == nil || isNullSchema(schema) || len(schema.AnyOf) > 0 || len(schema.OneOf) > 0 || len(schema.AllOf) > 0 {
+		return nil, false
+	}
+	if schema.Ref != "" && schemaNodeHasReferenceSiblings(schema) {
+		return nil, false
+	}
+	return schema, true
+}
+
+func schemaNodeHasReferenceSiblings(schema *schemaNode) bool {
+	return schema.Type.Value != "" || schema.Format != "" || schema.Nullable || schema.ReadOnly || len(schema.Properties) > 0 || len(schema.Required) > 0 || schema.Items != nil || schema.AdditionalProperties != nil
 }
 
 func isNullSchema(schema *schemaNode) bool {
