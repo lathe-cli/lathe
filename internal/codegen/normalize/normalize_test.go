@@ -113,7 +113,7 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 	}
 }
 
-func TestNormalize_RequestBodyPreservesStringEncodedInteger(t *testing.T) {
+func TestNormalize_RequestBodyPreservesProtoJSONMetadata(t *testing.T) {
 	module := &rawir.RawModule{
 		Name: "demo",
 		Operations: []rawir.RawOperation{{
@@ -122,14 +122,25 @@ func TestNormalize_RequestBodyPreservesStringEncodedInteger(t *testing.T) {
 			Method:      "POST",
 			Path:        "/resources",
 			RequestBody: &rawir.RawRequestBody{Schema: &rawir.RawSchema{
-				Type: "integer", AcceptStringEncodedInteger: true,
+				Type: "object",
+				Properties: map[string]*rawir.RawSchema{
+					"count": {Type: "integer", Nullable: true, AcceptStringEncodedInteger: true},
+					"ratio": {Type: "number", Nullable: true, AcceptStringEncodedNumber: true},
+					"state": {Type: "string", Nullable: true, AcceptIntegerEnum: true},
+				},
 			}},
 		}},
 	}
 
 	got := Normalize(module)[0].RequestBody.Schema
-	if !got.AcceptStringEncodedInteger {
-		t.Fatal("string-encoded integer support was dropped during normalization")
+	if count := got.Properties["count"]; count == nil || !count.Nullable || !count.AcceptStringEncodedInteger {
+		t.Fatalf("count schema = %#v, want ProtoJSON integer metadata", count)
+	}
+	if ratio := got.Properties["ratio"]; ratio == nil || !ratio.Nullable || !ratio.AcceptStringEncodedNumber {
+		t.Fatalf("ratio schema = %#v, want ProtoJSON number metadata", ratio)
+	}
+	if state := got.Properties["state"]; state == nil || !state.Nullable || !state.AcceptIntegerEnum {
+		t.Fatalf("state schema = %#v, want ProtoJSON enum metadata", state)
 	}
 }
 

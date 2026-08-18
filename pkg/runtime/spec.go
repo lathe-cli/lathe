@@ -103,6 +103,8 @@ type SchemaSpec struct {
 	Type                       string                    `json:"type,omitempty"`
 	Nullable                   bool                      `json:"nullable,omitempty"`
 	AcceptStringEncodedInteger bool                      `json:"-"`
+	AcceptStringEncodedNumber  bool                      `json:"-"`
+	AcceptIntegerEnum          bool                      `json:"-"`
 	Properties                 map[string]*SchemaSpec    `json:"properties,omitempty"`
 	Required                   []string                  `json:"required,omitempty"`
 	Items                      *SchemaSpec               `json:"items,omitempty"`

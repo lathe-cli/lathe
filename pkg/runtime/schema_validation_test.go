@@ -181,6 +181,73 @@ func TestValidateOperationInput_StringEncodedInteger(t *testing.T) {
 	}
 }
 
+func TestValidateOperationInput_IntegerEnum(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *SchemaSpec
+		body   string
+		want   string
+	}{
+		{name: "marked name", schema: &SchemaSpec{Type: "string", AcceptIntegerEnum: true}, body: `"ACTIVE"`},
+		{name: "marked integer", schema: &SchemaSpec{Type: "string", AcceptIntegerEnum: true}, body: `1`},
+		{name: "marked fractional number", schema: &SchemaSpec{Type: "string", AcceptIntegerEnum: true}, body: `1.5`, want: "expected string, got number"},
+		{name: "unmarked integer", schema: &SchemaSpec{Type: "string"}, body: `1`, want: "expected string, got number"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = tc.schema
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateOperationInput_StringEncodedNumber(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *SchemaSpec
+		body   string
+		want   string
+	}{
+		{name: "marked number", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `1.5`},
+		{name: "marked quoted number", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `"1.5"`},
+		{name: "marked quoted exponent", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `"1e3"`},
+		{name: "marked NaN", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `"NaN"`},
+		{name: "marked positive infinity", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `"Infinity"`},
+		{name: "marked negative infinity", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `"-Infinity"`},
+		{name: "marked empty string", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `""`, want: "expected number, got string"},
+		{name: "marked non numeric string", schema: &SchemaSpec{Type: "number", AcceptStringEncodedNumber: true}, body: `"abc"`, want: "expected number, got string"},
+		{name: "unmarked quoted number", schema: &SchemaSpec{Type: "number"}, body: `"1.5"`, want: "expected number, got string"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = tc.schema
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestStaticBodySchemaRejectsExecutionBeforeTransport(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())

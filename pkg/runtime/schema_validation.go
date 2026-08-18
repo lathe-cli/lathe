@@ -67,17 +67,25 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 		}
 		return validateSchemaArray(schema, array, path)
 	case "string":
-		if _, ok := value.(string); !ok {
-			return schemaTypeError(path, expected, value)
+		if _, ok := value.(string); ok {
+			return nil
 		}
+		if number, ok := value.(json.Number); schema.AcceptIntegerEnum && ok && isJSONInteger(number) {
+			return nil
+		}
+		return schemaTypeError(path, expected, value)
 	case "boolean":
 		if _, ok := value.(bool); !ok {
 			return schemaTypeError(path, expected, value)
 		}
 	case "number":
-		if _, ok := value.(json.Number); !ok {
-			return schemaTypeError(path, expected, value)
+		if _, ok := value.(json.Number); ok {
+			return nil
 		}
+		if text, ok := value.(string); schema.AcceptStringEncodedNumber && ok && isStringEncodedJSONNumber(text) {
+			return nil
+		}
+		return schemaTypeError(path, expected, value)
 	case "integer":
 		if number, ok := value.(json.Number); ok && isJSONInteger(number) {
 			return nil
@@ -156,6 +164,14 @@ func isJSONInteger(number json.Number) bool {
 
 func isStringEncodedJSONInteger(value string) bool {
 	return json.Valid([]byte(value)) && isJSONInteger(json.Number(value))
+}
+
+func isStringEncodedJSONNumber(value string) bool {
+	if value == "NaN" || value == "Infinity" || value == "-Infinity" {
+		return true
+	}
+	_, ok := new(big.Float).SetString(value)
+	return ok && json.Valid([]byte(value))
 }
 
 func schemaPropertyPath(parent, name string) string {

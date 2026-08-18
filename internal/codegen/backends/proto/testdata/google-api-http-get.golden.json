@@ -45,12 +45,14 @@
         "id": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         },
         "name": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }

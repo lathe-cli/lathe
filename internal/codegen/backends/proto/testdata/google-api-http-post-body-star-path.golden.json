@@ -30,12 +30,30 @@
             "email": {
               "Ref": "",
               "Type": "string",
+              "Nullable": true,
               "Properties": null,
               "Items": null
+            },
+            "labels": {
+              "Ref": "",
+              "Type": "object",
+              "Nullable": true,
+              "Properties": null,
+              "Items": null,
+              "AdditionalProperties": {
+                "Allowed": true,
+                "Schema": {
+                  "Ref": "",
+                  "Type": "string",
+                  "Properties": null,
+                  "Items": null
+                }
+              }
             },
             "name": {
               "Ref": "",
               "Type": "string",
+              "Nullable": true,
               "Properties": null,
               "Items": null
             }
@@ -66,6 +84,7 @@
         "id": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }

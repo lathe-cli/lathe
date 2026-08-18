@@ -753,6 +753,8 @@ func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, v
 		Type:                       s.Type,
 		Nullable:                   s.Nullable,
 		AcceptStringEncodedInteger: s.AcceptStringEncodedInteger,
+		AcceptStringEncodedNumber:  s.AcceptStringEncodedNumber,
+		AcceptIntegerEnum:          s.AcceptIntegerEnum,
 	}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
@@ -790,7 +792,7 @@ func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, v
 }
 
 func rawSchemaHasRefSiblings(s *rawir.RawSchema) bool {
-	return s.Type != "" || s.AcceptStringEncodedInteger || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
+	return s.Type != "" || s.AcceptStringEncodedInteger || s.AcceptStringEncodedNumber || s.AcceptIntegerEnum || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
 }
 
 func rawSchemaIsReadOnly(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) bool {

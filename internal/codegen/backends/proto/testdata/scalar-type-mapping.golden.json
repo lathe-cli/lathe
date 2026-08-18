@@ -89,6 +89,8 @@
         "total": {
           "Ref": "",
           "Type": "integer",
+          "Nullable": true,
+          "AcceptStringEncodedInteger": true,
           "Properties": null,
           "Items": null
         }

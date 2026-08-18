@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
@@ -72,22 +73,21 @@ func TestParseIgnoresImportedDependencyServices(t *testing.T) {
 	}
 }
 
-func TestScalarOrMessageSchema_PreservesProtoJSON64BitIntegerEncoding(t *testing.T) {
+func TestScalarOrMessageSchema_AcceptsStringEncodedProtoJSONIntegers(t *testing.T) {
 	tests := []struct {
 		name string
 		typ  descriptorpb.FieldDescriptorProto_Type
-		want bool
 	}{
 		{name: "int32", typ: descriptorpb.FieldDescriptorProto_TYPE_INT32},
-		{name: "int64", typ: descriptorpb.FieldDescriptorProto_TYPE_INT64, want: true},
+		{name: "int64", typ: descriptorpb.FieldDescriptorProto_TYPE_INT64},
 		{name: "uint32", typ: descriptorpb.FieldDescriptorProto_TYPE_UINT32},
-		{name: "uint64", typ: descriptorpb.FieldDescriptorProto_TYPE_UINT64, want: true},
+		{name: "uint64", typ: descriptorpb.FieldDescriptorProto_TYPE_UINT64},
 		{name: "sint32", typ: descriptorpb.FieldDescriptorProto_TYPE_SINT32},
-		{name: "sint64", typ: descriptorpb.FieldDescriptorProto_TYPE_SINT64, want: true},
+		{name: "sint64", typ: descriptorpb.FieldDescriptorProto_TYPE_SINT64},
 		{name: "fixed32", typ: descriptorpb.FieldDescriptorProto_TYPE_FIXED32},
-		{name: "fixed64", typ: descriptorpb.FieldDescriptorProto_TYPE_FIXED64, want: true},
+		{name: "fixed64", typ: descriptorpb.FieldDescriptorProto_TYPE_FIXED64},
 		{name: "sfixed32", typ: descriptorpb.FieldDescriptorProto_TYPE_SFIXED32},
-		{name: "sfixed64", typ: descriptorpb.FieldDescriptorProto_TYPE_SFIXED64, want: true},
+		{name: "sfixed64", typ: descriptorpb.FieldDescriptorProto_TYPE_SFIXED64},
 	}
 
 	for _, tc := range tests {
@@ -96,10 +96,100 @@ func TestScalarOrMessageSchema_PreservesProtoJSON64BitIntegerEncoding(t *testing
 			if schema.Type != "integer" {
 				t.Fatalf("type = %q, want integer", schema.Type)
 			}
-			if schema.AcceptStringEncodedInteger != tc.want {
-				t.Fatalf("AcceptStringEncodedInteger = %v, want %v", schema.AcceptStringEncodedInteger, tc.want)
+			if !schema.AcceptStringEncodedInteger {
+				t.Fatal("integer schema must accept quoted ProtoJSON numbers")
 			}
 		})
+	}
+}
+
+func TestScalarOrMessageSchema_MapsProtoJSONWellKnownTypes(t *testing.T) {
+	tests := []struct {
+		name                       string
+		typeName                   string
+		wantType                   string
+		wantStringEncodedInteger   bool
+		wantStringEncodedNumber    bool
+		wantUnconstrainedArrayItem bool
+	}{
+		{name: "timestamp", typeName: ".google.protobuf.Timestamp", wantType: "string"},
+		{name: "duration", typeName: ".google.protobuf.Duration", wantType: "string"},
+		{name: "field mask", typeName: ".google.protobuf.FieldMask", wantType: "string"},
+		{name: "double wrapper", typeName: ".google.protobuf.DoubleValue", wantType: "number", wantStringEncodedNumber: true},
+		{name: "float wrapper", typeName: ".google.protobuf.FloatValue", wantType: "number", wantStringEncodedNumber: true},
+		{name: "int64 wrapper", typeName: ".google.protobuf.Int64Value", wantType: "integer", wantStringEncodedInteger: true},
+		{name: "uint64 wrapper", typeName: ".google.protobuf.UInt64Value", wantType: "integer", wantStringEncodedInteger: true},
+		{name: "int32 wrapper", typeName: ".google.protobuf.Int32Value", wantType: "integer", wantStringEncodedInteger: true},
+		{name: "uint32 wrapper", typeName: ".google.protobuf.UInt32Value", wantType: "integer", wantStringEncodedInteger: true},
+		{name: "bool wrapper", typeName: ".google.protobuf.BoolValue", wantType: "boolean"},
+		{name: "string wrapper", typeName: ".google.protobuf.StringValue", wantType: "string"},
+		{name: "bytes wrapper", typeName: ".google.protobuf.BytesValue", wantType: "string"},
+		{name: "struct", typeName: ".google.protobuf.Struct", wantType: "object"},
+		{name: "list value", typeName: ".google.protobuf.ListValue", wantType: "array", wantUnconstrainedArrayItem: true},
+		{name: "value", typeName: ".google.protobuf.Value"},
+		{name: "any", typeName: ".google.protobuf.Any", wantType: "object"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := scalarOrMessageSchema(&index{}, messageField("value", 1, tc.typeName), nil, nil)
+			if schema.Type != tc.wantType {
+				t.Fatalf("type = %q, want %q", schema.Type, tc.wantType)
+			}
+			if schema.AcceptStringEncodedInteger != tc.wantStringEncodedInteger {
+				t.Fatalf("AcceptStringEncodedInteger = %v, want %v", schema.AcceptStringEncodedInteger, tc.wantStringEncodedInteger)
+			}
+			if schema.AcceptStringEncodedNumber != tc.wantStringEncodedNumber {
+				t.Fatalf("AcceptStringEncodedNumber = %v, want %v", schema.AcceptStringEncodedNumber, tc.wantStringEncodedNumber)
+			}
+			if got := schema.Items != nil && schema.Items.Type == ""; got != tc.wantUnconstrainedArrayItem {
+				t.Fatalf("unconstrained array item = %v, want %v", got, tc.wantUnconstrainedArrayItem)
+			}
+		})
+	}
+}
+
+func TestFieldToSchema_PreservesProtoJSONFieldSemantics(t *testing.T) {
+	idx := &index{}
+
+	scalar := idx.fieldToSchema(scalarField("count", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32), nil, nil)
+	if !scalar.Nullable {
+		t.Fatal("scalar field must accept null as unset")
+	}
+
+	repeatedField := scalarField("counts", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32)
+	repeatedField.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	repeated := idx.fieldToSchema(repeatedField, nil, nil)
+	if !repeated.Nullable || repeated.Items == nil || repeated.Items.Nullable {
+		t.Fatalf("repeated schema = %#v, want nullable field with non-nullable items", repeated)
+	}
+
+	enumField := scalarField("state", 1, descriptorpb.FieldDescriptorProto_TYPE_ENUM)
+	enumField.TypeName = proto.String(".demo.State")
+	enum := idx.fieldToSchema(enumField, nil, nil)
+	if enum.Type != "string" || !enum.Nullable || !enum.AcceptIntegerEnum {
+		t.Fatalf("enum schema = %#v, want nullable string accepting integer enum values", enum)
+	}
+
+	float := idx.fieldToSchema(scalarField("ratio", 1, descriptorpb.FieldDescriptorProto_TYPE_FLOAT), nil, nil)
+	if float.Type != "number" || !float.Nullable || !float.AcceptStringEncodedNumber {
+		t.Fatalf("float schema = %#v, want nullable number accepting ProtoJSON strings", float)
+	}
+
+	mapEntry := &descriptorpb.DescriptorProto{
+		Name: proto.String("LabelsEntry"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			scalarField("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+			scalarField("value", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		},
+		Options: &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)},
+	}
+	idx.messages = map[string]*messageEntry{
+		".demo.LabelsEntry": {file: &descriptorpb.FileDescriptorProto{Package: proto.String("demo")}, msg: mapEntry},
+	}
+	mapSchema := idx.fieldToSchema(repeatedMessageField("labels", 1, ".demo.LabelsEntry"), map[string]*rawir.RawSchema{}, map[string]bool{})
+	if mapSchema.Type != "object" || !mapSchema.Nullable || mapSchema.AdditionalProperties == nil || mapSchema.AdditionalProperties.Schema == nil || mapSchema.AdditionalProperties.Schema.Type != "string" {
+		t.Fatalf("map schema = %#v, want nullable object with string values", mapSchema)
 	}
 }
 

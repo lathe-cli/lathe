@@ -200,6 +200,8 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 				Properties: map[string]*runtime.SchemaSpec{
 					"input": {Type: "object", Required: []string{"name"}},
 					"count": {Type: "integer", AcceptStringEncodedInteger: true},
+					"ratio": {Type: "number", AcceptStringEncodedNumber: true},
+					"state": {Type: "string", AcceptIntegerEnum: true},
 				},
 				Required: []string{"input"},
 			},
@@ -219,6 +221,8 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 		`MergePath: "variables"`,
 		`Required: []string{`,
 		`AcceptStringEncodedInteger: true`,
+		`AcceptStringEncodedNumber: true`,
+		`AcceptIntegerEnum: true`,
 		`"input"`,
 		`"name"`,
 	} {
