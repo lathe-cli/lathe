@@ -151,14 +151,15 @@ func validateSchemaCompositions(
 		}
 	}
 	if len(schema.OneOf) > 0 {
-		matches := 0
+		matched := false
 		for _, branch := range schema.OneOf {
 			if validateSchemaValue(branch, value, path, definitions, resolving) == nil {
-				matches++
+				matched = true
+				break
 			}
 		}
-		if matches != 1 {
-			return fmt.Errorf("request body %s: matches %d schemas in oneOf, want exactly one", path, matches)
+		if !matched {
+			return fmt.Errorf("request body %s: does not match any schema in oneOf", path)
 		}
 	}
 	return nil
