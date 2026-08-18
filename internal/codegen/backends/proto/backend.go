@@ -405,6 +405,9 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 	if reqMsg == nil {
 		return nil
 	}
+	if schema, ok := protoJSONWellKnownSchema(idx.fullNameOf(reqMsg)); ok {
+		return schema
+	}
 	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
 	for _, f := range reqMsg.msg.Field {
 		if pathParamSet[f.GetName()] {

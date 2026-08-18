@@ -12,7 +12,7 @@ import (
 
 func validateStaticRequestBody(spec CommandSpec, body any) error {
 	requestBody := spec.RequestBody
-	if requestBody == nil || requestBody.Schema == nil || requestBody.Template != "" || body == nil || !supportsJSONBodyBuilder(requestBody.MediaType) {
+	if requestBody == nil || requestBody.Schema == nil || body == nil || !supportsJSONBodyBuilder(requestBody.MediaType) {
 		return nil
 	}
 	raw, _, err := encodeRequestBody(body)
@@ -27,6 +27,13 @@ func validateStaticRequestBody(spec CommandSpec, body any) error {
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return fmt.Errorf("decode request body JSON: %w", err)
+	}
+	if requestBody.Template != "" && requestBody.MergePath != "" {
+		merged, ok := getNestedPath(value, requestBody.MergePath)
+		if !ok {
+			return fmt.Errorf("request body merge path %s: missing", requestBody.MergePath)
+		}
+		value = merged
 	}
 	return validateSchemaValue(requestBody.Schema, value, "$", requestBody.SchemaDefinitions, nil)
 }

@@ -93,6 +93,51 @@ func TestValidateOperationInput_StaticBodySchema(t *testing.T) {
 	}
 }
 
+func TestValidateOperationInput_TemplatedBodySchema(t *testing.T) {
+	spec := staticBodyCommandSpec()
+	spec.RequestBody.Template = `{"query":"mutation($input: Input!){create(input:$input){id}}","variables":{}}`
+	spec.RequestBody.MergePath = "variables"
+	spec.RequestBody.Schema = &SchemaSpec{
+		Type:     "object",
+		Required: []string{"input"},
+		Properties: map[string]*SchemaSpec{
+			"input": {
+				Type:     "object",
+				Required: []string{"name"},
+				Properties: map[string]*SchemaSpec{
+					"name": {Type: "string"},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name  string
+		input OperationInput
+		want  string
+	}{
+		{name: "valid file", input: OperationInput{FileBody: []byte(`{"input":{"name":"demo"}}`), HasFile: true}},
+		{name: "valid set", input: OperationInput{BodyStringSets: []string{"input.name=demo"}}},
+		{name: "missing nested required field", input: OperationInput{FileBody: []byte(`{"input":{}}`), HasFile: true}, want: `$.input.name: required field missing`},
+		{name: "wrong nested type", input: OperationInput{FileBody: []byte(`{"input":{"name":1}}`), HasFile: true}, want: `$.input.name: expected string, got number`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateOperationInput(spec, tc.input)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateOperationInput_TypelessSchemaKeywordsDoNotImplyType(t *testing.T) {
 	tests := []struct {
 		name   string

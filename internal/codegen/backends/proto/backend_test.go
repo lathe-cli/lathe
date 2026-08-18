@@ -149,6 +149,19 @@ func TestScalarOrMessageSchema_MapsProtoJSONWellKnownTypes(t *testing.T) {
 	}
 }
 
+func TestBodyWildcardSchema_MapsProtoJSONWellKnownRequest(t *testing.T) {
+	entry := &messageEntry{
+		file: &descriptorpb.FileDescriptorProto{Package: proto.String("google.protobuf")},
+		msg:  &descriptorpb.DescriptorProto{Name: proto.String("Timestamp")},
+	}
+	idx := &index{messages: map[string]*messageEntry{".google.protobuf.Timestamp": entry}}
+
+	schema := idx.bodyWildcardSchema(entry, nil, map[string]*rawir.RawSchema{})
+	if schema.Type != "string" {
+		t.Fatalf("type = %q, want canonical ProtoJSON string", schema.Type)
+	}
+}
+
 func TestFieldToSchema_PreservesProtoJSONFieldSemantics(t *testing.T) {
 	idx := &index{}
 
