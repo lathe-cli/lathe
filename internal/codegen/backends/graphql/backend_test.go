@@ -528,6 +528,7 @@ type App { id: ID! }
 	input := rawir.Resolve(schema.Properties["input"], mod.Schemas)
 	if input == nil {
 		t.Fatal("input schema reference did not resolve")
+		return
 	}
 	if !reflect.DeepEqual(input.Required, []string{"name", "members"}) {
 		t.Fatalf("input required = %#v", input.Required)
@@ -575,6 +576,7 @@ type App { id: ID! }
 	profile := rawir.Resolve(profileRef, mod.Schemas)
 	if profile == nil {
 		t.Fatal("profile schema reference did not resolve")
+		return
 	}
 	if nickname := profile.Properties["nickname"]; nickname == nil || !nickname.Nullable {
 		t.Fatalf("nickname schema = %#v, want nullable string", nickname)
