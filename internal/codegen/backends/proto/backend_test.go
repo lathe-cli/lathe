@@ -170,6 +170,18 @@ func TestFieldToSchema_PreservesProtoJSONFieldSemantics(t *testing.T) {
 	if enum.Type != "string" || !enum.Nullable || !enum.AcceptIntegerEnum {
 		t.Fatalf("enum schema = %#v, want nullable string accepting integer enum values", enum)
 	}
+	repeatedEnumField := proto.Clone(enumField).(*descriptorpb.FieldDescriptorProto)
+	repeatedEnumField.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	repeatedEnum := idx.fieldToSchema(repeatedEnumField, nil, nil)
+	if repeatedEnum.Items == nil || repeatedEnum.Items.Nullable {
+		t.Fatalf("repeated enum schema = %#v, want non-nullable ordinary enum items", repeatedEnum)
+	}
+	repeatedNullValueField := proto.Clone(repeatedEnumField).(*descriptorpb.FieldDescriptorProto)
+	repeatedNullValueField.TypeName = proto.String(".google.protobuf.NullValue")
+	repeatedNullValue := idx.fieldToSchema(repeatedNullValueField, nil, nil)
+	if repeatedNullValue.Items == nil || !repeatedNullValue.Items.Nullable {
+		t.Fatalf("repeated NullValue schema = %#v, want nullable items", repeatedNullValue)
+	}
 
 	float := idx.fieldToSchema(scalarField("ratio", 1, descriptorpb.FieldDescriptorProto_TYPE_FLOAT), nil, nil)
 	if float.Type != "number" || !float.Nullable || !float.AcceptStringEncodedNumber {
@@ -190,6 +202,13 @@ func TestFieldToSchema_PreservesProtoJSONFieldSemantics(t *testing.T) {
 	mapSchema := idx.fieldToSchema(repeatedMessageField("labels", 1, ".demo.LabelsEntry"), map[string]*rawir.RawSchema{}, map[string]bool{})
 	if mapSchema.Type != "object" || !mapSchema.Nullable || mapSchema.AdditionalProperties == nil || mapSchema.AdditionalProperties.Schema == nil || mapSchema.AdditionalProperties.Schema.Type != "string" {
 		t.Fatalf("map schema = %#v, want nullable object with string values", mapSchema)
+	}
+	mapEntry.Field[1] = proto.Clone(repeatedNullValueField).(*descriptorpb.FieldDescriptorProto)
+	mapEntry.Field[1].Name = proto.String("value")
+	mapEntry.Field[1].Label = descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum()
+	mapSchema = idx.fieldToSchema(repeatedMessageField("labels", 1, ".demo.LabelsEntry"), map[string]*rawir.RawSchema{}, map[string]bool{})
+	if mapSchema.AdditionalProperties == nil || mapSchema.AdditionalProperties.Schema == nil || !mapSchema.AdditionalProperties.Schema.Nullable {
+		t.Fatalf("NullValue map schema = %#v, want nullable values", mapSchema)
 	}
 }
 

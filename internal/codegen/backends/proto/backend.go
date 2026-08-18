@@ -457,7 +457,11 @@ func scalarOrMessageSchema(idx *index, f *descriptorpb.FieldDescriptorProto, out
 	case descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_TYPE_BYTES:
 		return &rawir.RawSchema{Type: "string"}
 	case descriptorpb.FieldDescriptorProto_TYPE_ENUM:
-		return &rawir.RawSchema{Type: "string", AcceptIntegerEnum: true}
+		return &rawir.RawSchema{
+			Type:              "string",
+			Nullable:          f.GetTypeName() == ".google.protobuf.NullValue",
+			AcceptIntegerEnum: true,
+		}
 	case descriptorpb.FieldDescriptorProto_TYPE_INT32,
 		descriptorpb.FieldDescriptorProto_TYPE_UINT32,
 		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
