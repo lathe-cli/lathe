@@ -231,6 +231,38 @@ func TestValidateOperationInput_AdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestValidateOperationInput_RecursiveReferences(t *testing.T) {
+	node := &SchemaSpec{
+		Type:     "object",
+		Required: []string{"name"},
+		Properties: map[string]*SchemaSpec{
+			"name": {Type: "string"},
+			"next": {Ref: "#/definitions/Node", Nullable: true},
+		},
+	}
+	spec := staticBodyCommandSpec()
+	spec.RequestBody.Schema = &SchemaSpec{Ref: "#/definitions/Node"}
+	spec.RequestBody.SchemaDefinitions = map[string]*SchemaSpec{"Node": node}
+
+	if err := validateOperationInput(spec, OperationInput{FileBody: []byte(`{"name":"one","next":{"name":"two","next":null}}`), HasFile: true}); err != nil {
+		t.Fatalf("valid recursive body: %v", err)
+	}
+	err := validateOperationInput(spec, OperationInput{FileBody: []byte(`{"name":"one","next":{"name":1}}`), HasFile: true})
+	if err == nil || !strings.Contains(err.Error(), `$.next.name: expected string, got number`) {
+		t.Fatalf("error = %v, want nested recursive validation failure", err)
+	}
+
+	cycle := staticBodyCommandSpec()
+	cycle.RequestBody.Schema = &SchemaSpec{Ref: "#/definitions/A"}
+	cycle.RequestBody.SchemaDefinitions = map[string]*SchemaSpec{
+		"A": {Ref: "#/definitions/B"},
+		"B": {Ref: "#/definitions/A"},
+	}
+	if err := validateOperationInput(cycle, OperationInput{FileBody: []byte(`{}`), HasFile: true}); err != nil {
+		t.Fatalf("alias cycle must terminate safely: %v", err)
+	}
+}
+
 func TestValidateOperationInput_StringEncodedInteger(t *testing.T) {
 	tests := []struct {
 		name   string

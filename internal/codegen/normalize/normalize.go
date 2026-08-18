@@ -54,12 +54,14 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			}
 		}
 		if op.RequestBody != nil {
+			requestSchema := runtimeRequestSchema(op.RequestBody.Schema, mod.Schemas)
 			spec.RequestBody = &runtime.RequestBody{
-				Required:  op.RequestBody.Required,
-				MediaType: op.RequestBody.MediaType,
-				Schema:    runtimeRequestSchema(op.RequestBody.Schema, mod.Schemas),
-				Template:  op.RequestBody.Template,
-				MergePath: op.RequestBody.MergePath,
+				Required:          op.RequestBody.Required,
+				MediaType:         op.RequestBody.MediaType,
+				Schema:            requestSchema,
+				SchemaDefinitions: runtimeRequestSchemaDefinitions(requestSchema, mod.Schemas),
+				Template:          op.RequestBody.Template,
+				MergePath:         op.RequestBody.MergePath,
 			}
 			bodyParams := multipartBodyParams(op.RequestBody, mod.Schemas)
 			disambiguateMultipartParamFlags(spec.Params, bodyParams)
@@ -723,26 +725,89 @@ func copyVisited(in map[string]bool) map[string]bool {
 }
 
 func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) *runtime.SchemaSpec {
-	return runtimeSchemaForUse(s, defs, visited, false)
+	return runtimeSchemaForUse(s, defs, visited, false, nil)
 }
 
 func runtimeRequestSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema) *runtime.SchemaSpec {
-	return runtimeSchemaForUse(s, defs, map[string]bool{}, true)
+	return runtimeSchemaForUse(s, defs, map[string]bool{}, true, nil)
 }
 
-func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool) *runtime.SchemaSpec {
+func runtimeRequestSchemaDefinitions(s *runtime.SchemaSpec, defs map[string]*rawir.RawSchema) map[string]*runtime.SchemaSpec {
+	references := map[string]bool{}
+	collectRuntimeSchemaRefs(s, references)
+	if len(references) == 0 {
+		return nil
+	}
+	out := map[string]*runtime.SchemaSpec{}
+	processed := map[string]bool{}
+	for {
+		name := ""
+		for candidate := range references {
+			if !processed[candidate] {
+				name = candidate
+				break
+			}
+		}
+		if name == "" {
+			break
+		}
+		processed[name] = true
+		if defs[name] == nil {
+			continue
+		}
+		ref := rawir.RefPrefix + name
+		definition := runtimeSchemaForUse(defs[name], defs, map[string]bool{ref: true}, true, nil)
+		out[name] = definition
+		collectRuntimeSchemaRefs(definition, references)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func collectRuntimeSchemaRefs(s *runtime.SchemaSpec, references map[string]bool) {
+	if s == nil {
+		return
+	}
+	if strings.HasPrefix(s.Ref, rawir.RefPrefix) {
+		name := strings.TrimPrefix(s.Ref, rawir.RefPrefix)
+		references[name] = true
+	}
+	for _, property := range s.Properties {
+		collectRuntimeSchemaRefs(property, references)
+	}
+	collectRuntimeSchemaRefs(s.Items, references)
+	for _, schema := range s.AnyOf {
+		collectRuntimeSchemaRefs(schema, references)
+	}
+	for _, schema := range s.OneOf {
+		collectRuntimeSchemaRefs(schema, references)
+	}
+	for _, schema := range s.AllOf {
+		collectRuntimeSchemaRefs(schema, references)
+	}
+	if s.AdditionalProperties != nil {
+		collectRuntimeSchemaRefs(s.AdditionalProperties.Schema, references)
+	}
+}
+
+func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool, requiredScope *rawir.RawSchema) *runtime.SchemaSpec {
 	if s == nil {
 		return nil
+	}
+	if requiredScope == nil {
+		requiredScope = s
 	}
 	if s.Ref != "" && !visited[s.Ref] {
 		if resolved := rawir.Resolve(s, defs); resolved != nil {
 			next := copyVisited(visited)
 			next[s.Ref] = true
-			base := runtimeSchemaForUse(resolved, defs, next, request)
+			base := runtimeSchemaForUse(resolved, defs, next, request, requiredScope)
 			if rawSchemaHasRefSiblings(s) {
 				sibling := *s
 				sibling.Ref = ""
-				return &runtime.SchemaSpec{Nullable: s.Nullable, AllOf: []*runtime.SchemaSpec{base, runtimeSchemaForUse(&sibling, defs, visited, request)}}
+				return &runtime.SchemaSpec{Nullable: s.Nullable, AllOf: []*runtime.SchemaSpec{base, runtimeSchemaForUse(&sibling, defs, visited, request, requiredScope)}}
 			}
 			base.Nullable = base.Nullable || s.Nullable
 			return base
@@ -759,33 +824,33 @@ func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, v
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
 		for k, v := range s.Properties {
-			out.Properties[k] = runtimeSchemaForUse(v, defs, visited, request)
+			out.Properties[k] = runtimeSchemaForUse(v, defs, visited, request, nil)
 		}
 	}
 	if len(s.Required) > 0 {
 		for _, name := range s.Required {
-			if request && rawSchemaPropertyIsReadOnly(s, name, defs, map[string]bool{}) {
+			if request && rawSchemaPropertyIsReadOnly(requiredScope, name, defs, map[string]bool{}) {
 				continue
 			}
 			out.Required = append(out.Required, name)
 		}
 	}
 	if s.Items != nil {
-		out.Items = runtimeSchemaForUse(s.Items, defs, visited, request)
+		out.Items = runtimeSchemaForUse(s.Items, defs, visited, request, nil)
 	}
 	if len(s.AnyOf) > 0 {
-		out.AnyOf = runtimeSchemasForUse(s.AnyOf, defs, visited, request)
+		out.AnyOf = runtimeSchemasForUse(s.AnyOf, defs, visited, request, nil)
 	}
 	if len(s.OneOf) > 0 {
-		out.OneOf = runtimeSchemasForUse(s.OneOf, defs, visited, request)
+		out.OneOf = runtimeSchemasForUse(s.OneOf, defs, visited, request, nil)
 	}
 	if len(s.AllOf) > 0 {
-		out.AllOf = runtimeSchemasForUse(s.AllOf, defs, visited, request)
+		out.AllOf = runtimeSchemasForUse(s.AllOf, defs, visited, request, requiredScope)
 	}
 	if s.AdditionalProperties != nil {
 		out.AdditionalProperties = &runtime.AdditionalPropertiesSpec{
 			Allowed: s.AdditionalProperties.Allowed,
-			Schema:  runtimeSchemaForUse(s.AdditionalProperties.Schema, defs, visited, request),
+			Schema:  runtimeSchemaForUse(s.AdditionalProperties.Schema, defs, visited, request, nil),
 		}
 	}
 	return out
@@ -839,13 +904,13 @@ func rawSchemaPropertyIsReadOnly(s *rawir.RawSchema, name string, defs map[strin
 	return false
 }
 
-func runtimeSchemasForUse(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool) []*runtime.SchemaSpec {
+func runtimeSchemasForUse(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool, requiredScope *rawir.RawSchema) []*runtime.SchemaSpec {
 	if len(schemas) == 0 {
 		return nil
 	}
 	out := make([]*runtime.SchemaSpec, len(schemas))
 	for i, schema := range schemas {
-		out[i] = runtimeSchemaForUse(schema, defs, visited, request)
+		out[i] = runtimeSchemaForUse(schema, defs, visited, request, requiredScope)
 	}
 	return out
 }

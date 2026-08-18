@@ -81,7 +81,8 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 			"ReadOnlyFields": {
 				Type: "object",
 				Properties: map[string]*rawir.RawSchema{
-					"legacy_id": {Type: "string", ReadOnly: true},
+					"legacy_id":  {Type: "string", ReadOnly: true},
+					"sibling_id": {Type: "string", ReadOnly: true},
 				},
 			},
 			"Resource": {
@@ -93,7 +94,10 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 					"updated_at": {AllOf: []*rawir.RawSchema{{Ref: rawir.RefPrefix + "ReadOnlyTimestamp"}}},
 					"name":       {Type: "string"},
 				},
-				AllOf: []*rawir.RawSchema{{Ref: rawir.RefPrefix + "ReadOnlyFields"}},
+				AllOf: []*rawir.RawSchema{
+					{Ref: rawir.RefPrefix + "ReadOnlyFields"},
+					{Required: []string{"sibling_id"}},
+				},
 			},
 		},
 		Operations: []rawir.RawOperation{{
@@ -114,12 +118,15 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 	if got.Properties["id"] == nil || got.Properties["created_at"] == nil || got.Properties["updated_at"] == nil {
 		t.Fatal("read-only property was removed from request schema")
 	}
-	if len(got.AllOf) != 1 || got.AllOf[0].Properties["legacy_id"] == nil {
+	if len(got.AllOf) != 2 || got.AllOf[0].Properties["legacy_id"] == nil || len(got.AllOf[1].Required) != 0 {
 		t.Fatal("allOf read-only property was removed from request schema")
 	}
 	response := runtimeSchema(module.Schemas["Resource"], module.Schemas, map[string]bool{})
 	if !reflect.DeepEqual(response.Required, []string{"id", "created_at", "updated_at", "legacy_id", "name"}) {
 		t.Fatalf("response required = %#v, want all properties", response.Required)
+	}
+	if !reflect.DeepEqual(response.AllOf[1].Required, []string{"sibling_id"}) {
+		t.Fatalf("response allOf required = %#v, want sibling_id", response.AllOf[1].Required)
 	}
 }
 
@@ -166,6 +173,38 @@ func TestRuntimeSchema_RefSiblingsPreserveNullable(t *testing.T) {
 
 	if !schema.Nullable || len(schema.AllOf) != 2 {
 		t.Fatalf("schema = %#v, want nullable allOf wrapper", schema)
+	}
+}
+
+func TestNormalize_RequestBodyPreservesRecursiveDefinitions(t *testing.T) {
+	module := &rawir.RawModule{
+		Name: "demo",
+		Schemas: map[string]*rawir.RawSchema{
+			"Node": {
+				Type:     "object",
+				Required: []string{"name"},
+				Properties: map[string]*rawir.RawSchema{
+					"name": {Type: "string"},
+					"next": {Ref: rawir.RefPrefix + "Node"},
+				},
+			},
+		},
+		Operations: []rawir.RawOperation{{
+			Group:       "Nodes",
+			OperationID: "Nodes_Create",
+			Method:      "POST",
+			Path:        "/nodes",
+			RequestBody: &rawir.RawRequestBody{Schema: &rawir.RawSchema{Ref: rawir.RefPrefix + "Node"}},
+		}},
+	}
+
+	body := Normalize(module)[0].RequestBody
+	if body.Schema == nil || body.Schema.Properties["next"] == nil || body.Schema.Properties["next"].Ref != rawir.RefPrefix+"Node" {
+		t.Fatalf("root schema = %#v, want recursive Node ref", body.Schema)
+	}
+	definition := body.SchemaDefinitions["Node"]
+	if definition == nil || definition.Properties["next"] == nil || definition.Properties["next"].Ref != rawir.RefPrefix+"Node" {
+		t.Fatalf("definitions = %#v, want finite recursive Node definition", body.SchemaDefinitions)
 	}
 }
 

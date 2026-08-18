@@ -114,6 +114,40 @@ func TestParse_DeduplicatesSwaggerParameters(t *testing.T) {
 	}
 }
 
+func TestParse_PreservesRequestBodyMediaType(t *testing.T) {
+	tests := []struct {
+		name              string
+		documentConsumes  string
+		operationConsumes string
+		want              string
+	}{
+		{name: "document consumes", documentConsumes: `,"consumes":["application/xml"]`, want: "application/xml"},
+		{name: "operation override", documentConsumes: `,"consumes":["application/xml"]`, operationConsumes: `,"consumes":["application/json"]`, want: "application/json"},
+		{name: "unspecified"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"swagger":"2.0"` + tc.documentConsumes + `,"paths":{"/items":{"post":{"operationId":"Items_Create"` + tc.operationConsumes + `,"parameters":[{"name":"body","in":"body","schema":{"type":"object"}}],"responses":{"200":{}}}}}}`
+			syncDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(syncDir, "swagger.json"), []byte(input), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			src := &sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: []string{"swagger.json"}}}
+			module, err := Parse(src, syncDir)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if got := module.Operations[0].RequestBody.MediaType; got != tc.want {
+				t.Fatalf("raw media type = %q, want %q", got, tc.want)
+			}
+			if got := normalize.Normalize(module)[0].RequestBody.MediaType; got != tc.want {
+				t.Fatalf("runtime media type = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParse_SecuritySemantics(t *testing.T) {
 	cases := []struct {
 		name              string

@@ -28,10 +28,16 @@ func validateStaticRequestBody(spec CommandSpec, body any) error {
 	if err := decoder.Decode(&value); err != nil {
 		return fmt.Errorf("decode request body JSON: %w", err)
 	}
-	return validateSchemaValue(requestBody.Schema, value, "$")
+	return validateSchemaValue(requestBody.Schema, value, "$", requestBody.SchemaDefinitions, nil)
 }
 
-func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
+func validateSchemaValue(
+	schema *SchemaSpec,
+	value any,
+	path string,
+	definitions map[string]*SchemaSpec,
+	resolving map[string]bool,
+) error {
 	if schema == nil {
 		return nil
 	}
@@ -39,7 +45,19 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 	if value == nil && schema.Nullable {
 		return nil
 	}
-	if err := validateSchemaCompositions(schema, value, path); err != nil {
+	if schema.Ref != "" {
+		if target := resolveSchemaDefinition(schema.Ref, definitions); target != nil && !resolving[schema.Ref] {
+			nextResolving := copyResolvingRefs(resolving)
+			nextResolving[schema.Ref] = true
+			if err := validateSchemaValue(target, value, path, definitions, nextResolving); err != nil {
+				return err
+			}
+		}
+		sibling := *schema
+		sibling.Ref = ""
+		return validateSchemaValue(&sibling, value, path, definitions, resolving)
+	}
+	if err := validateSchemaCompositions(schema, value, path, definitions, resolving); err != nil {
 		return err
 	}
 	if value == nil {
@@ -51,9 +69,9 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 	if expected == "" {
 		switch value := value.(type) {
 		case map[string]any:
-			return validateSchemaObject(schema, value, path)
+			return validateSchemaObject(schema, value, path, definitions)
 		case []any:
-			return validateSchemaArray(schema, value, path)
+			return validateSchemaArray(schema, value, path, definitions)
 		default:
 			return nil
 		}
@@ -65,13 +83,13 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 		if !ok {
 			return schemaTypeError(path, expected, value)
 		}
-		return validateSchemaObject(schema, object, path)
+		return validateSchemaObject(schema, object, path, definitions)
 	case "array":
 		array, ok := value.([]any)
 		if !ok {
 			return schemaTypeError(path, expected, value)
 		}
-		return validateSchemaArray(schema, array, path)
+		return validateSchemaArray(schema, array, path, definitions)
 	case "string":
 		if _, ok := value.(string); ok {
 			return nil
@@ -108,16 +126,22 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 	return nil
 }
 
-func validateSchemaCompositions(schema *SchemaSpec, value any, path string) error {
+func validateSchemaCompositions(
+	schema *SchemaSpec,
+	value any,
+	path string,
+	definitions map[string]*SchemaSpec,
+	resolving map[string]bool,
+) error {
 	for _, branch := range schema.AllOf {
-		if err := validateSchemaValue(branch, value, path); err != nil {
+		if err := validateSchemaValue(branch, value, path, definitions, resolving); err != nil {
 			return err
 		}
 	}
 	if len(schema.AnyOf) > 0 {
 		matched := false
 		for _, branch := range schema.AnyOf {
-			if validateSchemaValue(branch, value, path) == nil {
+			if validateSchemaValue(branch, value, path, definitions, resolving) == nil {
 				matched = true
 				break
 			}
@@ -129,7 +153,7 @@ func validateSchemaCompositions(schema *SchemaSpec, value any, path string) erro
 	if len(schema.OneOf) > 0 {
 		matches := 0
 		for _, branch := range schema.OneOf {
-			if validateSchemaValue(branch, value, path) == nil {
+			if validateSchemaValue(branch, value, path, definitions, resolving) == nil {
 				matches++
 			}
 		}
@@ -140,7 +164,7 @@ func validateSchemaCompositions(schema *SchemaSpec, value any, path string) erro
 	return nil
 }
 
-func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string) error {
+func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string, definitions map[string]*SchemaSpec) error {
 	for _, name := range schema.Required {
 		if _, ok := object[name]; !ok {
 			return fmt.Errorf("request body %s: required field missing", schemaPropertyPath(path, name))
@@ -155,7 +179,7 @@ func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string
 		child := object[name]
 		property, declared := schema.Properties[name]
 		if declared {
-			if err := validateSchemaValue(property, child, schemaPropertyPath(path, name)); err != nil {
+			if err := validateSchemaValue(property, child, schemaPropertyPath(path, name), definitions, nil); err != nil {
 				return err
 			}
 			continue
@@ -165,7 +189,7 @@ func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string
 			continue
 		}
 		if additional.Schema != nil {
-			if err := validateSchemaValue(additional.Schema, child, schemaPropertyPath(path, name)); err != nil {
+			if err := validateSchemaValue(additional.Schema, child, schemaPropertyPath(path, name), definitions, nil); err != nil {
 				return err
 			}
 			continue
@@ -178,13 +202,29 @@ func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string
 	return nil
 }
 
-func validateSchemaArray(schema *SchemaSpec, array []any, path string) error {
+func validateSchemaArray(schema *SchemaSpec, array []any, path string, definitions map[string]*SchemaSpec) error {
 	for i, item := range array {
-		if err := validateSchemaValue(schema.Items, item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+		if err := validateSchemaValue(schema.Items, item, fmt.Sprintf("%s[%d]", path, i), definitions, nil); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func resolveSchemaDefinition(ref string, definitions map[string]*SchemaSpec) *SchemaSpec {
+	const definitionRefPrefix = "#/definitions/"
+	if !strings.HasPrefix(ref, definitionRefPrefix) {
+		return nil
+	}
+	return definitions[strings.TrimPrefix(ref, definitionRefPrefix)]
+}
+
+func copyResolvingRefs(in map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(in)+1)
+	for ref, resolving := range in {
+		out[ref] = resolving
+	}
+	return out
 }
 
 func schemaTypeError(path, expected string, value any) error {

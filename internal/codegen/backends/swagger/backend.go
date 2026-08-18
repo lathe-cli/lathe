@@ -32,6 +32,7 @@ func anySliceToStrings(vs []any) []string {
 
 type swaggerDoc struct {
 	Produces    []string                        `json:"produces"`
+	Consumes    []string                        `json:"consumes"`
 	Definitions map[string]*schemaNode          `json:"definitions"`
 	Paths       map[string]map[string]operation `json:"paths"`
 	Security    []map[string][]string           `json:"security"`
@@ -45,6 +46,7 @@ type operation struct {
 	Description string                 `json:"description"`
 	Responses   map[string]response    `json:"responses"`
 	Produces    []string               `json:"produces"`
+	Consumes    []string               `json:"consumes"`
 	Security    *[]map[string][]string `json:"security"`
 }
 
@@ -100,9 +102,21 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		applyEffectiveSecurity(&sw)
+		applyEffectiveConsumes(&sw)
 		mergeDoc(all, &sw, src.Name, p)
 	}
 	return toRawIR(src.Name, all), nil
+}
+
+func applyEffectiveConsumes(doc *swaggerDoc) {
+	for _, methods := range doc.Paths {
+		for method, op := range methods {
+			if len(op.Consumes) == 0 {
+				op.Consumes = append([]string(nil), doc.Consumes...)
+				methods[method] = op
+			}
+		}
+	}
 }
 
 func applyEffectiveSecurity(doc *swaggerDoc) {
@@ -206,7 +220,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 		}
 		seenParameters[key] = p
 		if p.In == "body" {
-			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, Schema: convertSchema(p.Schema)}
+			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, MediaType: firstString(op.Consumes), Schema: convertSchema(p.Schema)}
 			continue
 		}
 		out.Parameters = append(out.Parameters, rawir.RawParameter{
@@ -230,6 +244,13 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 	}
 	out.Security = convertSecurity(sec)
 	return out
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func convertSecurity(sec []map[string][]string) []rawir.RawSecurityReq {

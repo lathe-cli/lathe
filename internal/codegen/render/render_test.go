@@ -207,6 +207,9 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 			},
 			Template:  `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`,
 			MergePath: "variables",
+			SchemaDefinitions: map[string]*runtime.SchemaSpec{
+				"Node": {Type: "object", Properties: map[string]*runtime.SchemaSpec{"next": {Ref: rawir.RefPrefix + "Node"}}},
+			},
 		},
 	}}
 
@@ -218,11 +221,14 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 	for _, want := range []string{
 		`Template:`,
 		`createApp(name:$name)`,
-		`MergePath: "variables"`,
+		`MergePath:`,
+		`"variables"`,
 		`Required: []string{`,
 		`AcceptStringEncodedInteger: true`,
 		`AcceptStringEncodedNumber: true`,
 		`AcceptIntegerEnum: true`,
+		`SchemaDefinitions: map[string]*runtime.SchemaSpec{`,
+		`"Node":`,
 		`"input"`,
 		`"name"`,
 	} {
