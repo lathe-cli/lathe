@@ -77,12 +77,15 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 	module := &rawir.RawModule{
 		Name: "demo",
 		Schemas: map[string]*rawir.RawSchema{
+			"ReadOnlyTimestamp": {Type: "string", ReadOnly: true},
 			"Resource": {
 				Type:     "object",
-				Required: []string{"id", "name"},
+				Required: []string{"id", "created_at", "updated_at", "name"},
 				Properties: map[string]*rawir.RawSchema{
-					"id":   {Type: "string", ReadOnly: true},
-					"name": {Type: "string"},
+					"id":         {Type: "string", ReadOnly: true},
+					"created_at": {Ref: rawir.RefPrefix + "ReadOnlyTimestamp", Nullable: true},
+					"updated_at": {AllOf: []*rawir.RawSchema{{Ref: rawir.RefPrefix + "ReadOnlyTimestamp"}}},
+					"name":       {Type: "string"},
 				},
 			},
 		},
@@ -101,12 +104,12 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 	if !reflect.DeepEqual(got.Required, []string{"name"}) {
 		t.Fatalf("required = %#v, want name only", got.Required)
 	}
-	if got.Properties["id"] == nil {
+	if got.Properties["id"] == nil || got.Properties["created_at"] == nil || got.Properties["updated_at"] == nil {
 		t.Fatal("read-only property was removed from request schema")
 	}
 	response := runtimeSchema(module.Schemas["Resource"], module.Schemas, map[string]bool{})
-	if !reflect.DeepEqual(response.Required, []string{"id", "name"}) {
-		t.Fatalf("response required = %#v, want id and name", response.Required)
+	if !reflect.DeepEqual(response.Required, []string{"id", "created_at", "updated_at", "name"}) {
+		t.Fatalf("response required = %#v, want all properties", response.Required)
 	}
 }
 

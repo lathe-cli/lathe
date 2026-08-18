@@ -762,7 +762,7 @@ func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, v
 	}
 	if len(s.Required) > 0 {
 		for _, name := range s.Required {
-			if property := s.Properties[name]; request && property != nil && property.ReadOnly {
+			if property := s.Properties[name]; request && rawSchemaIsReadOnly(property, defs, map[string]bool{}) {
 				continue
 			}
 			out.Required = append(out.Required, name)
@@ -791,6 +791,28 @@ func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, v
 
 func rawSchemaHasRefSiblings(s *rawir.RawSchema) bool {
 	return s.Type != "" || s.AcceptStringEncodedInteger || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
+}
+
+func rawSchemaIsReadOnly(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) bool {
+	if s == nil {
+		return false
+	}
+	if s.ReadOnly {
+		return true
+	}
+	if s.Ref != "" && !visited[s.Ref] {
+		next := copyVisited(visited)
+		next[s.Ref] = true
+		if rawSchemaIsReadOnly(rawir.Resolve(s, defs), defs, next) {
+			return true
+		}
+	}
+	for _, schema := range s.AllOf {
+		if rawSchemaIsReadOnly(schema, defs, copyVisited(visited)) {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeSchemasForUse(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool) []*runtime.SchemaSpec {
