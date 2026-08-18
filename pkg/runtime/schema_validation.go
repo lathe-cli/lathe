@@ -79,10 +79,13 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 			return schemaTypeError(path, expected, value)
 		}
 	case "integer":
-		number, ok := value.(json.Number)
-		if !ok || !isJSONInteger(number) {
-			return schemaTypeError(path, expected, value)
+		if number, ok := value.(json.Number); ok && isJSONInteger(number) {
+			return nil
 		}
+		if text, ok := value.(string); schema.AcceptStringEncodedInteger && ok && isStringEncodedJSONInteger(text) {
+			return nil
+		}
+		return schemaTypeError(path, expected, value)
 	case "null":
 		return schemaTypeError(path, expected, value)
 	default:
@@ -149,6 +152,10 @@ func jsonValueType(value any) string {
 func isJSONInteger(number json.Number) bool {
 	value, ok := new(big.Rat).SetString(number.String())
 	return ok && value.IsInt()
+}
+
+func isStringEncodedJSONInteger(value string) bool {
+	return json.Valid([]byte(value)) && isJSONInteger(json.Number(value))
 }
 
 func schemaPropertyPath(parent, name string) string {

@@ -1425,6 +1425,7 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 		fmt.Fprintf(b, "Type: %q,", s.Type)
 	}
 	writeBoolField(b, "Nullable", s.Nullable)
+	writeBoolField(b, "AcceptStringEncodedInteger", s.AcceptStringEncodedInteger)
 	if len(s.Properties) > 0 {
 		b.WriteString("Properties: map[string]*runtime.SchemaSpec{")
 		keys := make([]string, 0, len(s.Properties))

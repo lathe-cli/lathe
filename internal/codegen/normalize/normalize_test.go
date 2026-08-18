@@ -110,6 +110,26 @@ func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
 	}
 }
 
+func TestNormalize_RequestBodyPreservesStringEncodedInteger(t *testing.T) {
+	module := &rawir.RawModule{
+		Name: "demo",
+		Operations: []rawir.RawOperation{{
+			Group:       "Resources",
+			OperationID: "Resources_Create",
+			Method:      "POST",
+			Path:        "/resources",
+			RequestBody: &rawir.RawRequestBody{Schema: &rawir.RawSchema{
+				Type: "integer", AcceptStringEncodedInteger: true,
+			}},
+		}},
+	}
+
+	got := Normalize(module)[0].RequestBody.Schema
+	if !got.AcceptStringEncodedInteger {
+		t.Fatal("string-encoded integer support was dropped during normalization")
+	}
+}
+
 func TestNormalize_SuccessResponseHints(t *testing.T) {
 	listSchema := func(listPath string) *rawir.RawSchema {
 		return &rawir.RawSchema{

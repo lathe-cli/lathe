@@ -297,6 +297,7 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 				Properties: map[string]*SchemaSpec{
 					"name":   {Type: "string", Nullable: true},
 					"labels": {Type: "object", AdditionalProperties: &AdditionalPropertiesSpec{Schema: &SchemaSpec{Type: "string"}}},
+					"count":  {Type: "integer", AcceptStringEncodedInteger: true},
 				},
 				Required: []string{"name"},
 			},
@@ -322,6 +323,9 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("catalog JSON missing %q:\n%s", want, raw)
 		}
+	}
+	if strings.Contains(string(raw), "AcceptStringEncodedInteger") || strings.Contains(string(raw), "acceptStringEncodedInteger") {
+		t.Fatalf("runtime-only integer encoding metadata leaked into catalog JSON:\n%s", raw)
 	}
 	var roundTrip Catalog
 	if err := json.Unmarshal(raw, &roundTrip); err != nil {

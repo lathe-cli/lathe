@@ -199,6 +199,7 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 				Type: "object",
 				Properties: map[string]*runtime.SchemaSpec{
 					"input": {Type: "object", Required: []string{"name"}},
+					"count": {Type: "integer", AcceptStringEncodedInteger: true},
 				},
 				Required: []string{"input"},
 			},
@@ -217,6 +218,7 @@ func TestRenderModule_EmitsRequestBodyEnvelope(t *testing.T) {
 		`createApp(name:$name)`,
 		`MergePath: "variables"`,
 		`Required: []string{`,
+		`AcceptStringEncodedInteger: true`,
 		`"input"`,
 		`"name"`,
 	} {

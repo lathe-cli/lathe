@@ -72,6 +72,37 @@ func TestParseIgnoresImportedDependencyServices(t *testing.T) {
 	}
 }
 
+func TestScalarOrMessageSchema_PreservesProtoJSON64BitIntegerEncoding(t *testing.T) {
+	tests := []struct {
+		name string
+		typ  descriptorpb.FieldDescriptorProto_Type
+		want bool
+	}{
+		{name: "int32", typ: descriptorpb.FieldDescriptorProto_TYPE_INT32},
+		{name: "int64", typ: descriptorpb.FieldDescriptorProto_TYPE_INT64, want: true},
+		{name: "uint32", typ: descriptorpb.FieldDescriptorProto_TYPE_UINT32},
+		{name: "uint64", typ: descriptorpb.FieldDescriptorProto_TYPE_UINT64, want: true},
+		{name: "sint32", typ: descriptorpb.FieldDescriptorProto_TYPE_SINT32},
+		{name: "sint64", typ: descriptorpb.FieldDescriptorProto_TYPE_SINT64, want: true},
+		{name: "fixed32", typ: descriptorpb.FieldDescriptorProto_TYPE_FIXED32},
+		{name: "fixed64", typ: descriptorpb.FieldDescriptorProto_TYPE_FIXED64, want: true},
+		{name: "sfixed32", typ: descriptorpb.FieldDescriptorProto_TYPE_SFIXED32},
+		{name: "sfixed64", typ: descriptorpb.FieldDescriptorProto_TYPE_SFIXED64, want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := scalarOrMessageSchema(&index{}, scalarField("value", 1, tc.typ), nil, nil)
+			if schema.Type != "integer" {
+				t.Fatalf("type = %q, want integer", schema.Type)
+			}
+			if schema.AcceptStringEncodedInteger != tc.want {
+				t.Fatalf("AcceptStringEncodedInteger = %v, want %v", schema.AcceptStringEncodedInteger, tc.want)
+			}
+		})
+	}
+}
+
 // ---- descriptor builders ----------------------------------------------------
 
 func scalarField(name string, num int32, typ descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto {

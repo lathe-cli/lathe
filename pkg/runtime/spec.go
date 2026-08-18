@@ -99,16 +99,17 @@ type RuntimeSchemaSpec struct {
 }
 
 type SchemaSpec struct {
-	Ref                  string                    `json:"ref,omitempty"`
-	Type                 string                    `json:"type,omitempty"`
-	Nullable             bool                      `json:"nullable,omitempty"`
-	Properties           map[string]*SchemaSpec    `json:"properties,omitempty"`
-	Required             []string                  `json:"required,omitempty"`
-	Items                *SchemaSpec               `json:"items,omitempty"`
-	AnyOf                []*SchemaSpec             `json:"anyOf,omitempty"`
-	OneOf                []*SchemaSpec             `json:"oneOf,omitempty"`
-	AllOf                []*SchemaSpec             `json:"allOf,omitempty"`
-	AdditionalProperties *AdditionalPropertiesSpec `json:"additionalProperties,omitempty"`
+	Ref                        string                    `json:"ref,omitempty"`
+	Type                       string                    `json:"type,omitempty"`
+	Nullable                   bool                      `json:"nullable,omitempty"`
+	AcceptStringEncodedInteger bool                      `json:"-"`
+	Properties                 map[string]*SchemaSpec    `json:"properties,omitempty"`
+	Required                   []string                  `json:"required,omitempty"`
+	Items                      *SchemaSpec               `json:"items,omitempty"`
+	AnyOf                      []*SchemaSpec             `json:"anyOf,omitempty"`
+	OneOf                      []*SchemaSpec             `json:"oneOf,omitempty"`
+	AllOf                      []*SchemaSpec             `json:"allOf,omitempty"`
+	AdditionalProperties       *AdditionalPropertiesSpec `json:"additionalProperties,omitempty"`
 }
 
 type AdditionalPropertiesSpec struct {
