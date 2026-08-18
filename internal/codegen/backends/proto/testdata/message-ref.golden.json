@@ -50,7 +50,11 @@
           "Items": null
         }
       },
-      "Items": null
+      "Items": null,
+      "AdditionalProperties": {
+        "Allowed": false,
+        "Schema": null
+      }
     },
     "demo.User": {
       "Ref": "",
@@ -71,7 +75,11 @@
           "Items": null
         }
       },
-      "Items": null
+      "Items": null,
+      "AdditionalProperties": {
+        "Allowed": false,
+        "Schema": null
+      }
     }
   }
 }

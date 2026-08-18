@@ -377,8 +377,9 @@ func (idx *index) messageToSchema(entry *messageEntry, out map[string]*rawir.Raw
 	key := schemaKey(typeName)
 	if _, exists := out[key]; !exists {
 		sch := &rawir.RawSchema{
-			Type:       "object",
-			Properties: map[string]*rawir.RawSchema{},
+			Type:                 "object",
+			Properties:           map[string]*rawir.RawSchema{},
+			AdditionalProperties: &rawir.RawAdditionalProperties{Allowed: false},
 		}
 		out[key] = sch
 		for _, f := range entry.msg.Field {
@@ -408,7 +409,11 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 	if schema, ok := protoJSONWellKnownSchema(idx.fullNameOf(reqMsg)); ok {
 		return schema
 	}
-	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
+	schema := &rawir.RawSchema{
+		Type:                 "object",
+		Properties:           map[string]*rawir.RawSchema{},
+		AdditionalProperties: &rawir.RawAdditionalProperties{Allowed: false},
+	}
 	for _, f := range reqMsg.msg.Field {
 		if pathParamSet[f.GetName()] {
 			continue

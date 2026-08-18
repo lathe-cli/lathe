@@ -57,7 +57,11 @@
           "Items": null
         }
       },
-      "Items": null
+      "Items": null,
+      "AdditionalProperties": {
+        "Allowed": false,
+        "Schema": null
+      }
     }
   }
 }

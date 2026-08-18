@@ -173,11 +173,20 @@ func TestBodyWildcardSchema_PreservesProtoJSONFieldNames(t *testing.T) {
 	idx := &index{messages: map[string]*messageEntry{".demo.UpdateUserRequest": entry}}
 
 	schema := idx.bodyWildcardSchema(entry, nil, map[string]*rawir.RawSchema{})
+	if schema.AdditionalProperties == nil || schema.AdditionalProperties.Allowed || schema.AdditionalProperties.Schema != nil {
+		t.Fatalf("additional properties = %#v, want closed protobuf message", schema.AdditionalProperties)
+	}
 	for _, name := range []string{"userId", "user_id"} {
 		field := schema.Properties[name]
 		if field == nil || field.Type != "integer" || !field.AcceptStringEncodedInteger {
 			t.Fatalf("property %q = %#v, want ProtoJSON integer schema", name, field)
 		}
+	}
+	definitions := map[string]*rawir.RawSchema{}
+	idx.messageToSchema(entry, definitions, map[string]bool{})
+	definition := definitions["demo.UpdateUserRequest"]
+	if definition == nil || definition.AdditionalProperties == nil || definition.AdditionalProperties.Allowed || definition.AdditionalProperties.Schema != nil {
+		t.Fatalf("message definition = %#v, want closed protobuf message", definition)
 	}
 }
 
