@@ -142,8 +142,10 @@ func TestNormalize_RequestBodyPreservesProtoJSONMetadata(t *testing.T) {
 				Type: "object",
 				Properties: map[string]*rawir.RawSchema{
 					"count": {Type: "integer", Nullable: true, AcceptStringEncodedInteger: true},
+					"id":    {Type: "string", Nullable: true, AcceptIntegerID: true},
 					"ratio": {Type: "number", Nullable: true, AcceptStringEncodedNumber: true},
 					"state": {Type: "string", Nullable: true, AcceptIntegerEnum: true},
+					"tags":  {Type: "array", Nullable: true, AcceptSingletonArray: true, Items: &rawir.RawSchema{Type: "string"}},
 				},
 			}},
 		}},
@@ -153,11 +155,17 @@ func TestNormalize_RequestBodyPreservesProtoJSONMetadata(t *testing.T) {
 	if count := got.Properties["count"]; count == nil || !count.Nullable || !count.AcceptStringEncodedInteger {
 		t.Fatalf("count schema = %#v, want ProtoJSON integer metadata", count)
 	}
+	if id := got.Properties["id"]; id == nil || !id.Nullable || !id.AcceptIntegerID {
+		t.Fatalf("id schema = %#v, want GraphQL ID metadata", id)
+	}
 	if ratio := got.Properties["ratio"]; ratio == nil || !ratio.Nullable || !ratio.AcceptStringEncodedNumber {
 		t.Fatalf("ratio schema = %#v, want ProtoJSON number metadata", ratio)
 	}
 	if state := got.Properties["state"]; state == nil || !state.Nullable || !state.AcceptIntegerEnum {
 		t.Fatalf("state schema = %#v, want ProtoJSON enum metadata", state)
+	}
+	if tags := got.Properties["tags"]; tags == nil || !tags.Nullable || !tags.AcceptSingletonArray {
+		t.Fatalf("tags schema = %#v, want GraphQL list metadata", tags)
 	}
 }
 

@@ -94,6 +94,9 @@ func validateSchemaValue(
 	case "array":
 		array, ok := value.([]any)
 		if !ok {
+			if schema.AcceptSingletonArray {
+				return validateSchemaValue(schema.Items, value, path, definitions, nil)
+			}
 			return schemaTypeError(path, expected, value)
 		}
 		return validateSchemaArray(schema, array, path, definitions)
@@ -101,7 +104,7 @@ func validateSchemaValue(
 		if _, ok := value.(string); ok {
 			return nil
 		}
-		if number, ok := value.(json.Number); schema.AcceptIntegerEnum && ok && isJSONInteger(number) {
+		if number, ok := value.(json.Number); (schema.AcceptIntegerEnum || schema.AcceptIntegerID) && ok && isJSONInteger(number) {
 			return nil
 		}
 		return schemaTypeError(path, expected, value)

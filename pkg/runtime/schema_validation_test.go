@@ -372,6 +372,68 @@ func TestValidateOperationInput_IntegerEnum(t *testing.T) {
 	}
 }
 
+func TestValidateOperationInput_GraphQLID(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "string", body: `"123"`},
+		{name: "integer", body: `123`},
+		{name: "integer exponent", body: `1e3`},
+		{name: "fraction", body: `1.5`, want: "expected string, got number"},
+		{name: "boolean", body: `true`, want: "expected string, got boolean"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = &SchemaSpec{Type: "string", AcceptIntegerID: true}
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateOperationInput_GraphQLSingletonList(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *SchemaSpec
+		body   string
+		want   string
+	}{
+		{name: "list", schema: &SchemaSpec{Type: "array", AcceptSingletonArray: true, Items: &SchemaSpec{Type: "string"}}, body: `["one"]`},
+		{name: "singleton", schema: &SchemaSpec{Type: "array", AcceptSingletonArray: true, Items: &SchemaSpec{Type: "string"}}, body: `"one"`},
+		{name: "invalid singleton", schema: &SchemaSpec{Type: "array", AcceptSingletonArray: true, Items: &SchemaSpec{Type: "string"}}, body: `1`, want: "expected string, got number"},
+		{name: "unmarked singleton", schema: &SchemaSpec{Type: "array", Items: &SchemaSpec{Type: "string"}}, body: `"one"`, want: "expected array, got string"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = tc.schema
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateOperationInput_StringEncodedNumber(t *testing.T) {
 	tests := []struct {
 		name   string

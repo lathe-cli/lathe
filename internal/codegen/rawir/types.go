@@ -75,6 +75,8 @@ type RawSchema struct {
 	AcceptStringEncodedInteger bool   `json:",omitempty"`
 	AcceptStringEncodedNumber  bool   `json:",omitempty"`
 	AcceptIntegerEnum          bool   `json:",omitempty"`
+	AcceptIntegerID            bool   `json:",omitempty"`
+	AcceptSingletonArray       bool   `json:",omitempty"`
 	Properties                 map[string]*RawSchema
 	Required                   []string `json:",omitempty"`
 	Items                      *RawSchema

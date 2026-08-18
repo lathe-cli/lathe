@@ -1448,6 +1448,8 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 	writeBoolField(b, "AcceptStringEncodedInteger", s.AcceptStringEncodedInteger)
 	writeBoolField(b, "AcceptStringEncodedNumber", s.AcceptStringEncodedNumber)
 	writeBoolField(b, "AcceptIntegerEnum", s.AcceptIntegerEnum)
+	writeBoolField(b, "AcceptIntegerID", s.AcceptIntegerID)
+	writeBoolField(b, "AcceptSingletonArray", s.AcceptSingletonArray)
 	if len(s.Properties) > 0 {
 		b.WriteString("Properties: map[string]*runtime.SchemaSpec{")
 		keys := make([]string, 0, len(s.Properties))

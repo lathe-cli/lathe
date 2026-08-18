@@ -298,8 +298,10 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 					"name":   {Type: "string", Nullable: true},
 					"labels": {Type: "object", AdditionalProperties: &AdditionalPropertiesSpec{Schema: &SchemaSpec{Type: "string"}}},
 					"count":  {Type: "integer", AcceptStringEncodedInteger: true},
+					"id":     {Type: "string", AcceptIntegerID: true},
 					"ratio":  {Type: "number", AcceptStringEncodedNumber: true},
 					"state":  {Type: "string", AcceptIntegerEnum: true},
+					"tags":   {Type: "array", AcceptSingletonArray: true, Items: &SchemaSpec{Type: "string"}},
 				},
 				Required: []string{"name"},
 			},
@@ -331,6 +333,12 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "AcceptIntegerEnum") || strings.Contains(string(raw), "acceptIntegerEnum") {
 		t.Fatalf("runtime-only enum encoding metadata leaked into catalog JSON:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "AcceptIntegerID") || strings.Contains(string(raw), "acceptIntegerID") {
+		t.Fatalf("runtime-only GraphQL ID metadata leaked into catalog JSON:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "AcceptSingletonArray") || strings.Contains(string(raw), "acceptSingletonArray") {
+		t.Fatalf("runtime-only GraphQL list metadata leaked into catalog JSON:\n%s", raw)
 	}
 	if strings.Contains(string(raw), "AcceptStringEncodedNumber") || strings.Contains(string(raw), "acceptStringEncodedNumber") {
 		t.Fatalf("runtime-only number encoding metadata leaked into catalog JSON:\n%s", raw)

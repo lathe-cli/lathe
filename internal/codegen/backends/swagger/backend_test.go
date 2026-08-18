@@ -123,6 +123,9 @@ func TestParse_PreservesRequestBodyMediaType(t *testing.T) {
 	}{
 		{name: "document consumes", documentConsumes: `,"consumes":["application/xml"]`, want: "application/xml"},
 		{name: "operation override", documentConsumes: `,"consumes":["application/xml"]`, operationConsumes: `,"consumes":["application/json"]`, want: "application/json"},
+		{name: "prefer json", operationConsumes: `,"consumes":["application/xml","application/json"]`, want: "application/json"},
+		{name: "prefer exact json", operationConsumes: `,"consumes":["application/vnd.demo+json","application/json"]`, want: "application/json"},
+		{name: "prefer vendor json", operationConsumes: `,"consumes":["application/xml","application/vnd.demo+json"]`, want: "application/vnd.demo+json"},
 		{name: "unspecified"},
 	}
 

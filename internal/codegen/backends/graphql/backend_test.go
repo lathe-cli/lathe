@@ -538,6 +538,52 @@ type App { id: ID! }
 	}
 }
 
+func TestParse_PreservesGraphQLVariableCoercionSemantics(t *testing.T) {
+	const sdl = `
+scalar JSON
+input ProfileInput {
+  nickname: String
+  name: String!
+  aliases: [String]
+  tags: [String!]
+}
+type Query { ping: String }
+type Mutation { updateUser(id: ID, profile: ProfileInput, payload: JSON): App! }
+type App { id: ID! }
+`
+	mod, err := parseSDL(t, sdl, nil, []string{"updateUser"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := byID(mod.Operations)["console_updateUser"].RequestBody.Schema
+	id := schema.Properties["id"]
+	if id == nil || !id.Nullable || !id.AcceptIntegerID {
+		t.Fatalf("id schema = %#v, want nullable ID accepting integers", id)
+	}
+	payload := schema.Properties["payload"]
+	if payload == nil || !payload.Nullable || payload.Type != "" {
+		t.Fatalf("payload schema = %#v, want unconstrained nullable custom scalar", payload)
+	}
+	profile := schema.Properties["profile"]
+	if profile == nil || !profile.Nullable {
+		t.Fatalf("profile schema = %#v, want nullable input object", profile)
+	}
+	if nickname := profile.Properties["nickname"]; nickname == nil || !nickname.Nullable {
+		t.Fatalf("nickname schema = %#v, want nullable string", nickname)
+	}
+	if name := profile.Properties["name"]; name == nil || name.Nullable {
+		t.Fatalf("name schema = %#v, want non-null string", name)
+	}
+	aliases := profile.Properties["aliases"]
+	if aliases == nil || !aliases.Nullable || !aliases.AcceptSingletonArray || aliases.Items == nil || !aliases.Items.Nullable {
+		t.Fatalf("aliases schema = %#v, want nullable list with nullable items", aliases)
+	}
+	tags := profile.Properties["tags"]
+	if tags == nil || !tags.Nullable || !tags.AcceptSingletonArray || tags.Items == nil || tags.Items.Nullable {
+		t.Fatalf("tags schema = %#v, want nullable list with non-null items", tags)
+	}
+}
+
 func TestParse_FailsClosedOnQueryMutationNameCollision(t *testing.T) {
 	const sdl = `
 type Query { app(id: ID!): App }

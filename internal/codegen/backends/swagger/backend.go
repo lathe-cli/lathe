@@ -220,7 +220,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 		}
 		seenParameters[key] = p
 		if p.In == "body" {
-			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, MediaType: firstString(op.Consumes), Schema: convertSchema(p.Schema)}
+			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, MediaType: preferredRequestMediaType(op.Consumes), Schema: convertSchema(p.Schema)}
 			continue
 		}
 		out.Parameters = append(out.Parameters, rawir.RawParameter{
@@ -246,7 +246,20 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 	return out
 }
 
-func firstString(values []string) string {
+func preferredRequestMediaType(values []string) string {
+	for _, value := range values {
+		mediaType, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(value)), ";")
+		mediaType = strings.TrimSpace(mediaType)
+		if mediaType == "application/json" {
+			return value
+		}
+	}
+	for _, value := range values {
+		mediaType, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(value)), ";")
+		if strings.HasSuffix(strings.TrimSpace(mediaType), "+json") {
+			return value
+		}
+	}
 	if len(values) == 0 {
 		return ""
 	}

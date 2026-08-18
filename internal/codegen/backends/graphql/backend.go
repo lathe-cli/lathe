@@ -224,30 +224,34 @@ func (g *generator) variableSchema(typ *ast.Type, onPath map[string]bool) (*rawi
 	if typ == nil {
 		return nil, nil
 	}
+	nullable := !typ.NonNull
 	if typ.Elem != nil {
 		item, err := g.variableSchema(typ.Elem, onPath)
 		if err != nil {
 			return nil, err
 		}
-		return &rawir.RawSchema{Type: "array", Items: item}, nil
+		return &rawir.RawSchema{Type: "array", Nullable: nullable, AcceptSingletonArray: true, Items: item}, nil
 	}
 	def := g.schema.Types[typ.Name()]
 	if def == nil {
-		return &rawir.RawSchema{Type: "string"}, nil
+		return &rawir.RawSchema{Type: "string", Nullable: nullable}, nil
 	}
 	if def.IsLeafType() {
-		return &rawir.RawSchema{Type: scalarType(typ)}, nil
+		if def.Kind == ast.Scalar && typ.Name() != "Int" && typ.Name() != "Float" && typ.Name() != "String" && typ.Name() != "Boolean" && typ.Name() != "ID" {
+			return &rawir.RawSchema{Nullable: nullable}, nil
+		}
+		return &rawir.RawSchema{Type: scalarType(typ), Nullable: nullable, AcceptIntegerID: typ.Name() == "ID"}, nil
 	}
 	if def.Kind != ast.InputObject {
-		return &rawir.RawSchema{Type: "object"}, nil
+		return &rawir.RawSchema{Type: "object", Nullable: nullable}, nil
 	}
 	if onPath[def.Name] {
-		return &rawir.RawSchema{Type: "object"}, nil
+		return &rawir.RawSchema{Type: "object", Nullable: nullable}, nil
 	}
 
 	next := clonePath(onPath)
 	next[def.Name] = true
-	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
+	schema := &rawir.RawSchema{Type: "object", Nullable: nullable, Properties: map[string]*rawir.RawSchema{}}
 	for _, field := range def.Fields {
 		fieldSchema, err := g.variableSchema(field.Type, next)
 		if err != nil {
