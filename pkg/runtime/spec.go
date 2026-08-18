@@ -108,6 +108,7 @@ type SchemaSpec struct {
 	AcceptIntegerEnum          bool                      `json:"x-lathe-accepts-integer-enum,omitempty"`
 	AcceptIntegerID            bool                      `json:"x-lathe-accepts-integer-id,omitempty"`
 	AcceptSingletonArray       bool                      `json:"x-lathe-accepts-singleton-array,omitempty"`
+	StaticValidationIncomplete bool                      `json:"-"`
 	Definitions                map[string]*SchemaSpec    `json:"definitions,omitempty"`
 	Properties                 map[string]*SchemaSpec    `json:"properties,omitempty"`
 	Required                   []string                  `json:"required,omitempty"`

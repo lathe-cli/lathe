@@ -164,18 +164,60 @@ func validateSchemaCompositions(
 		}
 	}
 	if len(schema.OneOf) > 0 {
-		matched := false
+		matches := 0
+		exact := true
 		for _, branch := range schema.OneOf {
 			if validateSchemaValue(branch, value, path, definitions, resolving) == nil {
-				matched = true
-				break
+				matches++
 			}
+			exact = exact && staticSchemaValidationComplete(branch, definitions, map[string]bool{})
 		}
-		if !matched {
+		if matches == 0 {
 			return fmt.Errorf("request body %s: does not match any schema in oneOf", path)
+		}
+		if exact && matches != 1 {
+			return fmt.Errorf("request body %s: matches %d schemas in oneOf, want exactly one", path, matches)
 		}
 	}
 	return nil
+}
+
+func staticSchemaValidationComplete(schema *SchemaSpec, definitions map[string]*SchemaSpec, resolving map[string]bool) bool {
+	if schema == nil {
+		return true
+	}
+	if schema.StaticValidationIncomplete {
+		return false
+	}
+	if schema.Ref != "" {
+		target := resolveSchemaDefinition(schema.Ref, definitions)
+		if target == nil {
+			return false
+		}
+		if !resolving[schema.Ref] {
+			nextResolving := copyResolvingRefs(resolving)
+			nextResolving[schema.Ref] = true
+			if !staticSchemaValidationComplete(target, definitions, nextResolving) {
+				return false
+			}
+		}
+	}
+	for _, property := range schema.Properties {
+		if !staticSchemaValidationComplete(property, definitions, resolving) {
+			return false
+		}
+	}
+	if schema.Items != nil && !staticSchemaValidationComplete(schema.Items, definitions, resolving) {
+		return false
+	}
+	for _, branches := range [][]*SchemaSpec{schema.AnyOf, schema.OneOf, schema.AllOf} {
+		for _, branch := range branches {
+			if !staticSchemaValidationComplete(branch, definitions, resolving) {
+				return false
+			}
+		}
+	}
+	return schema.AdditionalProperties == nil || schema.AdditionalProperties.Schema == nil || staticSchemaValidationComplete(schema.AdditionalProperties.Schema, definitions, resolving)
 }
 
 func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string, definitions map[string]*SchemaSpec) error {

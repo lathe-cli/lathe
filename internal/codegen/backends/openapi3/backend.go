@@ -100,6 +100,85 @@ type schemaNode struct {
 	AllOf                []*schemaNode               `json:"allOf,omitempty" yaml:"allOf,omitempty"`
 	AdditionalProperties *schemaAdditionalProperties `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
 	allowRefSiblings     bool
+	validationIncomplete bool
+}
+
+var unsupportedStaticValidationKeywords = map[string]bool{
+	"$dynamicRef":           true,
+	"$recursiveRef":         true,
+	"const":                 true,
+	"contains":              true,
+	"contentEncoding":       true,
+	"contentMediaType":      true,
+	"contentSchema":         true,
+	"dependencies":          true,
+	"dependentRequired":     true,
+	"dependentSchemas":      true,
+	"else":                  true,
+	"enum":                  true,
+	"exclusiveMaximum":      true,
+	"exclusiveMinimum":      true,
+	"format":                true,
+	"if":                    true,
+	"maxContains":           true,
+	"maximum":               true,
+	"maxItems":              true,
+	"maxLength":             true,
+	"maxProperties":         true,
+	"minContains":           true,
+	"minimum":               true,
+	"minItems":              true,
+	"minLength":             true,
+	"minProperties":         true,
+	"multipleOf":            true,
+	"not":                   true,
+	"pattern":               true,
+	"patternProperties":     true,
+	"prefixItems":           true,
+	"propertyNames":         true,
+	"then":                  true,
+	"unevaluatedItems":      true,
+	"unevaluatedProperties": true,
+	"uniqueItems":           true,
+}
+
+func (s *schemaNode) UnmarshalJSON(data []byte) error {
+	type plainSchemaNode schemaNode
+	var decoded plainSchemaNode
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*s = schemaNode(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for name := range fields {
+		if unsupportedStaticValidationKeywords[name] {
+			s.validationIncomplete = true
+			break
+		}
+	}
+	return nil
+}
+
+func (s *schemaNode) UnmarshalYAML(value *yaml.Node) error {
+	type plainSchemaNode schemaNode
+	var decoded plainSchemaNode
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	*s = schemaNode(decoded)
+	if value == nil || value.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		if unsupportedStaticValidationKeywords[value.Content[i].Value] {
+			s.validationIncomplete = true
+			break
+		}
+	}
+	return nil
 }
 
 type schemaType struct {
@@ -647,14 +726,16 @@ func convertSchemaWithReferenceSemantics(s *schemaNode, allowRefSiblings bool) *
 			out := convertSchemaWithReferenceSemantics(option, allowRefSiblings)
 			out.Nullable = true
 			out.ReadOnly = out.ReadOnly || s.ReadOnly
+			out.StaticValidationIncomplete = out.StaticValidationIncomplete || s.validationIncomplete
 			return out
 		}
 	}
 	out := &rawir.RawSchema{
-		Type:     s.Type.Value,
-		Format:   s.Format,
-		Nullable: s.Type.Nullable || (!allowRefSiblings && s.Nullable && s.Type.Value != ""),
-		ReadOnly: s.ReadOnly,
+		Type:                       s.Type.Value,
+		Format:                     s.Format,
+		Nullable:                   s.Type.Nullable || (!allowRefSiblings && s.Nullable && s.Type.Value != ""),
+		ReadOnly:                   s.ReadOnly,
+		StaticValidationIncomplete: s.validationIncomplete,
 	}
 	if s.Ref != "" {
 		out.Ref = normalizedSchemaRef(s.Ref)

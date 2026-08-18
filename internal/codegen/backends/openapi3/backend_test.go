@@ -25,6 +25,30 @@ func TestConvertSchema_PreservesReadOnly(t *testing.T) {
 	}
 }
 
+func TestSchemaNode_MarksUnsupportedStaticValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{name: "schema.json", data: `{"type":"integer"}`},
+		{name: "enum.json", data: `{"type":"string","enum":["cat"]}`, want: true},
+		{name: "pattern.yaml", data: "type: string\npattern: '^[a-z]+$'\n", want: true},
+		{name: "annotation.yaml", data: "type: string\ndescription: name\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var schema schemaNode
+			if err := unmarshalAuto(tc.name, []byte(tc.data), &schema); err != nil {
+				t.Fatalf("unmarshal schema: %v", err)
+			}
+			if schema.validationIncomplete != tc.want {
+				t.Fatalf("validationIncomplete = %v, want %v", schema.validationIncomplete, tc.want)
+			}
+		})
+	}
+}
+
 func TestParse_Golden(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -182,6 +206,7 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
                 "properties": {
                   "nickname": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                   "choice": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                  "partial_choice": {"oneOf": [{"type": "string", "enum": ["cat"]}, {"type": "string", "const": "dog"}]},
                   "exclusive_null": {"oneOf": [{"type": ["string", "null"]}, {"type": "null"}]},
                   "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
                   "freeform": {"type": "object", "additionalProperties": true},
@@ -220,6 +245,9 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	}
 	if choice := schema.Properties["choice"]; len(choice.OneOf) != 2 || choice.OneOf[0].Type != "string" || choice.OneOf[1].Type != "integer" {
 		t.Fatalf("choice = %#v, want string/integer oneOf", choice)
+	}
+	if partial := schema.Properties["partial_choice"]; len(partial.OneOf) != 2 || !partial.OneOf[0].StaticValidationIncomplete || !partial.OneOf[1].StaticValidationIncomplete {
+		t.Fatalf("partial_choice = %#v, want incomplete static validation markers", partial)
 	}
 	if exclusive := schema.Properties["exclusive_null"]; len(exclusive.OneOf) != 2 || !exclusive.OneOf[0].Nullable || exclusive.OneOf[1].Type != "null" {
 		t.Fatalf("exclusive_null = %#v, want both oneOf branches", exclusive)
