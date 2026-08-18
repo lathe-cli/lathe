@@ -30,7 +30,7 @@
         }
       },
       "Produces": null,
-      "Security": null
+      "Security": []
     }
   ],
   "Schemas": {

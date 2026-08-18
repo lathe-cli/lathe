@@ -29,7 +29,7 @@
       "Produces": [
         "application/json"
       ],
-      "Security": null
+      "Security": []
     },
     {
       "Group": "Pets",
@@ -66,7 +66,7 @@
       "Produces": [
         "application/json"
       ],
-      "Security": null
+      "Security": []
     }
   ],
   "Schemas": {

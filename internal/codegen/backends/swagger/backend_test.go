@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
@@ -99,6 +100,39 @@ func TestParse_DeduplicatesSwaggerParameters(t *testing.T) {
 	}
 	if got := len(mod.Operations[0].Parameters); got != 1 {
 		t.Fatalf("parameters = %d, want one unique parameter", got)
+	}
+}
+
+func TestParse_SecuritySemantics(t *testing.T) {
+	cases := []struct {
+		name              string
+		documentSecurity  string
+		operationSecurity string
+		wantPublic        bool
+		wantScopes        []string
+	}{
+		{name: "absent is public", wantPublic: true},
+		{name: "document inherited", documentSecurity: `,"security":[{"oauth":["read"]}]`, wantScopes: []string{"read"}},
+		{name: "operation empty is public", documentSecurity: `,"security":[{"oauth":["read"]}]`, operationSecurity: `,"security":[]`, wantPublic: true},
+		{name: "operation overrides document", documentSecurity: `,"security":[{"oauth":["read"]}]`, operationSecurity: `,"security":[{"oauth":["write"]}]`, wantScopes: []string{"write"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"swagger":"2.0"` + tc.documentSecurity + `,"paths":{"/health":{"get":{"operationId":"Health_Get"` + tc.operationSecurity + `,"responses":{"200":{}}}}}}`
+			syncDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(syncDir, "swagger.json"), []byte(input), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			src := &sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: []string{"swagger.json"}}}
+			mod, err := Parse(src, syncDir)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			security := normalize.Normalize(mod)[0].Security
+			if security == nil || security.Public != tc.wantPublic || !reflect.DeepEqual(security.Scopes, tc.wantScopes) {
+				t.Fatalf("security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
+			}
+		})
 	}
 }
 
