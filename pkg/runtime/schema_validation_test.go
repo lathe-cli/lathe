@@ -220,6 +220,7 @@ func TestValidateOperationInput_ComposedSchemas(t *testing.T) {
 		{name: "anyOf string", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `"demo"`},
 		{name: "anyOf integer", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `1`},
 		{name: "anyOf failure", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `true`, want: `anyOf`},
+		{name: "anyOf rejects null", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "object"}, {Type: "array"}, {Type: "string"}, {Type: "boolean"}, {Type: "number"}}}, body: `null`, want: `anyOf`},
 		{name: "oneOf one match", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "number"}, {Type: "integer"}}}, body: `1.5`},
 		{name: "oneOf overlapping matches", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "number"}, {Type: "integer"}}}, body: `1`},
 		{name: "oneOf no match", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `true`, want: `oneOf`},

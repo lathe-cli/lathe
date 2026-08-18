@@ -553,7 +553,7 @@ input ProfileInput {
   tags: [String!]
 }
 type Query { ping: String }
-type Mutation { updateUser(id: ID, profile: ProfileInput, payload: JSON): App! }
+type Mutation { updateUser(id: ID, profile: ProfileInput, payload: JSON, strictPayload: JSON!): App! }
 type App { id: ID! }
 `
 	mod, err := parseSDL(t, sdl, nil, []string{"updateUser"})
@@ -566,8 +566,12 @@ type App { id: ID! }
 		t.Fatalf("id schema = %#v, want nullable ID accepting integers", id)
 	}
 	payload := schema.Properties["payload"]
-	if payload == nil || !payload.Nullable || payload.Type != "" {
+	if payload == nil || !payload.Nullable || payload.Type != "" || len(payload.AnyOf) != 5 {
 		t.Fatalf("payload schema = %#v, want unconstrained nullable custom scalar", payload)
+	}
+	strictPayload := schema.Properties["strictPayload"]
+	if strictPayload == nil || strictPayload.Nullable || len(strictPayload.AnyOf) != 5 {
+		t.Fatalf("strict payload schema = %#v, want unconstrained non-null custom scalar", strictPayload)
 	}
 	profileRef := schema.Properties["profile"]
 	if profileRef == nil || !profileRef.Nullable {

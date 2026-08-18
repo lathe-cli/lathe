@@ -239,7 +239,7 @@ func (g *generator) variableSchema(typ *ast.Type) (*rawir.RawSchema, error) {
 	}
 	if def.IsLeafType() {
 		if def.Kind == ast.Scalar && typ.Name() != "Int" && typ.Name() != "Float" && typ.Name() != "String" && typ.Name() != "Boolean" && typ.Name() != "ID" {
-			return &rawir.RawSchema{Nullable: nullable}, nil
+			return graphqlCustomScalarSchema(nullable), nil
 		}
 		return &rawir.RawSchema{Type: scalarType(typ), Nullable: nullable, AcceptIntegerID: typ.Name() == "ID"}, nil
 	}
@@ -267,6 +267,19 @@ func (g *generator) variableSchema(typ *ast.Type) (*rawir.RawSchema, error) {
 		}
 	}
 	return &rawir.RawSchema{Ref: rawir.RefPrefix + def.Name, Nullable: nullable}, nil
+}
+
+func graphqlCustomScalarSchema(nullable bool) *rawir.RawSchema {
+	return &rawir.RawSchema{
+		Nullable: nullable,
+		AnyOf: []*rawir.RawSchema{
+			{Type: "object"},
+			{Type: "array"},
+			{Type: "string"},
+			{Type: "boolean"},
+			{Type: "number"},
+		},
+	}
 }
 
 func (g *generator) selectionSet(typeName string, depth int, onPath map[string]bool) (string, error) {

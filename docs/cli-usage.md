@@ -322,8 +322,9 @@ body before the target request. External `$ref` loading is disabled.
 `--dry-run` remains network-free and skips this preflight. Static request-body
 schemas from API specs validate ordinary JSON bodies before host resolution,
 auth, or transport for direct commands, dry-runs, and workflows. Validation is
-limited to declared object, array, scalar, nullable, property, item, and required
-field metadata; unsupported schema constraints remain discovery metadata.
+limited to retained type, nullable, property, item, required-field, composition,
+and additional-property metadata; unsupported schema constraints remain
+discovery metadata.
 
 ### Stream Collection
 
