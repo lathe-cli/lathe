@@ -89,6 +89,7 @@ type schemaNode struct {
 	Default              any                         `json:"default,omitempty" yaml:"default,omitempty"`
 	Enum                 []any                       `json:"enum,omitempty" yaml:"enum,omitempty"`
 	Nullable             bool                        `json:"nullable,omitempty" yaml:"nullable,omitempty"`
+	ReadOnly             bool                        `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
 	Properties           map[string]*schemaNode      `json:"properties,omitempty" yaml:"properties,omitempty"`
 	Required             []string                    `json:"required,omitempty" yaml:"required,omitempty"`
 	Items                *schemaNode                 `json:"items,omitempty" yaml:"items,omitempty"`
@@ -585,6 +586,7 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		if option, ok := nullableAlternative(s, s.AnyOf); ok {
 			out := convertSchema(option)
 			out.Nullable = true
+			out.ReadOnly = out.ReadOnly || s.ReadOnly
 			return out
 		}
 	}
@@ -592,6 +594,7 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		Type:     s.Type.Value,
 		Format:   s.Format,
 		Nullable: s.Nullable || s.Type.Nullable,
+		ReadOnly: s.ReadOnly,
 	}
 	if s.Ref != "" {
 		if strings.HasPrefix(s.Ref, oas3RefPrefix) {

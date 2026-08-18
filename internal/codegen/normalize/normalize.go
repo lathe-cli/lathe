@@ -57,7 +57,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			spec.RequestBody = &runtime.RequestBody{
 				Required:  op.RequestBody.Required,
 				MediaType: op.RequestBody.MediaType,
-				Schema:    runtimeSchema(op.RequestBody.Schema, mod.Schemas, map[string]bool{}),
+				Schema:    runtimeRequestSchema(op.RequestBody.Schema, mod.Schemas),
 				Template:  op.RequestBody.Template,
 				MergePath: op.RequestBody.MergePath,
 			}
@@ -723,6 +723,14 @@ func copyVisited(in map[string]bool) map[string]bool {
 }
 
 func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) *runtime.SchemaSpec {
+	return runtimeSchemaForUse(s, defs, visited, false)
+}
+
+func runtimeRequestSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema) *runtime.SchemaSpec {
+	return runtimeSchemaForUse(s, defs, map[string]bool{}, true)
+}
+
+func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool) *runtime.SchemaSpec {
 	if s == nil {
 		return nil
 	}
@@ -730,11 +738,11 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 		if resolved := rawir.Resolve(s, defs); resolved != nil {
 			next := copyVisited(visited)
 			next[s.Ref] = true
-			base := runtimeSchema(resolved, defs, next)
+			base := runtimeSchemaForUse(resolved, defs, next, request)
 			if rawSchemaHasRefSiblings(s) {
 				sibling := *s
 				sibling.Ref = ""
-				return &runtime.SchemaSpec{AllOf: []*runtime.SchemaSpec{base, runtimeSchema(&sibling, defs, visited)}}
+				return &runtime.SchemaSpec{AllOf: []*runtime.SchemaSpec{base, runtimeSchemaForUse(&sibling, defs, visited, request)}}
 			}
 			base.Nullable = base.Nullable || s.Nullable
 			return base
@@ -744,28 +752,33 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
 		for k, v := range s.Properties {
-			out.Properties[k] = runtimeSchema(v, defs, visited)
+			out.Properties[k] = runtimeSchemaForUse(v, defs, visited, request)
 		}
 	}
 	if len(s.Required) > 0 {
-		out.Required = append([]string(nil), s.Required...)
+		for _, name := range s.Required {
+			if property := s.Properties[name]; request && property != nil && property.ReadOnly {
+				continue
+			}
+			out.Required = append(out.Required, name)
+		}
 	}
 	if s.Items != nil {
-		out.Items = runtimeSchema(s.Items, defs, visited)
+		out.Items = runtimeSchemaForUse(s.Items, defs, visited, request)
 	}
 	if len(s.AnyOf) > 0 {
-		out.AnyOf = runtimeSchemas(s.AnyOf, defs, visited)
+		out.AnyOf = runtimeSchemasForUse(s.AnyOf, defs, visited, request)
 	}
 	if len(s.OneOf) > 0 {
-		out.OneOf = runtimeSchemas(s.OneOf, defs, visited)
+		out.OneOf = runtimeSchemasForUse(s.OneOf, defs, visited, request)
 	}
 	if len(s.AllOf) > 0 {
-		out.AllOf = runtimeSchemas(s.AllOf, defs, visited)
+		out.AllOf = runtimeSchemasForUse(s.AllOf, defs, visited, request)
 	}
 	if s.AdditionalProperties != nil {
 		out.AdditionalProperties = &runtime.AdditionalPropertiesSpec{
 			Allowed: s.AdditionalProperties.Allowed,
-			Schema:  runtimeSchema(s.AdditionalProperties.Schema, defs, visited),
+			Schema:  runtimeSchemaForUse(s.AdditionalProperties.Schema, defs, visited, request),
 		}
 	}
 	return out
@@ -775,13 +788,13 @@ func rawSchemaHasRefSiblings(s *rawir.RawSchema) bool {
 	return s.Type != "" || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
 }
 
-func runtimeSchemas(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) []*runtime.SchemaSpec {
+func runtimeSchemasForUse(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool, request bool) []*runtime.SchemaSpec {
 	if len(schemas) == 0 {
 		return nil
 	}
 	out := make([]*runtime.SchemaSpec, len(schemas))
 	for i, schema := range schemas {
-		out[i] = runtimeSchema(schema, defs, visited)
+		out[i] = runtimeSchemaForUse(schema, defs, visited, request)
 	}
 	return out
 }

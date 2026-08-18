@@ -73,6 +73,43 @@ func TestNormalize_ParameterFlagsUseKebabCase(t *testing.T) {
 	}
 }
 
+func TestNormalize_RequestBodyExcludesReadOnlyRequiredProperties(t *testing.T) {
+	module := &rawir.RawModule{
+		Name: "demo",
+		Schemas: map[string]*rawir.RawSchema{
+			"Resource": {
+				Type:     "object",
+				Required: []string{"id", "name"},
+				Properties: map[string]*rawir.RawSchema{
+					"id":   {Type: "string", ReadOnly: true},
+					"name": {Type: "string"},
+				},
+			},
+		},
+		Operations: []rawir.RawOperation{{
+			Group:       "Resources",
+			OperationID: "Resources_Create",
+			Method:      "POST",
+			Path:        "/resources",
+			RequestBody: &rawir.RawRequestBody{Schema: &rawir.RawSchema{Ref: rawir.RefPrefix + "Resource"}},
+			Responses:   map[string]*rawir.RawResponse{},
+		}},
+	}
+	specs := Normalize(module)
+
+	got := specs[0].RequestBody.Schema
+	if !reflect.DeepEqual(got.Required, []string{"name"}) {
+		t.Fatalf("required = %#v, want name only", got.Required)
+	}
+	if got.Properties["id"] == nil {
+		t.Fatal("read-only property was removed from request schema")
+	}
+	response := runtimeSchema(module.Schemas["Resource"], module.Schemas, map[string]bool{})
+	if !reflect.DeepEqual(response.Required, []string{"id", "name"}) {
+		t.Fatalf("response required = %#v, want id and name", response.Required)
+	}
+}
+
 func TestNormalize_SuccessResponseHints(t *testing.T) {
 	listSchema := func(listPath string) *rawir.RawSchema {
 		return &rawir.RawSchema{

@@ -1,6 +1,7 @@
 package openapi3
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,16 @@ import (
 	"github.com/lathe-cli/lathe/internal/testutil"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
+
+func TestConvertSchema_PreservesReadOnly(t *testing.T) {
+	var schema schemaNode
+	if err := json.Unmarshal([]byte(`{"type":"string","readOnly":true}`), &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	if got := convertSchema(&schema); got == nil || !got.ReadOnly {
+		t.Fatalf("schema = %#v, want readOnly", got)
+	}
+}
 
 func TestParse_Golden(t *testing.T) {
 	cases := []struct {

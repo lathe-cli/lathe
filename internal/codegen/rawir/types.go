@@ -71,6 +71,7 @@ type RawSchema struct {
 	Type                 string
 	Format               string `json:",omitempty"`
 	Nullable             bool   `json:",omitempty"`
+	ReadOnly             bool   `json:",omitempty"`
 	Properties           map[string]*RawSchema
 	Required             []string `json:",omitempty"`
 	Items                *RawSchema

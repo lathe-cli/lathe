@@ -68,6 +68,7 @@ type response struct {
 type schemaNode struct {
 	Ref        string                 `json:"$ref,omitempty"`
 	Type       string                 `json:"type,omitempty"`
+	ReadOnly   bool                   `json:"readOnly,omitempty"`
 	Properties map[string]*schemaNode `json:"properties,omitempty"`
 	Required   []string               `json:"required,omitempty"`
 	Items      *schemaNode            `json:"items,omitempty"`
@@ -254,8 +255,9 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		return nil
 	}
 	out := &rawir.RawSchema{
-		Ref:  s.Ref,
-		Type: s.Type,
+		Ref:      s.Ref,
+		Type:     s.Type,
+		ReadOnly: s.ReadOnly,
 	}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*rawir.RawSchema, len(s.Properties))
