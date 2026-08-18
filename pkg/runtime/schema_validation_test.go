@@ -93,6 +93,61 @@ func TestValidateOperationInput_StaticBodySchema(t *testing.T) {
 	}
 }
 
+func TestValidateOperationInput_TypelessSchemaKeywordsDoNotImplyType(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *SchemaSpec
+		body   string
+		want   string
+	}{
+		{
+			name: "object keywords permit non object",
+			schema: &SchemaSpec{
+				Required:   []string{"name"},
+				Properties: map[string]*SchemaSpec{"name": {Type: "string"}},
+			},
+			body: `"value"`,
+		},
+		{
+			name: "object keywords validate object",
+			schema: &SchemaSpec{
+				Required:   []string{"name"},
+				Properties: map[string]*SchemaSpec{"name": {Type: "string"}},
+			},
+			body: `{}`,
+			want: `$.name: required field missing`,
+		},
+		{
+			name:   "items keyword permits non array",
+			schema: &SchemaSpec{Items: &SchemaSpec{Type: "string"}},
+			body:   `true`,
+		},
+		{
+			name:   "items keyword validates array",
+			schema: &SchemaSpec{Items: &SchemaSpec{Type: "string"}},
+			body:   `[1]`,
+			want:   `$[0]: expected string, got number`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = tc.schema
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestStaticBodySchemaRejectsExecutionBeforeTransport(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())

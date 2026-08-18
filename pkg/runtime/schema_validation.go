@@ -36,60 +36,36 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 		return nil
 	}
 	expected := schema.Type
-	if expected == "" {
-		switch {
-		case len(schema.Properties) > 0 || len(schema.Required) > 0:
-			expected = "object"
-		case schema.Items != nil:
-			expected = "array"
-		}
-	}
 	if value == nil {
 		if schema.Nullable || expected == "" || expected == "null" {
 			return nil
 		}
 		return schemaTypeError(path, expected, value)
 	}
+	if expected == "" {
+		switch value := value.(type) {
+		case map[string]any:
+			return validateSchemaObject(schema, value, path)
+		case []any:
+			return validateSchemaArray(schema, value, path)
+		default:
+			return nil
+		}
+	}
 
 	switch expected {
-	case "":
-		return nil
 	case "object":
 		object, ok := value.(map[string]any)
 		if !ok {
 			return schemaTypeError(path, expected, value)
 		}
-		for _, name := range schema.Required {
-			if _, ok := object[name]; !ok {
-				return fmt.Errorf("request body %s: required field missing", schemaPropertyPath(path, name))
-			}
-		}
-		names := make([]string, 0, len(schema.Properties))
-		for name := range schema.Properties {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			child, ok := object[name]
-			if !ok {
-				continue
-			}
-			if err := validateSchemaValue(schema.Properties[name], child, schemaPropertyPath(path, name)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return validateSchemaObject(schema, object, path)
 	case "array":
 		array, ok := value.([]any)
 		if !ok {
 			return schemaTypeError(path, expected, value)
 		}
-		for i, item := range array {
-			if err := validateSchemaValue(schema.Items, item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return validateSchemaArray(schema, array, path)
 	case "string":
 		if _, ok := value.(string); !ok {
 			return schemaTypeError(path, expected, value)
@@ -111,6 +87,38 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 		return schemaTypeError(path, expected, value)
 	default:
 		return nil
+	}
+	return nil
+}
+
+func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string) error {
+	for _, name := range schema.Required {
+		if _, ok := object[name]; !ok {
+			return fmt.Errorf("request body %s: required field missing", schemaPropertyPath(path, name))
+		}
+	}
+	names := make([]string, 0, len(schema.Properties))
+	for name := range schema.Properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		child, ok := object[name]
+		if !ok {
+			continue
+		}
+		if err := validateSchemaValue(schema.Properties[name], child, schemaPropertyPath(path, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSchemaArray(schema *SchemaSpec, array []any, path string) error {
+	for i, item := range array {
+		if err := validateSchemaValue(schema.Items, item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
