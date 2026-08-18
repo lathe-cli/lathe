@@ -24,6 +24,18 @@ func TestConvertSchema_PreservesReadOnly(t *testing.T) {
 	}
 }
 
+func TestConvertSchema_IgnoresReferenceSiblings(t *testing.T) {
+	got := convertSchema(&schemaNode{
+		Ref:      rawir.RefPrefix + "Resource",
+		Type:     "string",
+		ReadOnly: true,
+		Required: []string{"name"},
+	})
+	if got.Ref != rawir.RefPrefix+"Resource" || got.Type != "" || got.ReadOnly || len(got.Required) != 0 {
+		t.Fatalf("schema = %#v, want reference without ignored siblings", got)
+	}
+}
+
 func TestParse_Golden(t *testing.T) {
 	cases := []struct {
 		name  string

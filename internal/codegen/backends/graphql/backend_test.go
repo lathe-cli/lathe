@@ -525,7 +525,10 @@ type App { id: ID! }
 	if schema == nil || schema.Properties["input"] == nil {
 		t.Fatalf("body schema = %+v, want input object", schema)
 	}
-	input := schema.Properties["input"]
+	input := rawir.Resolve(schema.Properties["input"], mod.Schemas)
+	if input == nil {
+		t.Fatal("input schema reference did not resolve")
+	}
 	if !reflect.DeepEqual(input.Required, []string{"name", "members"}) {
 		t.Fatalf("input required = %#v", input.Required)
 	}
@@ -533,8 +536,9 @@ type App { id: ID! }
 	if members == nil || members.Type != "array" || members.Items == nil {
 		t.Fatalf("members schema = %+v, want array item schema", members)
 	}
-	if !reflect.DeepEqual(members.Items.Required, []string{"email"}) {
-		t.Fatalf("member required = %#v", members.Items.Required)
+	member := rawir.Resolve(members.Items, mod.Schemas)
+	if member == nil || !reflect.DeepEqual(member.Required, []string{"email"}) {
+		t.Fatalf("member schema = %#v, want required email", member)
 	}
 }
 
@@ -564,9 +568,13 @@ type App { id: ID! }
 	if payload == nil || !payload.Nullable || payload.Type != "" {
 		t.Fatalf("payload schema = %#v, want unconstrained nullable custom scalar", payload)
 	}
-	profile := schema.Properties["profile"]
-	if profile == nil || !profile.Nullable {
-		t.Fatalf("profile schema = %#v, want nullable input object", profile)
+	profileRef := schema.Properties["profile"]
+	if profileRef == nil || !profileRef.Nullable {
+		t.Fatalf("profile reference = %#v, want nullable input object use", profileRef)
+	}
+	profile := rawir.Resolve(profileRef, mod.Schemas)
+	if profile == nil {
+		t.Fatal("profile schema reference did not resolve")
 	}
 	if nickname := profile.Properties["nickname"]; nickname == nil || !nickname.Nullable {
 		t.Fatalf("nickname schema = %#v, want nullable string", nickname)
@@ -581,6 +589,34 @@ type App { id: ID! }
 	tags := profile.Properties["tags"]
 	if tags == nil || !tags.Nullable || !tags.AcceptSingletonArray || tags.Items == nil || tags.Items.Nullable {
 		t.Fatalf("tags schema = %#v, want nullable list with non-null items", tags)
+	}
+}
+
+func TestParse_PreservesRecursiveGraphQLInputSchema(t *testing.T) {
+	const sdl = `
+input NodeInput { name: String!, next: NodeInput }
+type Query { ping: String }
+type Mutation { createNode(node: NodeInput!): App! }
+type App { id: ID! }
+`
+	mod, err := parseSDL(t, sdl, nil, []string{"createNode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := byID(mod.Operations)["console_createNode"]
+	nodeRef := op.RequestBody.Schema.Properties["node"]
+	definition := rawir.Resolve(nodeRef, mod.Schemas)
+	if definition == nil || definition.Properties["next"] == nil || definition.Properties["next"].Ref != rawir.RefPrefix+"NodeInput" {
+		t.Fatalf("raw recursive schema = %#v, definitions = %#v", nodeRef, mod.Schemas)
+	}
+
+	body := normalize.Normalize(mod)[0].RequestBody
+	node := body.Schema.Properties["node"]
+	if node == nil || node.Properties["next"] == nil || node.Properties["next"].Ref != rawir.RefPrefix+"NodeInput" {
+		t.Fatalf("normalized node schema = %#v, want recursive reference", node)
+	}
+	if body.SchemaDefinitions["NodeInput"] == nil {
+		t.Fatalf("runtime definitions = %#v, want NodeInput", body.SchemaDefinitions)
 	}
 }
 

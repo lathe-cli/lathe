@@ -288,8 +288,10 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 	if s == nil {
 		return nil
 	}
+	if s.Ref != "" {
+		return &rawir.RawSchema{Ref: s.Ref}
+	}
 	out := &rawir.RawSchema{
-		Ref:      s.Ref,
 		Type:     s.Type,
 		ReadOnly: s.ReadOnly,
 	}

@@ -34,7 +34,7 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		return nil, fmt.Errorf("parse schema %s: %w", rel, err)
 	}
 
-	g := &generator{schema: schema, module: src.Name, config: src.GraphQL}
+	g := &generator{schema: schema, module: src.Name, config: src.GraphQL, schemas: map[string]*rawir.RawSchema{}}
 	var ops []rawir.RawOperation
 	seen := map[string]bool{}
 	roots := []struct {
@@ -74,13 +74,14 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 	if len(ops) == 0 {
 		return nil, fmt.Errorf("no operations matched the graphql.expose policy for source %q", src.Name)
 	}
-	return &rawir.RawModule{Name: src.Name, Operations: ops}, nil
+	return &rawir.RawModule{Name: src.Name, Operations: ops, Schemas: g.schemas}, nil
 }
 
 type generator struct {
-	schema *ast.Schema
-	module string
-	config *sourceconfig.GraphQLConfig
+	schema  *ast.Schema
+	module  string
+	config  *sourceconfig.GraphQLConfig
+	schemas map[string]*rawir.RawSchema
 }
 
 func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.RawOperation, error) {
@@ -91,7 +92,7 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	for _, arg := range field.Arguments {
 		varDefs = append(varDefs, "$"+arg.Name+": "+arg.Type.String())
 		argList = append(argList, arg.Name+": $"+arg.Name)
-		argSchema, err := g.variableSchema(arg.Type, map[string]bool{})
+		argSchema, err := g.variableSchema(arg.Type)
 		if err != nil {
 			return rawir.RawOperation{}, fmt.Errorf("%s %q: argument %q schema: %w", opType, field.Name, arg.Name, err)
 		}
@@ -220,13 +221,13 @@ func (g *generator) inputObjectParams(prefix string, typ *ast.Type, required boo
 	return params, nil
 }
 
-func (g *generator) variableSchema(typ *ast.Type, onPath map[string]bool) (*rawir.RawSchema, error) {
+func (g *generator) variableSchema(typ *ast.Type) (*rawir.RawSchema, error) {
 	if typ == nil {
 		return nil, nil
 	}
 	nullable := !typ.NonNull
 	if typ.Elem != nil {
-		item, err := g.variableSchema(typ.Elem, onPath)
+		item, err := g.variableSchema(typ.Elem)
 		if err != nil {
 			return nil, err
 		}
@@ -245,26 +246,23 @@ func (g *generator) variableSchema(typ *ast.Type, onPath map[string]bool) (*rawi
 	if def.Kind != ast.InputObject {
 		return &rawir.RawSchema{Type: "object", Nullable: nullable}, nil
 	}
-	if onPath[def.Name] {
-		return &rawir.RawSchema{Type: "object", Nullable: nullable}, nil
-	}
-
-	next := clonePath(onPath)
-	next[def.Name] = true
-	schema := &rawir.RawSchema{Type: "object", Nullable: nullable, Properties: map[string]*rawir.RawSchema{}}
-	for _, field := range def.Fields {
-		fieldSchema, err := g.variableSchema(field.Type, next)
-		if err != nil {
-			return nil, err
-		}
-		if fieldSchema != nil {
-			schema.Properties[field.Name] = fieldSchema
-		}
-		if field.Type.NonNull && field.DefaultValue == nil {
-			schema.Required = append(schema.Required, field.Name)
+	if _, ok := g.schemas[def.Name]; !ok {
+		definition := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
+		g.schemas[def.Name] = definition
+		for _, field := range def.Fields {
+			fieldSchema, err := g.variableSchema(field.Type)
+			if err != nil {
+				return nil, err
+			}
+			if fieldSchema != nil {
+				definition.Properties[field.Name] = fieldSchema
+			}
+			if field.Type.NonNull && field.DefaultValue == nil {
+				definition.Required = append(definition.Required, field.Name)
+			}
 		}
 	}
-	return schema, nil
+	return &rawir.RawSchema{Ref: rawir.RefPrefix + def.Name, Nullable: nullable}, nil
 }
 
 func (g *generator) selectionSet(typeName string, depth int, onPath map[string]bool) (string, error) {
