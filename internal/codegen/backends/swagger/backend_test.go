@@ -36,6 +36,27 @@ func TestConvertSchema_IgnoresReferenceSiblings(t *testing.T) {
 	}
 }
 
+func TestConvertSchema_PreservesSupportedCompositionMetadata(t *testing.T) {
+	var schema schemaNode
+	input := `{
+  "allOf": [
+    {"type":"object","required":["name"],"properties":{"name":{"type":"string"}}},
+    {"type":"object","properties":{"labels":{"type":"object","additionalProperties":{"type":"integer"}}}}
+  ]
+}`
+	if err := json.Unmarshal([]byte(input), &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	got := convertSchema(&schema)
+	if len(got.AllOf) != 2 || got.AllOf[0].Properties["name"] == nil || !reflect.DeepEqual(got.AllOf[0].Required, []string{"name"}) {
+		t.Fatalf("allOf = %#v, want required name branch", got.AllOf)
+	}
+	labels := got.AllOf[1].Properties["labels"]
+	if labels == nil || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "integer" {
+		t.Fatalf("labels = %#v, want integer additionalProperties", labels)
+	}
+}
+
 func TestParse_Golden(t *testing.T) {
 	cases := []struct {
 		name  string
