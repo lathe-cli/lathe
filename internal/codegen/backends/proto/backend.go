@@ -406,7 +406,9 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 	if reqMsg == nil {
 		return nil
 	}
-	if schema, ok := protoJSONWellKnownSchema(idx.fullNameOf(reqMsg)); ok {
+	requestType := idx.fullNameOf(reqMsg)
+	if schema, ok := protoJSONWellKnownSchema(requestType); ok {
+		schema.Nullable = protoJSONWrapperType(requestType)
 		return schema
 	}
 	schema := &rawir.RawSchema{
@@ -518,6 +520,18 @@ func protoJSONWellKnownSchema(typeName string) (*rawir.RawSchema, bool) {
 		return &rawir.RawSchema{}, true
 	default:
 		return nil, false
+	}
+}
+
+func protoJSONWrapperType(typeName string) bool {
+	switch typeName {
+	case ".google.protobuf.DoubleValue", ".google.protobuf.FloatValue",
+		".google.protobuf.Int64Value", ".google.protobuf.UInt64Value",
+		".google.protobuf.Int32Value", ".google.protobuf.UInt32Value",
+		".google.protobuf.BoolValue", ".google.protobuf.StringValue", ".google.protobuf.BytesValue":
+		return true
+	default:
+		return false
 	}
 }
 

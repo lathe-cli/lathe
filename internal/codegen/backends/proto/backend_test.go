@@ -150,15 +150,28 @@ func TestScalarOrMessageSchema_MapsProtoJSONWellKnownTypes(t *testing.T) {
 }
 
 func TestBodyWildcardSchema_MapsProtoJSONWellKnownRequest(t *testing.T) {
-	entry := &messageEntry{
-		file: &descriptorpb.FileDescriptorProto{Package: proto.String("google.protobuf")},
-		msg:  &descriptorpb.DescriptorProto{Name: proto.String("Timestamp")},
+	tests := []struct {
+		name         string
+		wantType     string
+		wantNullable bool
+	}{
+		{name: "Timestamp", wantType: "string"},
+		{name: "StringValue", wantType: "string", wantNullable: true},
 	}
-	idx := &index{messages: map[string]*messageEntry{".google.protobuf.Timestamp": entry}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			typeName := ".google.protobuf." + tc.name
+			entry := &messageEntry{
+				file: &descriptorpb.FileDescriptorProto{Package: proto.String("google.protobuf")},
+				msg:  &descriptorpb.DescriptorProto{Name: proto.String(tc.name)},
+			}
+			idx := &index{messages: map[string]*messageEntry{typeName: entry}}
 
-	schema := idx.bodyWildcardSchema(entry, nil, map[string]*rawir.RawSchema{})
-	if schema.Type != "string" {
-		t.Fatalf("type = %q, want canonical ProtoJSON string", schema.Type)
+			schema := idx.bodyWildcardSchema(entry, nil, map[string]*rawir.RawSchema{})
+			if schema.Type != tc.wantType || schema.Nullable != tc.wantNullable {
+				t.Fatalf("schema = %#v, want type %q nullable=%t", schema, tc.wantType, tc.wantNullable)
+			}
+		})
 	}
 }
 
