@@ -148,6 +148,89 @@ func TestValidateOperationInput_TypelessSchemaKeywordsDoNotImplyType(t *testing.
 	}
 }
 
+func TestValidateOperationInput_ComposedSchemas(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *SchemaSpec
+		body   string
+		want   string
+	}{
+		{
+			name: "allOf valid",
+			schema: &SchemaSpec{AllOf: []*SchemaSpec{
+				{Type: "object"},
+				{Type: "object", Required: []string{"name"}, Properties: map[string]*SchemaSpec{"name": {Type: "string"}}},
+			}},
+			body: `{"name":"demo"}`,
+		},
+		{
+			name: "allOf branch failure",
+			schema: &SchemaSpec{AllOf: []*SchemaSpec{
+				{Type: "object"},
+				{Type: "object", Required: []string{"name"}, Properties: map[string]*SchemaSpec{"name": {Type: "string"}}},
+			}},
+			body: `{}`,
+			want: `$.name: required field missing`,
+		},
+		{name: "anyOf string", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `"demo"`},
+		{name: "anyOf integer", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `1`},
+		{name: "anyOf failure", schema: &SchemaSpec{AnyOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `true`, want: `anyOf`},
+		{name: "oneOf one match", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "number"}, {Type: "integer"}}}, body: `1.5`},
+		{name: "oneOf multiple matches", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "number"}, {Type: "integer"}}}, body: `1`, want: `oneOf`},
+		{name: "oneOf no match", schema: &SchemaSpec{OneOf: []*SchemaSpec{{Type: "string"}, {Type: "integer"}}}, body: `true`, want: `oneOf`},
+		{name: "nullable composition", schema: &SchemaSpec{Nullable: true, AllOf: []*SchemaSpec{{Type: "object"}}}, body: `null`},
+		{name: "non nullable composition", schema: &SchemaSpec{AllOf: []*SchemaSpec{{Type: "object"}}}, body: `null`, want: `expected object, got null`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = tc.schema
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateOperationInput_AdditionalProperties(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *AdditionalPropertiesSpec
+		body   string
+		want   string
+	}{
+		{name: "schema valid", schema: &AdditionalPropertiesSpec{Allowed: true, Schema: &SchemaSpec{Type: "integer"}}, body: `{"count":1}`},
+		{name: "schema invalid", schema: &AdditionalPropertiesSpec{Allowed: true, Schema: &SchemaSpec{Type: "integer"}}, body: `{"count":"bad"}`, want: `$.count: expected integer, got string`},
+		{name: "allowed", schema: &AdditionalPropertiesSpec{Allowed: true}, body: `{"count":"anything"}`},
+		{name: "disallowed", schema: &AdditionalPropertiesSpec{}, body: `{"count":1}`, want: `$.count: additional field not allowed`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := staticBodyCommandSpec()
+			spec.RequestBody.Schema = &SchemaSpec{Type: "object", AdditionalProperties: tc.schema}
+			err := validateOperationInput(spec, OperationInput{FileBody: []byte(tc.body), HasFile: true})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("validateOperationInput: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateOperationInput_StringEncodedInteger(t *testing.T) {
 	tests := []struct {
 		name   string

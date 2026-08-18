@@ -742,7 +742,7 @@ func runtimeSchemaForUse(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, v
 			if rawSchemaHasRefSiblings(s) {
 				sibling := *s
 				sibling.Ref = ""
-				return &runtime.SchemaSpec{AllOf: []*runtime.SchemaSpec{base, runtimeSchemaForUse(&sibling, defs, visited, request)}}
+				return &runtime.SchemaSpec{Nullable: s.Nullable, AllOf: []*runtime.SchemaSpec{base, runtimeSchemaForUse(&sibling, defs, visited, request)}}
 			}
 			base.Nullable = base.Nullable || s.Nullable
 			return base

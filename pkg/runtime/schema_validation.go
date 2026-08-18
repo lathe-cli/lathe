@@ -36,8 +36,14 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 		return nil
 	}
 	expected := schema.Type
+	if value == nil && schema.Nullable {
+		return nil
+	}
+	if err := validateSchemaCompositions(schema, value, path); err != nil {
+		return err
+	}
 	if value == nil {
-		if schema.Nullable || expected == "" || expected == "null" {
+		if expected == "" || expected == "null" {
 			return nil
 		}
 		return schemaTypeError(path, expected, value)
@@ -102,25 +108,72 @@ func validateSchemaValue(schema *SchemaSpec, value any, path string) error {
 	return nil
 }
 
+func validateSchemaCompositions(schema *SchemaSpec, value any, path string) error {
+	for _, branch := range schema.AllOf {
+		if err := validateSchemaValue(branch, value, path); err != nil {
+			return err
+		}
+	}
+	if len(schema.AnyOf) > 0 {
+		matched := false
+		for _, branch := range schema.AnyOf {
+			if validateSchemaValue(branch, value, path) == nil {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("request body %s: does not match any schema in anyOf", path)
+		}
+	}
+	if len(schema.OneOf) > 0 {
+		matches := 0
+		for _, branch := range schema.OneOf {
+			if validateSchemaValue(branch, value, path) == nil {
+				matches++
+			}
+		}
+		if matches != 1 {
+			return fmt.Errorf("request body %s: matches %d schemas in oneOf, want exactly one", path, matches)
+		}
+	}
+	return nil
+}
+
 func validateSchemaObject(schema *SchemaSpec, object map[string]any, path string) error {
 	for _, name := range schema.Required {
 		if _, ok := object[name]; !ok {
 			return fmt.Errorf("request body %s: required field missing", schemaPropertyPath(path, name))
 		}
 	}
-	names := make([]string, 0, len(schema.Properties))
-	for name := range schema.Properties {
+	names := make([]string, 0, len(object))
+	for name := range object {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		child, ok := object[name]
-		if !ok {
+		child := object[name]
+		property, declared := schema.Properties[name]
+		if declared {
+			if err := validateSchemaValue(property, child, schemaPropertyPath(path, name)); err != nil {
+				return err
+			}
 			continue
 		}
-		if err := validateSchemaValue(schema.Properties[name], child, schemaPropertyPath(path, name)); err != nil {
-			return err
+		additional := schema.AdditionalProperties
+		if additional == nil {
+			continue
 		}
+		if additional.Schema != nil {
+			if err := validateSchemaValue(additional.Schema, child, schemaPropertyPath(path, name)); err != nil {
+				return err
+			}
+			continue
+		}
+		if additional.Allowed {
+			continue
+		}
+		return fmt.Errorf("request body %s: additional field not allowed", schemaPropertyPath(path, name))
 	}
 	return nil
 }

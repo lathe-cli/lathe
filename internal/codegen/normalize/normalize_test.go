@@ -154,6 +154,21 @@ func TestNormalize_RequestBodyPreservesProtoJSONMetadata(t *testing.T) {
 	}
 }
 
+func TestRuntimeSchema_RefSiblingsPreserveNullable(t *testing.T) {
+	defs := map[string]*rawir.RawSchema{
+		"Resource": {Type: "object"},
+	}
+	schema := runtimeSchema(&rawir.RawSchema{
+		Ref:      rawir.RefPrefix + "Resource",
+		Type:     "object",
+		Nullable: true,
+	}, defs, map[string]bool{})
+
+	if !schema.Nullable || len(schema.AllOf) != 2 {
+		t.Fatalf("schema = %#v, want nullable allOf wrapper", schema)
+	}
+}
+
 func TestNormalize_SuccessResponseHints(t *testing.T) {
 	listSchema := func(listPath string) *rawir.RawSchema {
 		return &rawir.RawSchema{
