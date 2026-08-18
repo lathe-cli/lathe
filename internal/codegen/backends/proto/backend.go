@@ -512,8 +512,13 @@ func protoJSONWellKnownSchema(typeName string) (*rawir.RawSchema, bool) {
 		return &rawir.RawSchema{Type: "integer", AcceptStringEncodedInteger: true}, true
 	case ".google.protobuf.BoolValue":
 		return &rawir.RawSchema{Type: "boolean"}, true
-	case ".google.protobuf.Struct", ".google.protobuf.Any", ".google.protobuf.Empty":
+	case ".google.protobuf.Struct", ".google.protobuf.Any":
 		return &rawir.RawSchema{Type: "object"}, true
+	case ".google.protobuf.Empty":
+		return &rawir.RawSchema{
+			Type:                 "object",
+			AdditionalProperties: &rawir.RawAdditionalProperties{Allowed: false},
+		}, true
 	case ".google.protobuf.ListValue":
 		return &rawir.RawSchema{Type: "array", Items: &rawir.RawSchema{}}, true
 	case ".google.protobuf.Value":

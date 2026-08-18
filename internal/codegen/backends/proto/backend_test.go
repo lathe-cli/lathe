@@ -111,6 +111,7 @@ func TestScalarOrMessageSchema_MapsProtoJSONWellKnownTypes(t *testing.T) {
 		wantStringEncodedInteger   bool
 		wantStringEncodedNumber    bool
 		wantUnconstrainedArrayItem bool
+		wantClosedObject           bool
 	}{
 		{name: "timestamp", typeName: ".google.protobuf.Timestamp", wantType: "string"},
 		{name: "duration", typeName: ".google.protobuf.Duration", wantType: "string"},
@@ -128,6 +129,7 @@ func TestScalarOrMessageSchema_MapsProtoJSONWellKnownTypes(t *testing.T) {
 		{name: "list value", typeName: ".google.protobuf.ListValue", wantType: "array", wantUnconstrainedArrayItem: true},
 		{name: "value", typeName: ".google.protobuf.Value"},
 		{name: "any", typeName: ".google.protobuf.Any", wantType: "object"},
+		{name: "empty", typeName: ".google.protobuf.Empty", wantType: "object", wantClosedObject: true},
 	}
 
 	for _, tc := range tests {
@@ -144,6 +146,10 @@ func TestScalarOrMessageSchema_MapsProtoJSONWellKnownTypes(t *testing.T) {
 			}
 			if got := schema.Items != nil && schema.Items.Type == ""; got != tc.wantUnconstrainedArrayItem {
 				t.Fatalf("unconstrained array item = %v, want %v", got, tc.wantUnconstrainedArrayItem)
+			}
+			gotClosedObject := schema.AdditionalProperties != nil && !schema.AdditionalProperties.Allowed && schema.AdditionalProperties.Schema == nil
+			if gotClosedObject != tc.wantClosedObject {
+				t.Fatalf("closed object = %v, want %v", gotClosedObject, tc.wantClosedObject)
 			}
 		})
 	}
