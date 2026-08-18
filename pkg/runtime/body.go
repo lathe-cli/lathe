@@ -20,8 +20,7 @@ func ReadBody(path string) ([]byte, error) {
 // BuildBodyFromSet turns repeated --set key.path=value flags into a JSON
 // document. Dotted keys produce nested objects. Value types are inferred:
 // "true"/"false" → bool, "null" → null, integer/float strings → number,
-// otherwise string. No schema validation — runtime stays schema-agnostic;
-// the spec only carries a SchemaRef for future use.
+// otherwise string.
 func BuildBodyFromSet(sets []string) ([]byte, error) {
 	return buildBodyFromSet(sets, nil)
 }

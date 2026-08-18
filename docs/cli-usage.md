@@ -320,8 +320,10 @@ The schema operation uses the same hostname and cannot require stronger auth
 than the target. Normal execution fetches the schema and validates the JSON
 body before the target request. External `$ref` loading is disabled.
 `--dry-run` remains network-free and skips this preflight. Static request-body
-schemas from the API spec remain discovery metadata; they are not runtime
-validators.
+schemas from API specs validate ordinary JSON bodies before host resolution,
+auth, or transport for direct commands, dry-runs, and workflows. Validation is
+limited to declared object, array, scalar, nullable, property, item, and required
+field metadata; unsupported schema constraints remain discovery metadata.
 
 ### Stream Collection
 

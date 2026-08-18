@@ -229,6 +229,9 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	if err != nil {
 		return "", nil, ClientOptions{}, err
 	}
+	if err := validateStaticRequestBody(s, body); err != nil {
+		return "", nil, ClientOptions{}, err
+	}
 	if err := validateRequiredVariableParams(s, body); err != nil {
 		return "", nil, ClientOptions{}, err
 	}
