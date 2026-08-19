@@ -96,6 +96,10 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"acmectl commands show <path...> --json",
 		"acmectl commands schema --json",
 		"auth.required=true",
+		"mutation",
+		"dry_run",
+		"not `read`",
+		"explicit user confirmation",
 		"references/modules/users.md",
 		"flags[].input_modes",
 		"error.code",
@@ -121,7 +125,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 
 	catalog := readFile(t, dir, "skills/acmectl/references/catalog.md")
-	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "input_modes", "body.runtime_schema", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json", "error.http", "pause exits zero"} {
+	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "input_modes", "body.runtime_schema", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json", "error.http", "pause exits zero", "`mutation`", "`dry_run`", "catalog_schema_version", "surfaces", "other than `read`", "explicit user confirmation"} {
 		if !strings.Contains(catalog, want) {
 			t.Errorf("catalog.md missing %q", want)
 		}

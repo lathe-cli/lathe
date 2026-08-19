@@ -120,8 +120,20 @@ func verifyCommandsSchema(root *cobra.Command, catalog runtime.Catalog) error {
 	if findCommand(root, []string{"commands", "schema"}) == nil {
 		return errors.New("missing commands schema command")
 	}
-	if catalog.CatalogSchemaVersion != runtime.CatalogSchemaVersion {
-		return fmt.Errorf("catalog schema = %d, want %d", catalog.CatalogSchemaVersion, runtime.CatalogSchemaVersion)
+	schema := runtime.CatalogSchemaDocument()
+	if catalog.CatalogSchemaVersion != schema.CatalogSchemaVersion {
+		return fmt.Errorf("catalog schema = %d, want %d", catalog.CatalogSchemaVersion, schema.CatalogSchemaVersion)
+	}
+	if !reflect.DeepEqual(schema.Surfaces, []string{
+		runtime.CatalogSurfaceCommands,
+		runtime.CatalogSurfaceCommandsShow,
+		runtime.CatalogSurfaceCommandsSchema,
+		runtime.CatalogSurfaceSearch,
+	}) {
+		return fmt.Errorf("catalog schema surfaces = %#v", schema.Surfaces)
+	}
+	if schema.DryRun.Result != runtime.DryRunHTTPPreview {
+		return fmt.Errorf("catalog schema dry_run.result = %q", schema.DryRun.Result)
 	}
 	return nil
 }
@@ -176,6 +188,44 @@ func verifyCatalogEntry(root *cobra.Command, m *config.Manifest, entry runtime.C
 				return fmt.Errorf("%q required body missing --file flag", path)
 			}
 		}
+	}
+	if err := verifyCatalogContract(entry); err != nil {
+		return fmt.Errorf("%q %w", path, err)
+	}
+	if entry.DryRun != nil && entry.DryRun.Mode == runtime.DryRunHTTPPreview {
+		if runtime.WiredDryRunFlag(cmd) != entry.DryRun.Flag {
+			return fmt.Errorf("%q catalog dry_run is not wired to the operation runner", path)
+		}
+		if cmd.Flags().Lookup(entry.DryRun.Flag) == nil {
+			return fmt.Errorf("%q catalog dry_run requires missing --%s flag", path, entry.DryRun.Flag)
+		}
+	}
+	return nil
+}
+
+func verifyCatalogContract(entry runtime.CatalogCommand) error {
+	switch entry.Mutation {
+	case runtime.MutationRead, runtime.MutationWrite, runtime.MutationUnknown:
+	default:
+		return fmt.Errorf("invalid mutation %q", entry.Mutation)
+	}
+	if entry.DryRun == nil {
+		return fmt.Errorf("missing dry_run")
+	}
+	switch entry.DryRun.Mode {
+	case runtime.DryRunUnsupported:
+		if entry.DryRun.Flag != "" {
+			return fmt.Errorf("unsupported dry_run must not declare a flag")
+		}
+	case runtime.DryRunHTTPPreview:
+		if entry.Kind == "workflow" {
+			return fmt.Errorf("workflow dry_run.mode = %q", entry.DryRun.Mode)
+		}
+		if entry.DryRun.Flag == "" {
+			return fmt.Errorf("operation dry_run.flag is empty")
+		}
+	default:
+		return fmt.Errorf("invalid dry_run.mode %q", entry.DryRun.Mode)
 	}
 	return nil
 }

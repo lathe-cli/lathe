@@ -156,7 +156,10 @@ the `workflow.dsl` capability, and `__lathe verify --json` adds the
 `workflow_contract` check.
 
 Use the running binary's `commands schema --json` result as the current catalog
-version; do not hard-code an old version in integrations.
+version; do not hard-code an old version in integrations. Workflow catalog
+entries set `mutation` from the heaviest step and `dry_run.mode=unsupported`.
+When that mutation is not `read`, obtain explicit user confirmation before
+execution; there is no workflow-level preview.
 
 ## Deliberate limits
 

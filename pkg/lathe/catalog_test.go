@@ -83,6 +83,12 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 	if len(entry.Examples) != 1 || entry.Examples[0].Command != "myctl demo users get-user --id 123 -o json" || entry.Examples[0].OutputHints.IDPath != "data.user.id" {
 		t.Fatalf("examples = %#v", entry.Examples)
 	}
+	if entry.Mutation != runtime.MutationRead {
+		t.Fatalf("mutation = %q", entry.Mutation)
+	}
+	if entry.DryRun == nil || entry.DryRun.Mode != runtime.DryRunHTTPPreview || entry.DryRun.Flag != "dry-run" {
+		t.Fatalf("dry_run = %+v", entry.DryRun)
+	}
 	if len(entry.Flags) != 2 || !entry.Flags[1].Required || entry.Flags[1].Name != "type" {
 		t.Fatalf("required query flag = %#v", entry.Flags)
 	}
@@ -126,6 +132,9 @@ func TestCommandsShow_EnvelopeBody(t *testing.T) {
 	}
 	if entry.HTTP.Method != "POST" || entry.HTTP.PathTemplate != "/graphql" {
 		t.Fatalf("http = %+v", entry.HTTP)
+	}
+	if entry.Mutation != runtime.MutationWrite {
+		t.Fatalf("mutation = %q", entry.Mutation)
 	}
 	for _, want := range []string{`"template"`, `"merge_path"`} {
 		if !strings.Contains(out, want) {
@@ -180,12 +189,19 @@ func TestCommandsSchemaJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var data map[string]int
-	if err := json.Unmarshal([]byte(out), &data); err != nil {
+	var schema runtime.CatalogSchema
+	if err := json.Unmarshal([]byte(out), &schema); err != nil {
 		t.Fatal(err)
 	}
-	if data["catalog_schema_version"] != runtime.CatalogSchemaVersion {
-		t.Fatalf("schema = %d", data["catalog_schema_version"])
+	want := runtime.CatalogSchemaDocument()
+	if schema.CatalogSchemaVersion != want.CatalogSchemaVersion {
+		t.Fatalf("schema = %d", schema.CatalogSchemaVersion)
+	}
+	if schema.DryRun.Result != want.DryRun.Result {
+		t.Fatalf("dry_run = %+v", schema.DryRun)
+	}
+	if !strings.Contains(out, `"surfaces"`) || !strings.Contains(out, `"commands.show"`) {
+		t.Fatalf("schema JSON missing surfaces:\n%s", out)
 	}
 }
 

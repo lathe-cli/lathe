@@ -12,11 +12,30 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 17
+const CatalogSchemaVersion = 18
 const DefaultSearchLimit = 20
+
+const (
+	MutationRead    = "read"
+	MutationWrite   = "write"
+	MutationUnknown = "unknown"
+)
+
+const (
+	DryRunHTTPPreview = "http_preview"
+	DryRunUnsupported = "unsupported"
+)
+
+const (
+	CatalogSurfaceCommands       = "commands"
+	CatalogSurfaceCommandsShow   = "commands.show"
+	CatalogSurfaceCommandsSchema = "commands.schema"
+	CatalogSurfaceSearch         = "search"
+)
 
 const catalogCommandAnnotation = "lathe.catalog.command"
 const catalogCapabilitiesAnnotation = "lathe.catalog.capabilities"
+const catalogDryRunWiredAnnotation = "lathe.dry_run.wired"
 const CapabilitySkillBundle = "skill.bundle"
 const CapabilityWorkflowDSL = "workflow.dsl"
 
@@ -66,6 +85,8 @@ type CatalogCommand struct {
 	HTTP          CatalogHTTP        `json:"http"`
 	Workflow      *CatalogWorkflow   `json:"workflow,omitempty"`
 	Auth          CatalogAuth        `json:"auth"`
+	Mutation      string             `json:"mutation"`
+	DryRun        *CatalogDryRun     `json:"dry_run"`
 	Body          *CatalogBody       `json:"body,omitempty"`
 	Flags         []CatalogFlag      `json:"flags"`
 	Output        CatalogOutput      `json:"output"`
@@ -107,6 +128,34 @@ type CatalogHTTP struct {
 type CatalogAuth struct {
 	Required bool     `json:"required"`
 	Scopes   []string `json:"scopes,omitempty"`
+}
+
+type CatalogDryRun struct {
+	Mode string `json:"mode"`
+	Flag string `json:"flag,omitempty"`
+}
+
+type CatalogSchema struct {
+	CatalogSchemaVersion int                 `json:"catalog_schema_version"`
+	Surfaces             []string            `json:"surfaces"`
+	DryRun               CatalogSchemaDryRun `json:"dry_run"`
+}
+
+type CatalogSchemaDryRun struct {
+	Result string `json:"result"`
+}
+
+func CatalogSchemaDocument() CatalogSchema {
+	return CatalogSchema{
+		CatalogSchemaVersion: CatalogSchemaVersion,
+		Surfaces: []string{
+			CatalogSurfaceCommands,
+			CatalogSurfaceCommandsShow,
+			CatalogSurfaceCommandsSchema,
+			CatalogSurfaceSearch,
+		},
+		DryRun: CatalogSchemaDryRun{Result: DryRunHTTPPreview},
+	}
 }
 
 type CatalogBody struct {
@@ -182,6 +231,9 @@ type SearchResult struct {
 
 func AttachCatalogCommand(cmd *cobra.Command, service string, spec CommandSpec) {
 	entry := catalogCommand(service, spec, nil)
+	if flag := WiredDryRunFlag(cmd); flag != "" {
+		entry.DryRun = &CatalogDryRun{Mode: DryRunHTTPPreview, Flag: flag}
+	}
 	raw, err := json.Marshal(entry)
 	if err != nil {
 		panic(err)
@@ -190,6 +242,13 @@ func AttachCatalogCommand(cmd *cobra.Command, service string, spec CommandSpec) 
 		cmd.Annotations = map[string]string{}
 	}
 	cmd.Annotations[catalogCommandAnnotation] = string(raw)
+}
+
+func WiredDryRunFlag(cmd *cobra.Command) string {
+	if cmd == nil || cmd.Annotations == nil {
+		return ""
+	}
+	return cmd.Annotations[catalogDryRunWiredAnnotation]
 }
 
 func AttachCatalogWorkflowCommand(cmd *cobra.Command, spec WorkflowSpec) {
@@ -398,6 +457,8 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		OperationID: spec.OperationID,
 		HTTP:        CatalogHTTP{Method: spec.Method, PathTemplate: spec.PathTpl, DefaultHostname: spec.DefaultHostname},
 		Auth:        catalogAuth(spec.Security),
+		Mutation:    catalogMutation(spec),
+		DryRun:      &CatalogDryRun{Mode: DryRunUnsupported},
 		Flags:       flags,
 		Output: CatalogOutput{
 			ListPath:          spec.Output.ListPath,
@@ -498,8 +559,10 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 			OutputFrom: spec.OutputFrom,
 			Steps:      steps,
 		},
-		Auth:  auth,
-		Flags: flags,
+		Auth:     auth,
+		Mutation: catalogWorkflowMutation(spec),
+		DryRun:   &CatalogDryRun{Mode: DryRunUnsupported},
+		Flags:    flags,
 		Output: CatalogOutput{
 			ListPath:          spec.Output.ListPath,
 			DefaultColumns:    append([]string(nil), spec.Output.DefaultColumns...),
