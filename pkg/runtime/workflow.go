@@ -123,6 +123,7 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 		skipped: map[string]bool{},
 	}
 	result := WorkflowResult{Status: "ok", Steps: make([]WorkflowStepResult, 0, len(spec.Steps))}
+	var reporter hostReporter
 	for _, step := range spec.Steps {
 		stepResult := WorkflowStepResult{ID: step.ID, Status: "ok"}
 		fail := func(err error) (WorkflowResult, []byte, error) {
@@ -167,24 +168,26 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 			return fail(UsageError(cmd, err))
 		}
 
-		var hostname string
+		var host HostResolution
 		var clientOpts ClientOptions
 		if step.Operation.Security != nil && step.Operation.Security.Public {
-			hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
+			host, clientOpts, err = tryLoadHostOptions(cmd, step.Operation.DefaultHostname, true)
 		} else {
-			hostname, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
+			host, clientOpts, err = loadHostOptions(cmd, step.Operation.DefaultHostname, true)
 		}
 		if err != nil {
 			return fail(err)
 		}
+		reporter.noticeImplicitHost(cmd.ErrOrStderr(), host)
 		if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
 			clientOpts.Debug = true
 		}
 		clientOpts.UserAgent = cmd.Root().Use
 
 		opResult, err := InvokeOperation(cmd.Context(), step.Operation, input, OperationOptions{
-			Hostname: hostname,
-			Client:   clientOpts,
+			Hostname:   host.Hostname,
+			HostSource: host.Source,
+			Client:     clientOpts,
 		})
 		if err != nil {
 			return fail(err)

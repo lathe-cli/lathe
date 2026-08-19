@@ -113,6 +113,21 @@ rejects an empty field, or checks the raw response body when no field is set.
 With neither an assertion nor display paths, any successful response is
 accepted, including non-JSON.
 
+### Host Selection
+
+Host resolution order is `--hostname`, `$ACMECTL_HOST`, the selected host,
+`http.default_hostname`, then the single logged-in host. With several hosts and
+none of the above, the command fails and lists them.
+
+```sh
+bin/acmectl auth use api.acme.com
+```
+
+`auth use` marks the host `selected: true` in `hosts.yml`, as does the first
+`auth login`. When the host is chosen implicitly and more than one is logged
+in, the CLI prints `current host: <name>` on stderr; explicit selection is
+silent.
+
 ### Active Contexts
 
 Account-scoped defaults are opt-in:
@@ -415,7 +430,7 @@ bin/acmectl __lathe verify --json
 bin/acmectl __lathe verify --json
 bin/acmectl search "create user" --json
 bin/acmectl commands show users create --json
-bin/acmectl auth status --hostname api.acme.com
+bin/acmectl auth status -o json
 bin/acmectl users create --set email=alice@example.com --dry-run
 bin/acmectl users create --set email=alice@example.com -o json
 ```
