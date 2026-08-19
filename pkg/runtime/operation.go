@@ -21,6 +21,7 @@ type OperationInput struct {
 
 type OperationOptions struct {
 	Hostname    string
+	HostSource  string
 	Client      ClientOptions
 	DryRun      bool
 	PaginateAll bool
@@ -40,12 +41,14 @@ const (
 )
 
 type DryRunRequest struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Body    any               `json:"body"`
-	Auth    DryRunAuth        `json:"auth"`
-	Output  CatalogOutput     `json:"output"`
+	Method     string            `json:"method"`
+	URL        string            `json:"url"`
+	Hostname   string            `json:"hostname,omitempty"`
+	HostSource string            `json:"host_source,omitempty"`
+	Headers    map[string]string `json:"headers"`
+	Body       any               `json:"body"`
+	Auth       DryRunAuth        `json:"auth"`
+	Output     CatalogOutput     `json:"output"`
 }
 
 type DryRunAuth struct {
@@ -69,7 +72,7 @@ func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 		return OperationResult{}, err
 	}
 	if opts.DryRun {
-		out, err := buildDryRunRequest(ctx, s, opts.Hostname, path, body, clientOpts)
+		out, err := buildDryRunRequest(ctx, s, opts.Hostname, opts.HostSource, path, body, clientOpts)
 		if err != nil {
 			return OperationResult{}, err
 		}
@@ -290,17 +293,19 @@ func hasFormDataParams(params []ParamSpec) bool {
 	return false
 }
 
-func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, path string, body any, opts ClientOptions) (DryRunRequest, error) {
+func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, hostSource, path string, body any, opts ClientOptions) (DryRunRequest, error) {
 	req, bodyBytes, _, err := resolveRequest(ctx, hostname, s.Method, path, body, opts)
 	if err != nil {
 		return DryRunRequest{}, err
 	}
 	return DryRunRequest{
-		Method:  req.Method,
-		URL:     redactDebugURL(req.URL, opts.sensitiveQueryParams),
-		Headers: redactedDryRunHeaders(req.Header),
-		Body:    redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
-		Auth:    dryRunAuthForSpec(s),
+		Method:     req.Method,
+		URL:        redactDebugURL(req.URL, opts.sensitiveQueryParams),
+		Hostname:   hostname,
+		HostSource: hostSource,
+		Headers:    redactedDryRunHeaders(req.Header),
+		Body:       redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
+		Auth:       dryRunAuthForSpec(s),
 		Output: CatalogOutput{
 			ListPath:          s.Output.ListPath,
 			DefaultColumns:    append([]string(nil), s.Output.DefaultColumns...),

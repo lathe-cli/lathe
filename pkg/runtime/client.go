@@ -27,6 +27,7 @@ type ClientOptions struct {
 	Timeout     time.Duration
 	Headers     map[string]string
 	Debug       bool
+	Hostname    string
 	MaxRetries  int
 	UserAgent   string
 	Accept      string
@@ -76,7 +77,7 @@ func httpClient(opts ClientOptions, streaming bool) *http.Client {
 		transport = &retryTransport{inner: transport, maxRetries: maxRetries, debug: opts.Debug, safeMethodsOnly: safeMethodsOnly}
 	}
 	if opts.Debug {
-		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams, streaming: streaming}
+		transport = &debugTransport{inner: transport, sensitiveQueryParams: opts.sensitiveQueryParams, streaming: streaming, hostname: opts.Hostname}
 	}
 	return &http.Client{
 		Timeout:       timeout,

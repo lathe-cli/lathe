@@ -30,8 +30,8 @@ the contract from the running CLI:
 
 `commands schema --json` reports `catalog_schema_version`, the committed
 `surfaces`, and `dry_run.result`. `dry_run.result=http_preview` means a
-preview prints the resolved HTTP request JSON (`method`, `url`, `headers`,
-`body`, `auth`, `output`).
+preview prints the resolved HTTP request JSON (`method`, `url`, `hostname`,
+`host_source`, `headers`, `body`, `auth`, `output`).
 
 Catalog entries have two kinds:
 
@@ -49,7 +49,7 @@ operations are classified from the request template (`query` / `mutation`),
 not from HTTP POST. Other methods stay `unknown` unless the template proves
 otherwise.
 
-Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
+Framework commands such as `auth`, `host`, `commands`, `search`, `skill`, `update`, and
 `__lathe` are discovered through `--help`; they are not operation entries.
 `catalog.cli.capabilities` reports compiled first-party capabilities such as
 `skill.bundle` and `workflow.dsl`.

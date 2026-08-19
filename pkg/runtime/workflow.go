@@ -167,24 +167,28 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 			return fail(UsageError(cmd, err))
 		}
 
-		var hostname string
+		var res HostResolution
 		var clientOpts ClientOptions
 		if step.Operation.Security != nil && step.Operation.Security.Public {
-			hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
+			res, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
 		} else {
-			hostname, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
+			res, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, step.Operation.DefaultHostname, true)
 		}
 		if err != nil {
 			return fail(err)
 		}
+		hostname := res.Hostname
+		noticeImplicitHost(cmd.ErrOrStderr(), res)
 		if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
 			clientOpts.Debug = true
 		}
 		clientOpts.UserAgent = cmd.Root().Use
+		clientOpts.Hostname = hostname
 
 		opResult, err := InvokeOperation(cmd.Context(), step.Operation, input, OperationOptions{
-			Hostname: hostname,
-			Client:   clientOpts,
+			Hostname:   hostname,
+			HostSource: res.Source,
+			Client:     clientOpts,
 		})
 		if err != nil {
 			return fail(err)

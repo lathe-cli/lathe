@@ -13,6 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const defaultHostKey = "default"
+
 // https is the default and is stripped; http is an explicit downgrade and
 // is preserved so downstream BaseURL honors it.
 func NormalizeHostname(s string) string {
@@ -41,8 +43,9 @@ type HostEntry struct {
 }
 
 type Hosts struct {
-	entries map[string]HostEntry
-	path    string
+	defaultHost string
+	entries     map[string]HostEntry
+	path        string
 }
 
 func configDir() (string, error) {
@@ -85,18 +88,45 @@ func loadHostsPath(p string) (*Hosts, error) {
 		}
 		return nil, err
 	}
-	raw := map[string]HostEntry{}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
-	// One-time rekey: migrate any legacy keys that include scheme/slashes.
-	for k, v := range raw {
-		norm := NormalizeHostname(k)
-		if _, exists := h.entries[norm]; !exists || norm == k {
-			h.entries[norm] = v
+	mapping := mappingNode(&doc)
+	if mapping == nil {
+		return h, nil
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		key := mapping.Content[i].Value
+		val := mapping.Content[i+1]
+		if key == defaultHostKey && val.Kind == yaml.ScalarNode {
+			h.defaultHost = NormalizeHostname(val.Value)
+			continue
+		}
+		var e HostEntry
+		if err := val.Decode(&e); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", p, err)
+		}
+		norm := NormalizeHostname(key)
+		if _, exists := h.entries[norm]; !exists || norm == key {
+			h.entries[norm] = e
 		}
 	}
 	return h, nil
+}
+
+func mappingNode(doc *yaml.Node) *yaml.Node {
+	if doc == nil {
+		return nil
+	}
+	node := doc
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	return node
 }
 
 func (h *Hosts) Set(hostname string, e HostEntry) {
@@ -124,6 +154,23 @@ func (h *Hosts) Names() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Default returns the persisted default hostname, or "" if none is set.
+// The value is a plain hostname and never carries credentials.
+func (h *Hosts) Default() string {
+	return h.defaultHost
+}
+
+// SetDefault stores hostname as the persisted default. It does not write
+// credentials into the default field.
+func (h *Hosts) SetDefault(hostname string) {
+	h.defaultHost = NormalizeHostname(hostname)
+}
+
+// ClearDefault removes the persisted default hostname.
+func (h *Hosts) ClearDefault() {
+	h.defaultHost = ""
 }
 
 func (h *Hosts) Save() error {
@@ -167,7 +214,7 @@ func (h *Hosts) saveAtomic() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(h.entries)
+	data, err := h.marshal()
 	if err != nil {
 		return err
 	}
@@ -193,4 +240,25 @@ func (h *Hosts) saveAtomic() error {
 		return err
 	}
 	return replaceFile(tmpPath, h.path)
+}
+
+func (h *Hosts) marshal() ([]byte, error) {
+	doc := &yaml.Node{Kind: yaml.MappingNode}
+	if h.defaultHost != "" {
+		doc.Content = append(doc.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: defaultHostKey},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: h.defaultHost},
+		)
+	}
+	for _, name := range h.Names() {
+		var entryNode yaml.Node
+		if err := entryNode.Encode(h.entries[name]); err != nil {
+			return nil, err
+		}
+		doc.Content = append(doc.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: name},
+			&entryNode,
+		)
+	}
+	return yaml.Marshal(doc)
 }
