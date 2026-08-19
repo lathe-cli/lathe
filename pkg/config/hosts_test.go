@@ -11,6 +11,8 @@ func TestHostsRoundTripOAuthLoginFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHosts: %v", err)
 	}
+	hosts.Set("other.example.com", HostEntry{AuthType: "bearer"})
+	hosts.Select("other.example.com")
 	hosts.Set("https://api.example.com", HostEntry{
 		AuthType:          "bearer",
 		LoginType:         AuthLoginOAuthDevice,
@@ -21,6 +23,7 @@ func TestHostsRoundTripOAuthLoginFields(t *testing.T) {
 		OAuthExpiresAt:    1790000000,
 		Contexts:          map[string]string{"workspace": "ws-1"},
 	})
+	hosts.Select("https://api.example.com")
 	if err := hosts.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -38,5 +41,8 @@ func TestHostsRoundTripOAuthLoginFields(t *testing.T) {
 	}
 	if entry.Contexts["workspace"] != "ws-1" {
 		t.Fatalf("contexts = %#v", entry.Contexts)
+	}
+	if got := loaded.Selected(); got != "api.example.com" {
+		t.Fatalf("Selected = %q, want the last selection to be the only one", got)
 	}
 }

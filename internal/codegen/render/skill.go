@@ -494,7 +494,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	b.WriteString("## Workflow\n\n")
 	fmt.Fprintf(&b, "1. Search for candidates with `%s search \"<intent>\" --json`; use `--limit` when needed. Search is only candidate discovery.\n", cli)
 	fmt.Fprintf(&b, "2. Inspect the exact command with `%s commands show <path...> --json` before executing an unfamiliar command.\n", cli)
-	fmt.Fprintf(&b, "3. If the command detail has `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`.\n", cli, manifest.CLI.HostEnv)
+	fmt.Fprintf(&b, "3. If the command detail has `auth.required=true`, run `%s auth status -o json` before execution and read `hostname` and `source`. Host resolution order: `--hostname` > `$%s` > the selected host (`%s auth use <host>`) > `http.default_hostname` > the single host in `hosts.yml`. If none applies, stop and ask the user to authenticate or select a host.\n", cli, manifest.CLI.HostEnv, cli)
 	if len(manifest.Contexts) > 0 {
 		fmt.Fprintf(&b, "4. If a flag has `context`, inspect `%s auth context status -o json`. Explicit flags override the declared environment variable, which overrides the value stored for the selected host.\n", cli)
 		b.WriteString("5. Execute only after flags, body, auth, HTTP path, `mutation`, `dry_run`, and output hints are clear from `commands show`. When `mutation` is not `read`, preview with `--<dry_run.flag>` if `dry_run.mode` is `http_preview`; if preview is unavailable, obtain explicit user confirmation before execution.\n\n")
@@ -511,7 +511,8 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	fmt.Fprintf(&b, "- `%s commands --include-hidden --json`: include hidden generated commands.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands show <path...> --json`: source of truth for one command.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands schema --json`: catalog schema version, surfaces, and dry-run result shape.\n", cli)
-	fmt.Fprintf(&b, "- `%s search \"<intent>\" --json`: ranked candidate commands.\n\n", cli)
+	fmt.Fprintf(&b, "- `%s search \"<intent>\" --json`: ranked candidate commands.\n", cli)
+	fmt.Fprintf(&b, "- `%s auth status -o json`: resolved `hostname`, its `source`, the `selected` host, and every logged-in host.\n\n", cli)
 	if len(manifest.Contexts) > 0 {
 		fmt.Fprintf(&b, "- `%s auth context status -o json`: effective account-scoped context values for the selected host.\n\n", cli)
 	}
@@ -563,7 +564,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `path`: command path to pass to `commands show` or execute after the CLI name.\n")
 	b.WriteString("- `shortcuts`: root-level commands that execute the same operation with preset flag values.\n")
 	b.WriteString("- `http`: HTTP method and path template.\n")
-	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host selected after explicit `--hostname` and `$%s`; when present it is used before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
+	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host used after `--hostname`, `$%s`, and the host selected with `auth use`, and before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, input modes, and help.\n")
 	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source, including its active-context prerequisites.\n")
 	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
@@ -577,7 +578,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("## Command Detail\n\n")
 	fmt.Fprintf(&b, "Run `%s commands show <path...> --json` before executing an unfamiliar command. This is the source of truth for flags, body, auth, HTTP path, `mutation`, `dry_run`, and output hints.\n\n", cli)
 	b.WriteString("## Schema\n\n")
-	fmt.Fprintf(&b, "Run `%s commands schema --json` to read `catalog_schema_version`, `surfaces`, and `dry_run.result` before parsing catalog JSON with durable tooling. `dry_run.result=http_preview` means a preview prints the resolved HTTP request JSON (`method`, `url`, `headers`, `body`, `auth`, `output`).\n\n", cli)
+	fmt.Fprintf(&b, "Run `%s commands schema --json` to read `catalog_schema_version`, `surfaces`, and `dry_run.result` before parsing catalog JSON with durable tooling. `dry_run.result=http_preview` means a preview prints the resolved HTTP request JSON (`method`, `url`, `hostname`, `host_source`, `headers`, `body`, `auth`, `output`).\n\n", cli)
 	b.WriteString("## Sensitive Flags\n\n")
 	b.WriteString("When a flag entry has `input_modes`, prefer safe modes over putting secrets directly in shell arguments.\n\n")
 	b.WriteString("- `flag`: pass the direct `--<flag>` value; keep this for compatibility or non-secret values.\n")
@@ -595,7 +596,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("Use `-o json` for machine-readable command output. Other supported formats are `table`, `yaml`, and `raw`. For collected streams, choose one mode: JSON or YAML for one document, `--stream` in the default output mode when `output.streaming.policy.live` is present, or raw for wire events.\n\n")
 	b.WriteString("On a non-zero exit with JSON or YAML output, read `error.code`, `error.message`, and `error.hint`; optional `error.http` contains only `status`. A configured pause exits zero and is represented by the field mapping in its stream collection policy.\n\n")
 	b.WriteString("## Auth\n\n")
-	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status --hostname <host>` before execution. Use `http.default_hostname` when present unless the user provides `--hostname` or `$%s`; if no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv)
+	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status -o json` before execution and read `hostname` and `source`. Host resolution order: `--hostname` > `$%s` > the selected host (`%s auth use <host>`) > `http.default_hostname` > the single host in `hosts.yml`. When more than one host is logged in and the host was chosen implicitly, the CLI also prints a `current host: <name>` line on stderr; read provenance from `auth status`, not from that line. If no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv, cli)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
 		fmt.Fprintf(&b, "For browser-based OAuth login, run `%s auth login --device-auth --hostname <host> --provider <provider>`. The browser opens by default in an interactive terminal; use `--no-browser` for manual login. `auth_type: bearer` in `hosts.yml` is expected after login because API requests use the issued bearer token.\n", cli)
 	}

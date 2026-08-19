@@ -15,7 +15,7 @@ func resolveCommandContexts(cmd *cobra.Command, spec CommandSpec, input *Operati
 	if !needsStoredContext(spec, *input) {
 		return resolveOperationContexts(spec, input, "")
 	}
-	hostname, err := resolveHost(cmd, spec.DefaultHostname)
+	res, err := resolveHost(cmd, spec.DefaultHostname)
 	if err != nil {
 		for _, param := range spec.Params {
 			if param.Context != "" && param.Required && contextNeedsStored(param, *input) {
@@ -24,7 +24,7 @@ func resolveCommandContexts(cmd *cobra.Command, spec CommandSpec, input *Operati
 		}
 		return nil
 	}
-	return resolveOperationContexts(spec, input, hostname)
+	return resolveOperationContexts(spec, input, res.Hostname)
 }
 
 func needsStoredContext(spec CommandSpec, input OperationInput) bool {

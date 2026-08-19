@@ -30,8 +30,8 @@ the contract from the running CLI:
 
 `commands schema --json` reports `catalog_schema_version`, the committed
 `surfaces`, and `dry_run.result`. `dry_run.result=http_preview` means a
-preview prints the resolved HTTP request JSON (`method`, `url`, `headers`,
-`body`, `auth`, `output`).
+preview prints the resolved HTTP request JSON (`method`, `url`, `hostname`,
+`host_source`, `headers`, `body`, `auth`, `output`).
 
 Catalog entries have two kinds:
 
@@ -88,6 +88,13 @@ errors are excluded.
 | `canceled` | 130 |
 
 A configured stream pause is a successful terminal outcome and exits `0`.
+
+## Host provenance
+
+`auth status -o json` reports `hostname`, `source`, `selected`, and `hosts`;
+dry-run output carries `hostname` and `host_source`. `source` is `flag`, `env`,
+`selected`, `codegen-default`, or `unique`. The stderr `current host` notice is
+for operators, not a machine contract.
 
 ## Durable inputs
 

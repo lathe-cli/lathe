@@ -191,16 +191,20 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return UsageError(cmd, err)
 			}
 
-			var hostname string
+			var host HostResolution
 			var clientOpts ClientOptions
 			refreshAuth := !dryRun
 			if dryRun || (s.Security != nil && s.Security.Public) {
-				hostname, clientOpts, err = tryLoadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
+				host, clientOpts, err = tryLoadHostOptions(cmd, s.DefaultHostname, refreshAuth)
 			} else {
-				hostname, clientOpts, err = loadHostOptionsMaybeRefresh(cmd, s.DefaultHostname, refreshAuth)
+				host, clientOpts, err = loadHostOptions(cmd, s.DefaultHostname, refreshAuth)
 			}
 			if err != nil {
 				return err
+			}
+			if !dryRun {
+				var reporter hostReporter
+				reporter.noticeImplicitHost(cmd.ErrOrStderr(), host)
 			}
 
 			if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
@@ -215,7 +219,8 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				output.live = cmd.OutOrStdout()
 			}
 			result, err := invokeOperation(cmd.Context(), s, input, OperationOptions{
-				Hostname:    hostname,
+				Hostname:    host.Hostname,
+				HostSource:  host.Source,
 				Client:      clientOpts,
 				DryRun:      dryRun,
 				PaginateAll: paginateAll,

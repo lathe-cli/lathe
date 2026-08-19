@@ -157,8 +157,10 @@ but it is outside Lathe's generated capability contract.
    syntax or file locations.
 6. Generated output is static Go and Skill data. Building or running a generated
    CLI does not invoke codegen or require spec tooling.
-7. Host selection is per invocation. Active account contexts are stored under a
-   selected host; they do not create an ambient global host.
+7. Host selection is per invocation. An operator may mark one host in
+   `hosts.yml` as selected; the mark is overridable per invocation and the
+   resolved host is always reportable with its source. Active account contexts
+   are stored under a selected host.
 8. API commands, workflow steps, catalog entries, generated Skills, and verify
    checks must describe the same compiled command surface.
 9. Generated files are outputs. Change specs, `cli.yaml`, or overlays, then

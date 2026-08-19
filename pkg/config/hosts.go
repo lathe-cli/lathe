@@ -37,6 +37,7 @@ type HostEntry struct {
 	BasicUser         string            `yaml:"basic_user,omitempty"`
 	BasicPassword     string            `yaml:"basic_password,omitempty"`
 	Insecure          bool              `yaml:"insecure,omitempty"`
+	Selected          bool              `yaml:"selected,omitempty"`
 	Contexts          map[string]string `yaml:"contexts,omitempty"`
 }
 
@@ -126,6 +127,23 @@ func (h *Hosts) Names() []string {
 	return out
 }
 
+func (h *Hosts) Selected() string {
+	for _, name := range h.Names() {
+		if h.entries[name].Selected {
+			return name
+		}
+	}
+	return ""
+}
+
+func (h *Hosts) Select(hostname string) {
+	k := NormalizeHostname(hostname)
+	for name, e := range h.entries {
+		e.Selected = name == k
+		h.entries[name] = e
+	}
+}
+
 func (h *Hosts) Save() error {
 	return h.saveAtomic()
 }
@@ -163,15 +181,19 @@ func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
 }
 
 func (h *Hosts) saveAtomic() error {
-	dir := filepath.Dir(h.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	data, err := yaml.Marshal(h.entries)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".hosts-*.tmp")
+	return writeFileAtomic(h.path, data)
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -192,5 +214,5 @@ func (h *Hosts) saveAtomic() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return replaceFile(tmpPath, h.path)
+	return replaceFile(tmpPath, path)
 }

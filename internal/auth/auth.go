@@ -32,7 +32,7 @@ func NewCommand(m *config.Manifest) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newLogin(m), newStatus(), newLogout())
+	cmd.AddCommand(newLogin(m), newStatus(), newLogout(), newUse())
 	if len(m.Contexts) > 0 {
 		cmd.AddCommand(newContextCommand(m))
 	}
@@ -466,6 +466,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				}
 			}
 
+			elected := false
 			if err := config.MutateHosts(cmd.Context(), func(hosts *config.Hosts) error {
 				current, _ := hosts.Get(hostname)
 				contexts := maps.Clone(current.Contexts)
@@ -476,12 +477,20 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					contexts[name] = value
 				}
 				entry.Contexts = contexts
+				entry.Selected = current.Selected
 				hosts.Set(hostname, entry)
+				if hosts.Selected() == "" {
+					hosts.Select(hostname)
+					elected = true
+				}
 				return nil
 			}); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "✓ Logged in to %s\n", hostname)
+			fmt.Fprintf(cmd.ErrOrStderr(), "✓ Logged in to %s\n", hostname)
+			if elected {
+				fmt.Fprintf(cmd.ErrOrStderr(), "✓ Now using %s\n", hostname)
+			}
 			return nil
 		},
 	}
@@ -498,12 +507,28 @@ func newLogin(m *config.Manifest) *cobra.Command {
 	return cmd
 }
 
+type authStatus struct {
+	Hostname string           `json:"hostname,omitempty"`
+	Source   string           `json:"source,omitempty"`
+	Selected string           `json:"selected,omitempty"`
+	Hosts    []authStatusHost `json:"hosts"`
+}
+
+type authStatusHost struct {
+	Hostname string `json:"hostname"`
+	User     string `json:"user,omitempty"`
+	Auth     string `json:"auth"`
+}
+
 func newStatus() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "View authentication status",
 		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateContextOutput(cmd); err != nil {
+				return err
+			}
 			hostname := rootString(cmd, "hostname")
 			hosts, err := config.LoadHosts()
 			if err != nil {
@@ -514,16 +539,35 @@ func newStatus() *cobra.Command {
 				return runtime.NewNotAuthenticatedError()
 			}
 			if hostname != "" {
-				e, ok := hosts.Get(hostname)
-				if !ok {
+				if _, ok := hosts.Get(hostname); !ok {
 					return runtime.NewNotAuthenticatedError()
 				}
-				printStatus(hostname, e)
-				return nil
+				names = []string{config.NormalizeHostname(hostname)}
+			}
+			res, _ := runtime.ResolveHostWithSource(cmd)
+			selected := hosts.Selected()
+
+			out := authStatus{
+				Hostname: res.Hostname,
+				Source:   res.Source,
+				Selected: selected,
+				Hosts:    make([]authStatusHost, 0, len(names)),
 			}
 			for _, n := range names {
 				e, _ := hosts.Get(n)
-				printStatus(n, e)
+				out.Hosts = append(out.Hosts, authStatusHost{Hostname: n, User: e.User, Auth: authTypeLabel(e)})
+			}
+
+			if format := rootString(cmd, "output"); format == "json" || format == "yaml" {
+				return writeContextOutput(cmd, out, runtime.OutputHints{
+					ListPath:       "hosts",
+					DefaultColumns: []string{"hostname", "user", "auth"},
+				})
+			}
+			w := cmd.OutOrStdout()
+			for _, n := range names {
+				e, _ := hosts.Get(n)
+				printStatus(w, n, e, n == selected)
 			}
 			return nil
 		},
@@ -563,7 +607,7 @@ func newLogout() *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stderr, "✓ Logged out of %s\n", hostname)
+			fmt.Fprintf(cmd.ErrOrStderr(), "✓ Logged out of %s\n", hostname)
 			return nil
 		},
 	}
@@ -749,23 +793,30 @@ func validateContextOutput(cmd *cobra.Command) error {
 	}
 }
 
-func printStatus(hostname string, e config.HostEntry) {
+func authTypeLabel(e config.HostEntry) string {
+	if e.AuthType == "" {
+		return "bearer"
+	}
+	return e.AuthType
+}
+
+func printStatus(w io.Writer, hostname string, e config.HostEntry, selected bool) {
 	user := e.User
 	if user == "" {
 		user = fmt.Sprintf("(unknown — run `%s auth login` to validate)", config.Active().CLI.Name)
 	}
-	authLabel := e.AuthType
-	if authLabel == "" {
-		authLabel = "bearer"
+	marker := ""
+	if selected {
+		marker = " (selected)"
 	}
 	credential := maskedCredential(e)
-	fmt.Fprintf(os.Stdout, "%s\n  ✓ Logged in as %s\n  ✓ Auth: %s\n  ✓ Credential: %s\n", hostname, user, authLabel, credential)
+	fmt.Fprintf(w, "%s%s\n  ✓ Logged in as %s\n  ✓ Auth: %s\n  ✓ Credential: %s\n", hostname, marker, user, authTypeLabel(e), credential)
 	if e.LoginType != "" {
 		loginLabel := e.LoginType
 		if e.LoginProvider != "" {
 			loginLabel += " (" + e.LoginProvider + ")"
 		}
-		fmt.Fprintf(os.Stdout, "  ✓ Login: %s\n", loginLabel)
+		fmt.Fprintf(w, "  ✓ Login: %s\n", loginLabel)
 	}
 }
 
