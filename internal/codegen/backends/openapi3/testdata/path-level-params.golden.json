@@ -35,7 +35,7 @@
       "RequestBody": null,
       "Responses": {},
       "Produces": null,
-      "Security": []
+      "Security": null
     },
     {
       "Group": "Orgs",
@@ -62,7 +62,7 @@
       },
       "Responses": {},
       "Produces": null,
-      "Security": []
+      "Security": null
     }
   ],
   "Schemas": {}

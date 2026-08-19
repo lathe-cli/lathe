@@ -318,10 +318,14 @@ func applyServerBasePaths(doc *oas3Doc, module, origin string) {
 }
 
 func applyEffectiveSecurity(doc *oas3Doc) {
-	security := doc.Security
-	if security == nil {
-		security = []map[string][]string{}
+	// A document with no security block says nothing about authentication. It
+	// must not be turned into an empty requirement list, which in OpenAPI means
+	// "explicitly public" and would mark every operation as needing no auth.
+	// Leaving the operation unset keeps the conservative default downstream.
+	if doc.Security == nil {
+		return
 	}
+	security := doc.Security
 	for _, item := range doc.Paths {
 		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
 			if op != nil && op.Security == nil {

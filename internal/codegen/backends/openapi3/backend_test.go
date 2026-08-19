@@ -440,18 +440,30 @@ func TestParse_SecuritySemantics(t *testing.T) {
 		name              string
 		documentSecurity  string
 		operationSecurity string
+		wantUnspecified   bool
 		wantPublic        bool
 		wantScopes        []string
 	}{
-		{name: "absent is public", wantPublic: true},
+		// A document that never mentions security has not declared its
+		// operations public; it has said nothing. Only an empty requirement
+		// list is an explicit "no auth needed".
+		{name: "absent is unspecified", wantUnspecified: true},
 		{name: "document inherited", documentSecurity: `,"security":[{"oauth":["read"]}]`, wantScopes: []string{"read"}},
+		{name: "document empty is public", documentSecurity: `,"security":[]`, wantPublic: true},
 		{name: "operation empty is public", documentSecurity: `,"security":[{"oauth":["read"]}]`, operationSecurity: `,"security":[]`, wantPublic: true},
 		{name: "operation overrides document", documentSecurity: `,"security":[{"oauth":["read"]}]`, operationSecurity: `,"security":[{"oauth":["write"]}]`, wantScopes: []string{"write"}},
+		{name: "operation declared without document", operationSecurity: `,"security":[{"oauth":["write"]}]`, wantScopes: []string{"write"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			input := `{"openapi":"3.0.3"` + tc.documentSecurity + `,"paths":{"/health":{"get":{"operationId":"Health_Get"` + tc.operationSecurity + `,"responses":{"200":{}}}}}}`
 			security := parseNormalized(t, input)[0].Security
+			if tc.wantUnspecified {
+				if security != nil {
+					t.Fatalf("security = %#v, want nil so the runtime keeps requiring auth", security)
+				}
+				return
+			}
 			if security == nil || security.Public != tc.wantPublic || !reflect.DeepEqual(security.Scopes, tc.wantScopes) {
 				t.Fatalf("security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
 			}
