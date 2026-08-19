@@ -11,14 +11,15 @@ internals. The defining constants and structs in code remain authoritative.
 `runtime.AssertSchema` checks the version when generated modules mount and
 fails with a regeneration instruction on mismatch.
 
-Bump this version when a generated command or mount contract changes in a way
-that requires regeneration.
+This schema is a compiler coupling. It is not the agent-facing contract.
+Bump it when a generated command or mount contract changes in a way that
+requires regeneration.
 
-## Runtime catalog
+## Capability contract
 
-The catalog is the agent-facing discovery contract. Its version is
-`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog.go` and is available
-through:
+The runtime catalog is the agent-facing capability contract. Its version is
+`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog.go`. Agents must read
+the contract from the running CLI:
 
 ```sh
 <cli> commands --json
@@ -27,12 +28,26 @@ through:
 <cli> search "<intent>" --json
 ```
 
+`commands schema --json` reports `catalog_schema_version`, the committed
+`surfaces`, and `dry_run.result`. `dry_run.result=http_preview` means a
+preview prints the resolved HTTP request JSON (`method`, `url`, `headers`,
+`body`, `auth`, `output`).
+
 Catalog entries have two kinds:
 
-- `operation`: one generated API operation, including HTTP, auth, parameter,
-  body, output, pagination, stream, and runtime-schema metadata.
+- `operation`: one generated API operation, including HTTP, auth, `mutation`,
+  `dry_run`, parameter, body, output, pagination, stream, and runtime-schema
+  metadata. Operation `dry_run.mode` is `http_preview` only when the
+  generated runner wired a real preview; otherwise it is `unsupported`.
 - `workflow`: one generated workflow command, including its DSL version,
-  steps, conditions, and referenced operation metadata.
+  steps, conditions, and referenced operation metadata. Workflow `mutation`
+  is the heaviest step classification. Workflow `dry_run.mode` is
+  `unsupported`.
+
+`mutation` is `read`, `write`, or `unknown`. GET and HEAD are `read`. GraphQL
+operations are classified from the request template (`query` / `mutation`),
+not from HTTP POST. Other methods stay `unknown` unless the template proves
+otherwise.
 
 Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
 `__lathe` are discovered through `--help`; they are not operation entries.
@@ -40,8 +55,12 @@ Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
 `skill.bundle` and `workflow.dsl`.
 
 Search is discovery only. Inspect the selected command with `commands show`
-before execution. Generated Skill files explain this loop but never override
-the catalog.
+before execution. Read `mutation` and `dry_run` from that JSON; do not infer
+write vs read from the HTTP method, and do not assume a `--dry-run` flag is
+a preview contract. When `mutation` is not `read`, preview before execution
+if `dry_run.mode` is `http_preview`; if preview is unavailable, obtain
+explicit user confirmation before execution. Generated Skill files explain
+this loop but never override the catalog.
 
 ## Verify report
 

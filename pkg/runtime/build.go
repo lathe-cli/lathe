@@ -274,7 +274,12 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Live != nil {
 		cmd.Flags().BoolVar(&liveStream, controlFlagName(cmd, "stream"), false, "print configured stream fields as they arrive (requires -o table)")
 	}
-	cmd.Flags().BoolVar(&dryRun, controlFlagName(cmd, "dry-run"), false, "print resolved request JSON without sending it")
+	dryRunFlag := controlFlagName(cmd, "dry-run")
+	cmd.Flags().BoolVar(&dryRun, dryRunFlag, false, "print resolved request JSON without sending it")
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[catalogDryRunWiredAnnotation] = dryRunFlag
 	cmd.Hidden = s.Hidden
 	if s.Deprecated {
 		cmd.Deprecated = "this command is deprecated"

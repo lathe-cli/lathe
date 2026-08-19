@@ -426,7 +426,10 @@ Rules:
 2. Use `commands show <path...> --json` as the exact operation/workflow
    contract.
 3. Check auth when `auth.required=true`.
-4. Use `--dry-run` when the resolved request needs inspection.
+4. Read `mutation` and `dry_run` from `commands show`. When `mutation` is not
+   `read`, preview with `--<dry_run.flag>` if `dry_run.mode` is `http_preview`;
+   if preview is unavailable, obtain explicit user confirmation before
+   execution. `unknown` is not read.
 5. Prefer `-o json` for machine-readable output.
 6. Use `--file`, `--set`, and `--set-str` according to the body contract.
 7. For a flag with `input_modes`, prefer `--<flag>-env`, `--<flag>-file`, or

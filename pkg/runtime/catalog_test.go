@@ -94,6 +94,12 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if cmd.Auth.Required != true || !reflect.DeepEqual(cmd.Auth.Scopes, []string{"users:read"}) {
 		t.Fatalf("auth = %+v", cmd.Auth)
 	}
+	if cmd.Mutation != MutationRead {
+		t.Fatalf("mutation = %q", cmd.Mutation)
+	}
+	if cmd.DryRun == nil || cmd.DryRun.Mode != DryRunHTTPPreview || cmd.DryRun.Flag != "dry-run" {
+		t.Fatalf("dry_run = %+v", cmd.DryRun)
+	}
 	if cmd.HTTP.DefaultHostname != "api.example.com" {
 		t.Fatalf("http = %+v", cmd.HTTP)
 	}
@@ -253,6 +259,12 @@ func TestBuildCatalog_WorkflowCommand(t *testing.T) {
 	if !cmd.Auth.Required {
 		t.Fatalf("auth = %+v", cmd.Auth)
 	}
+	if cmd.Mutation != MutationRead {
+		t.Fatalf("workflow mutation = %q", cmd.Mutation)
+	}
+	if cmd.DryRun == nil || cmd.DryRun.Mode != DryRunUnsupported || cmd.DryRun.Flag != "" {
+		t.Fatalf("workflow dry_run = %+v", cmd.DryRun)
+	}
 }
 
 func TestBuildCatalog_ProjectsLegacyExample(t *testing.T) {
@@ -312,6 +324,9 @@ func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	body := catalog.Commands[0].Body
 	if body == nil || body.Template != tmpl || body.MergePath != "variables" {
 		t.Fatalf("catalog body envelope = %+v", body)
+	}
+	if catalog.Commands[0].Mutation != MutationWrite {
+		t.Fatalf("graphql mutation = %q", catalog.Commands[0].Mutation)
 	}
 
 	raw, err := json.Marshal(catalog)
@@ -479,6 +494,50 @@ func TestSearchCatalog_SoftMatchesNoisyIntent(t *testing.T) {
 	results = SearchCatalog(root, "doesnotexist", SearchOptions{Limit: 10})
 	if len(results) != 0 {
 		t.Fatalf("unknown query results = %+v", results)
+	}
+}
+
+func TestAttachCatalogCommand_DoesNotClaimPreviewWithoutRuntime(t *testing.T) {
+	root := newRootWithModuleGroup()
+	cmd := helpCommand("package", "Package skill")
+	cmd.Flags().Bool("dry-run", false, "")
+	AttachCatalogCommand(cmd, "console-rest", CommandSpec{
+		Group:   "Skills",
+		Use:     "package",
+		Method:  "POST",
+		PathTpl: "/skills/package",
+	})
+	root.AddCommand(cmd)
+
+	got := BuildCatalog(root, CatalogOptions{}).Commands[0]
+	if got.DryRun == nil || got.DryRun.Mode != DryRunUnsupported || got.DryRun.Flag != "" {
+		t.Fatalf("dry_run = %+v", got.DryRun)
+	}
+	if WiredDryRunFlag(cmd) != "" {
+		t.Fatalf("wired flag = %q", WiredDryRunFlag(cmd))
+	}
+}
+
+func TestBuildCatalog_DryRunFlagCollision(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group:   "Users",
+		Use:     "get-user",
+		Method:  "GET",
+		PathTpl: "/users/{id}",
+		Params:  []ParamSpec{{Name: "dry-run", Flag: "dry-run", In: InQuery, GoType: "string"}},
+	}})
+	cmd := BuildCatalog(root, CatalogOptions{}).Commands[0]
+	if cmd.DryRun == nil || cmd.DryRun.Flag != "lathe-dry-run" {
+		t.Fatalf("dry_run = %+v", cmd.DryRun)
+	}
+	found, ok := FindCatalogCommand(root, cmd.Path, CatalogOptions{})
+	if !ok {
+		t.Fatal("command not found")
+	}
+	cobraCmd := findChildCommand(findChildCommand(findChildCommand(root, cmd.Path[0]), cmd.Path[1]), cmd.Path[2])
+	if cobraCmd == nil || cobraCmd.Flags().Lookup(found.DryRun.Flag) == nil {
+		t.Fatalf("cobra missing --%s", found.DryRun.Flag)
 	}
 }
 

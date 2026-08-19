@@ -81,14 +81,14 @@ func commandsSchemaCmd() *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "schema",
-		Short: "Print command catalog schema version",
+		Short: "Print command catalog schema",
 		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			data := map[string]int{"catalog_schema_version": runtime.CatalogSchemaVersion}
+			schema := runtime.CatalogSchemaDocument()
 			if jsonOut {
-				return writeJSON(cmd, data)
+				return writeJSON(cmd, schema)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "catalog schema %d\n", runtime.CatalogSchemaVersion)
+			fmt.Fprintf(cmd.OutOrStdout(), "catalog schema %d\n", schema.CatalogSchemaVersion)
 			return nil
 		},
 	}

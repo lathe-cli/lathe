@@ -118,8 +118,9 @@ sequenceDiagram
     Client->>Output: return or stream result
 ```
 
-`--dry-run` resolves the request without network access and skips runtime-schema
-fetching. Normal execution can paginate, poll long-running operations, collect
+An operation `dry_run.mode=http_preview` resolves the request without network
+access and skips runtime-schema fetching. The preview flag is `dry_run.flag`
+from `commands show` (usually `--dry-run`). Normal execution can paginate, poll long-running operations, collect
 configured streams, and persist a declared active context only after a
 successful completed operation.
 
