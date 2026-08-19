@@ -62,6 +62,9 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	authCmd := auth.NewCommand(m)
 	authCmd.GroupID = authGroupID
 	cmd.AddCommand(authCmd)
+	hostCmd := auth.NewHostCommand()
+	hostCmd.GroupID = authGroupID
+	cmd.AddCommand(hostCmd)
 	cmd.AddCommand(auth.NewHiddenLoginCommand(m))
 	cmd.AddCommand(commandsCmd(m))
 	cmd.AddCommand(searchCmd(m))

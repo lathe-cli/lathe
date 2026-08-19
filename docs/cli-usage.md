@@ -436,9 +436,14 @@ Rules:
    `--<flag>-stdin` for sensitive values.
 8. Branch on structured `error.code` and process exit status, not error prose.
 
-Framework commands such as `auth`, `commands`, `completion`, `search`,
+Framework commands such as `auth`, `host`, `commands`, `completion`, `search`,
 `skill`, `update`, and `__lathe` are documented by `--help`; generated API
 operations and workflows are documented by the runtime catalog.
+
+A persisted default host is optional. Resolve with `--hostname`, then the
+configured host environment variable, then `host default`, then codegen
+`default_hostname`, then the unique host in `hosts.yml`. `auth status --json`
+and `--dry-run` expose the resolved host and its source.
 
 ## Examples
 

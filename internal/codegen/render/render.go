@@ -229,6 +229,7 @@ var reservedRootCommands = map[string]bool{
 	"commands":   true,
 	"completion": true,
 	"help":       true,
+	"host":       true,
 	"login":      true,
 	"search":     true,
 	"skill":      true,

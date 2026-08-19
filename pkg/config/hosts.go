@@ -41,8 +41,9 @@ type HostEntry struct {
 }
 
 type Hosts struct {
-	entries map[string]HostEntry
-	path    string
+	defaultHost string
+	entries     map[string]HostEntry
+	path        string
 }
 
 func configDir() (string, error) {
@@ -85,15 +86,27 @@ func loadHostsPath(p string) (*Hosts, error) {
 		}
 		return nil, err
 	}
-	raw := map[string]HostEntry{}
+	raw := map[string]yaml.Node{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
 	// One-time rekey: migrate any legacy keys that include scheme/slashes.
-	for k, v := range raw {
+	for k, n := range raw {
+		if k == "default" && n.Kind == yaml.ScalarNode {
+			var d string
+			if err := n.Decode(&d); err != nil {
+				return nil, fmt.Errorf("parse %s: %w", p, err)
+			}
+			h.defaultHost = NormalizeHostname(d)
+			continue
+		}
+		var e HostEntry
+		if err := n.Decode(&e); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", p, err)
+		}
 		norm := NormalizeHostname(k)
 		if _, exists := h.entries[norm]; !exists || norm == k {
-			h.entries[norm] = v
+			h.entries[norm] = e
 		}
 	}
 	return h, nil
@@ -124,6 +137,18 @@ func (h *Hosts) Names() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (h *Hosts) Default() string {
+	return h.defaultHost
+}
+
+func (h *Hosts) SetDefault(hostname string) {
+	h.defaultHost = NormalizeHostname(hostname)
+}
+
+func (h *Hosts) ClearDefault() {
+	h.defaultHost = ""
 }
 
 func (h *Hosts) Save() error {
@@ -167,7 +192,7 @@ func (h *Hosts) saveAtomic() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(h.entries)
+	data, err := h.marshal()
 	if err != nil {
 		return err
 	}
@@ -193,4 +218,17 @@ func (h *Hosts) saveAtomic() error {
 		return err
 	}
 	return replaceFile(tmpPath, h.path)
+}
+
+// marshal keeps the flat hosts.yml shape: the default host is a reserved
+// scalar key alongside the per-host entries, never a credential.
+func (h *Hosts) marshal() ([]byte, error) {
+	raw := make(map[string]any, len(h.entries)+1)
+	for k, v := range h.entries {
+		raw[k] = v
+	}
+	if h.defaultHost != "" {
+		raw["default"] = h.defaultHost
+	}
+	return yaml.Marshal(raw)
 }

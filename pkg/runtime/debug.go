@@ -15,10 +15,15 @@ type debugTransport struct {
 	inner                http.RoundTripper
 	sensitiveQueryParams map[string]bool
 	streaming            bool
+	hostname             string
 }
 
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Fprintf(os.Stderr, "> %s request\n\n", req.Method)
+	if d.hostname != "" {
+		fmt.Fprintf(os.Stderr, "> %s request host=%s\n\n", req.Method, d.hostname)
+	} else {
+		fmt.Fprintf(os.Stderr, "> %s request\n\n", req.Method)
+	}
 
 	start := time.Now()
 	resp, err := d.inner.RoundTrip(req)

@@ -151,3 +151,24 @@ func TestDebugTransport_DoesNotPeekStreamingResponse(t *testing.T) {
 		t.Fatalf("debug output unexpectedly dumped streaming body:\n%s", out)
 	}
 }
+
+func TestDebugTransport_LogsResolvedHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := captureStderr(t)
+	dt := &debugTransport{inner: http.DefaultTransport, hostname: "staging.example.com"}
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL, nil)
+	resp, err := dt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	out := readStderr(t, r)
+	if !strings.Contains(out, "> POST request host=staging.example.com") {
+		t.Fatalf("debug dump missing resolved host:\n%s", out)
+	}
+}

@@ -88,7 +88,7 @@ order. `generated.MountModules` remains a compatibility alias.
 | `internal/latheskill` | distribution | Embeds Lathe's own Agent Skill. |
 | `pkg/config` | runtime | Loads the embedded manifest and persists per-host credentials and active contexts. |
 | `pkg/runtime` | runtime | Builds operation/workflow commands, catalog data, requests, auth, body handling, pagination, streaming, polling, output, and stable errors. |
-| `internal/auth` | runtime | Implements `auth login`, `logout`, `status`, and context commands. |
+| `internal/auth` | runtime | Implements `auth login`, `logout`, `status`, `host default`, and context commands. |
 | `pkg/lathe` | runtime | Provides the generated-CLI entrypoint, framework commands, version/update support, and `__lathe verify`. |
 
 `internal/**` is implementation-only. `pkg/**` is linked by downstream generated
@@ -157,8 +157,10 @@ but it is outside Lathe's generated capability contract.
    syntax or file locations.
 6. Generated output is static Go and Skill data. Building or running a generated
    CLI does not invoke codegen or require spec tooling.
-7. Host selection is per invocation. Active account contexts are stored under a
-   selected host; they do not create an ambient global host.
+7. Host selection is per invocation by default. A user may explicitly elect a
+   persisted default host; when elected, it is always visible together with its
+   resolution source and always overridable per invocation. Active account
+   contexts are stored under a selected host.
 8. API commands, workflow steps, catalog entries, generated Skills, and verify
    checks must describe the same compiled command surface.
 9. Generated files are outputs. Change specs, `cli.yaml`, or overlays, then

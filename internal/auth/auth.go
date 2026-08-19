@@ -466,6 +466,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				}
 			}
 
+			elected := false
 			if err := config.MutateHosts(cmd.Context(), func(hosts *config.Hosts) error {
 				current, _ := hosts.Get(hostname)
 				contexts := maps.Clone(current.Contexts)
@@ -477,11 +478,18 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				}
 				entry.Contexts = contexts
 				hosts.Set(hostname, entry)
+				if hosts.Default() == "" {
+					hosts.SetDefault(hostname)
+					elected = true
+				}
 				return nil
 			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "✓ Logged in to %s\n", hostname)
+			if elected {
+				fmt.Fprintf(os.Stderr, "✓ Set %s as the default host (no default was set)\n", hostname)
+			}
 			return nil
 		},
 	}
@@ -498,13 +506,30 @@ func newLogin(m *config.Manifest) *cobra.Command {
 	return cmd
 }
 
+type statusReport struct {
+	Hostname string       `json:"hostname,omitempty"`
+	Source   string       `json:"source,omitempty"`
+	Default  string       `json:"default,omitempty"`
+	Hosts    []statusHost `json:"hosts"`
+}
+
+type statusHost struct {
+	Hostname string `json:"hostname"`
+	User     string `json:"user,omitempty"`
+	Auth     string `json:"auth"`
+}
+
 func newStatus() *cobra.Command {
-	return &cobra.Command{
+	var jsonOut bool
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "View authentication status",
 		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostname := rootString(cmd, "hostname")
+			// Resolve first: a stale persisted default is cleared here, so the
+			// hosts snapshot below already reflects it.
+			res, _ := runtime.ResolveHostWithSource(cmd)
 			hosts, err := config.LoadHosts()
 			if err != nil {
 				return err
@@ -514,13 +539,41 @@ func newStatus() *cobra.Command {
 				return runtime.NewNotAuthenticatedError()
 			}
 			if hostname != "" {
-				e, ok := hosts.Get(hostname)
-				if !ok {
+				if _, ok := hosts.Get(hostname); !ok {
 					return runtime.NewNotAuthenticatedError()
 				}
-				printStatus(hostname, e)
-				return nil
+				names = []string{config.NormalizeHostname(hostname)}
 			}
+			if jsonOut {
+				out := statusReport{
+					Hostname: res.Hostname,
+					Source:   res.Source,
+					Default:  hosts.Default(),
+					Hosts:    make([]statusHost, 0, len(names)),
+				}
+				for _, n := range names {
+					e, _ := hosts.Get(n)
+					item := statusHost{Hostname: n, User: e.User, Auth: e.AuthType}
+					if item.Auth == "" {
+						item.Auth = "bearer"
+					}
+					out.Hosts = append(out.Hosts, item)
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+			if res.Hostname != "" {
+				fmt.Fprintf(os.Stdout, "Current host: %s (%s)\n", res.Hostname, res.Source)
+			} else {
+				fmt.Fprintln(os.Stdout, "Current host: (none)")
+			}
+			if d := hosts.Default(); d != "" {
+				fmt.Fprintf(os.Stdout, "Default host: %s\n", d)
+			} else {
+				fmt.Fprintln(os.Stdout, "Default host: (none)")
+			}
+			fmt.Fprintln(os.Stdout)
 			for _, n := range names {
 				e, _ := hosts.Get(n)
 				printStatus(n, e)
@@ -528,6 +581,8 @@ func newStatus() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit status as JSON")
+	return cmd
 }
 
 func newLogout() *cobra.Command {
