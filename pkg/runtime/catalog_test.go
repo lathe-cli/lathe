@@ -533,6 +533,7 @@ func TestBuildCatalog_WorkflowStepConditions(t *testing.T) {
 	}
 	if step == nil {
 		t.Fatal("no workflow step in catalog")
+		return
 	}
 	want := []CatalogWorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}}
 	if !reflect.DeepEqual(step.When, want) {
