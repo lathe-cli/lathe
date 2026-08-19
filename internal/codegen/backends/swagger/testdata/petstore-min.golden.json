@@ -27,7 +27,7 @@
         }
       },
       "Produces": null,
-      "Security": []
+      "Security": null
     },
     {
       "Group": "Pets",
@@ -62,7 +62,7 @@
         }
       },
       "Produces": null,
-      "Security": []
+      "Security": null
     }
   ],
   "Schemas": {

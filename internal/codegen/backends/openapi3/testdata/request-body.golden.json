@@ -44,7 +44,7 @@
         }
       },
       "Produces": null,
-      "Security": []
+      "Security": null
     }
   ],
   "Schemas": {

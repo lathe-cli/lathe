@@ -105,10 +105,14 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 }
 
 func applyEffectiveSecurity(doc *swaggerDoc) {
-	security := doc.Security
-	if security == nil {
-		security = []map[string][]string{}
+	// A document with no security block says nothing about authentication. It
+	// must not be turned into an empty requirement list, which in OpenAPI means
+	// "explicitly public" and would mark every operation as needing no auth.
+	// Leaving the operation unset keeps the conservative default downstream.
+	if doc.Security == nil {
+		return
 	}
+	security := doc.Security
 	for _, methods := range doc.Paths {
 		for method, op := range methods {
 			if op.Security == nil {
