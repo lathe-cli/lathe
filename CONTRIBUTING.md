@@ -18,6 +18,19 @@ To follow the end-to-end generated CLI workflow, see:
 - [CLI Usage](docs/cli-usage.md) for the exact `go mod init` -> `lathe bootstrap` -> `go build` path.
 - `examples/petstore`, `examples/richapi`, and `examples/graphql` for the in-repo generation paths.
 
+## Performance
+
+Benchmarks live beside the code they measure as `*_bench_test.go` and cover the
+codegen pipeline (spec parsing, normalization) and the generated-CLI runtime
+(command building, catalog, search, output rendering).
+
+```sh
+make bench        # go test -bench=. ./...
+```
+
+CI runs the same benchmarks on [CodSpeed](https://app.codspeed.io/lathe-cli/lathe)
+and reports the performance impact of a pull request against `main`.
+
 ## Workflow
 
 1. Fork the repo, create a feature branch off `main`.

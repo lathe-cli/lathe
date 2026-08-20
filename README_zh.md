@@ -9,6 +9,7 @@
 > 从 OpenAPI、Swagger、protobuf 和 GraphQL API 规格生成 Agent 友好的 Cobra CLI。
 
 [![CI](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/lathe-cli/lathe/actions/workflows/ci.yml)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/lathe-cli/lathe?utm_source=badge)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Lathe 把声明式 API 规格转换成一套同时供人和 AI Agent 使用的可检查 CLI。

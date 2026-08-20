@@ -25,7 +25,7 @@ install: build ## Install local lathe binary into BINDIR
 
 # ── Quality ──────────────────────────────────────────────────────────────────
 
-.PHONY: check test vet fmt fmt-check lint
+.PHONY: check test bench vet fmt fmt-check lint
 
 check: ## Full quality gate — fmt-check, vet, lint, test
 	@printf '\n$(BOLD)[1/4] Checking format$(RESET)\n'
@@ -43,6 +43,9 @@ lint: ## Run golangci-lint
 
 test: ## Run tests
 	$(GO) test ./...
+
+bench: ## Run benchmarks (reported to CodSpeed in CI)
+	$(GO) test -bench=. ./...
 
 vet: ## Run go vet
 	$(GO) vet ./...
