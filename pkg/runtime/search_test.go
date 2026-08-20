@@ -181,3 +181,16 @@ func TestStemToken_GuardsAgainstOverStemming(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchCatalog_IdentityHitSurvivesStrongerDescriptiveMatch(t *testing.T) {
+	// The summary spells "revoking" verbatim and outscores the operation-id stem
+	// hit; the command must still surface on that single token.
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{
+		{Group: "Tokens", Use: "revoke-token", Short: "Revoking an API token", OperationID: "revokeToken", Method: "DELETE", PathTpl: "/tokens/{id}"},
+	})
+
+	if paths := searchPaths(root, "revoking"); !slices.Contains(paths, "demo tokens revoke-token") {
+		t.Errorf("query %q returned %v", "revoking", paths)
+	}
+}

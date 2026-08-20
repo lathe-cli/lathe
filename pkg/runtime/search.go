@@ -134,24 +134,23 @@ func scoreCatalogCommand(view searchView, tokens []string, stems []string, fullQ
 	matches := 0
 	identity := false
 	for i, token := range tokens {
-		best, viaIdentity := 0, false
+		best := 0
+		// Whether the token identifies the command is independent of which field
+		// scores highest: a stem hit on the operation ID still identifies it even
+		// when the summary spells the query verbatim and outscores it.
 		for _, field := range view.identity {
-			if value := scoreField(field, token, stems[i]); value > best {
-				best, viaIdentity = value, true
+			if value := scoreField(field, token, stems[i]); value > 0 {
+				identity = true
+				best = max(best, value)
 			}
 		}
 		for _, field := range view.descriptive {
-			if value := scoreField(field, token, stems[i]); value > best {
-				best, viaIdentity = value, false
-			}
+			best = max(best, scoreField(field, token, stems[i]))
 		}
 		if best == 0 {
 			continue
 		}
 		matches++
-		if viaIdentity {
-			identity = true
-		}
 		score += best
 	}
 	// A single identifying hit is enough to surface a command; a description or
