@@ -204,10 +204,10 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 	if strings.TrimSpace(spec.OutputFrom) == "" {
 		return result, nil, nil
 	}
-	value, err := evalWorkflowValue(spec.OutputFrom, state)
+	value, err := evalWorkflowOutputValue(spec.OutputFrom, state)
 	if err != nil {
-		// Referencing a skipped step degrades to the step summary rather than
-		// failing the command.
+		// A bare reference to a skipped step degrades to the step summary
+		// rather than failing the command.
 		if errors.Is(err, errStepSkipped) {
 			return result, nil, nil
 		}
@@ -391,6 +391,56 @@ func evalWorkflowValue(expr string, state workflowState) (any, error) {
 		return workflowRefValue(strings.TrimSpace(trimmed[2:len(trimmed)-1]), state)
 	}
 	return evalWorkflowString(expr, state)
+}
+
+// evalWorkflowOutputValue evaluates output.from expressions. A bare reference
+// to a skipped step still propagates errStepSkipped (the caller degrades to the
+// step summary). A composite expression substitutes null for skipped references
+// so the remaining step data survives.
+func evalWorkflowOutputValue(expr string, state workflowState) (any, error) {
+	trimmed := strings.TrimSpace(expr)
+	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") && strings.Count(trimmed, "${") == 1 {
+		return workflowRefValue(strings.TrimSpace(trimmed[2:len(trimmed)-1]), state)
+	}
+	return evalWorkflowOutputString(expr, state)
+}
+
+// evalWorkflowOutputString is like evalWorkflowString but substitutes "null"
+// for references to skipped steps instead of propagating errStepSkipped. This
+// lets a JSON-literal output.from like '{"a":${steps.x},"b":${steps.y}}'
+// produce '{"a":<data>,"b":null}' when y is skipped, rather than discarding
+// the entire aggregate.
+func evalWorkflowOutputString(expr string, state workflowState) (string, error) {
+	if !strings.Contains(expr, "${") {
+		return expr, nil
+	}
+	var out strings.Builder
+	rest := expr
+	for {
+		start := strings.Index(rest, "${")
+		if start < 0 {
+			out.WriteString(rest)
+			return out.String(), nil
+		}
+		out.WriteString(rest[:start])
+		after := rest[start+2:]
+		end := strings.Index(after, "}")
+		if end < 0 {
+			return "", fmt.Errorf("unterminated reference in %q", expr)
+		}
+		ref := strings.TrimSpace(after[:end])
+		value, err := workflowRefValue(ref, state)
+		if err != nil {
+			if errors.Is(err, errStepSkipped) {
+				out.WriteString("null")
+				rest = after[end+1:]
+				continue
+			}
+			return "", err
+		}
+		out.WriteString(workflowString(value))
+		rest = after[end+1:]
+	}
 }
 
 func workflowRefValue(ref string, state workflowState) (any, error) {
