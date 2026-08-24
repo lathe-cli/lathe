@@ -709,3 +709,102 @@ func TestBuildWorkflows_PreservesNumericReferenceSemantics(t *testing.T) {
 		t.Fatalf("paths = %#v, want %#v", paths, want)
 	}
 }
+
+func TestBuildWorkflows_CompositeOutputNullsSkippedStep(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/pod":
+			_, _ = w.Write([]byte(`{"name":"web-0","node":""}`))
+		case "/events":
+			_, _ = w.Write([]byte(`{"items":[{"reason":"FailedScheduling"}]}`))
+		case "/neighbors":
+			_, _ = w.Write([]byte(`{"items":[]}`))
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use: "diag",
+		Params: []ParamSpec{
+			{Name: "kind", Flag: "kind", In: InInput, GoType: "string"},
+		},
+		Steps: []WorkflowStepSpec{
+			{ID: "pod", Operation: publicGetSpec("get-pod", "/pod")},
+			{ID: "events", Operation: publicGetSpec("list-events", "/events")},
+			{
+				ID:        "neighbors",
+				Operation: publicGetSpec("list-neighbors", "/neighbors"),
+				When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"has-node"}}},
+			},
+		},
+		OutputFrom: `{"pod":${steps.pod},"events":${steps.events},"neighbors":${steps.neighbors}}`,
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+
+	root.SetArgs([]string{"--hostname", srv.URL, "diag", "--kind", "no-node"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	raw := strings.TrimSpace(stdout.String())
+	// The output is a JSON-encoded string (composite output.from produces a
+	// string value that json.Marshal wraps in quotes).
+	var outer string
+	if err := json.Unmarshal([]byte(raw), &outer); err != nil {
+		t.Fatalf("outer unmarshal: %v (raw = %s)", err, raw)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(outer), &result); err != nil {
+		t.Fatalf("inner unmarshal: %v (outer = %s)", err, outer)
+	}
+	if result["pod"] == nil {
+		t.Fatal("pod should not be nil")
+	}
+	if result["events"] == nil {
+		t.Fatal("events should not be nil")
+	}
+	if result["neighbors"] != nil {
+		t.Fatalf("neighbors should be null, got %v", result["neighbors"])
+	}
+}
+
+func TestBuildWorkflows_BareOutputFromSkippedStepStillDegrades(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	root := newWorkflowRoot(&stdout)
+	if err := BuildWorkflows(root, []WorkflowSpec{{
+		Use:    "deploy",
+		Params: []ParamSpec{{Name: "kind", Flag: "kind", In: InInput, GoType: "string"}},
+		Steps: []WorkflowStepSpec{{
+			ID:        "gpu",
+			Operation: publicGetSpec("gpu", "/gpu"),
+			When:      []WorkflowCondition{{Value: "${input.kind}", Operator: "in", Values: []string{"gpu"}}},
+		}},
+		OutputFrom: "${steps.gpu}",
+	}}); err != nil {
+		t.Fatalf("BuildWorkflows: %v", err)
+	}
+	root.SetArgs([]string{"--hostname", srv.URL, "deploy", "--kind", "cpu"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	summary := decodeWorkflowSummary(t, stdout.String())
+	if summary.Status != "ok" || len(summary.Steps) != 1 || summary.Steps[0].Status != "skipped" {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
