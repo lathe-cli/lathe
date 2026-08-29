@@ -125,6 +125,24 @@ func TestFormatOutput_TableUsesExactCurrencyFormats(t *testing.T) {
 	}
 }
 
+func TestFormatOutput_TableWithFormatsDumpsRawOnTrailingData(t *testing.T) {
+	data := []byte(`{"items":[{"amount":1000000}]}{"error":"tail"}`)
+	var buf bytes.Buffer
+	err := FormatOutput(data, "table", &buf, OutputHints{
+		ListPath:       "items",
+		DefaultColumns: []string{"amount"},
+		ColumnFormats: map[string]ColumnFormat{
+			"amount": {Kind: "currency", Currency: "USD", SourceScale: 6, MinFractionDigits: 2, MaxFractionDigits: 6},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != string(data) {
+		t.Fatalf("table output = %q, want raw payload", buf.String())
+	}
+}
+
 func TestFormatOutput_CurrencyFormatIsTableOnly(t *testing.T) {
 	data := []byte(`{"amount":1000000}`)
 	hints := OutputHints{

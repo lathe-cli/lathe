@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,9 +32,7 @@ func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	if len(hints.ColumnFormats) == 0 {
 		err = json.Unmarshal(data, &v)
 	} else {
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.UseNumber()
-		err = decoder.Decode(&v)
+		v, err = decodeNumberPreserving(data)
 	}
 	if err != nil {
 		_, werr := w.Write(data)

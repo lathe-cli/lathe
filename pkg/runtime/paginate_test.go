@@ -16,7 +16,7 @@ import (
 
 func TestPaginateAll_Cursor(t *testing.T) {
 	pages := []map[string]any{
-		{"items": []any{map[string]any{"id": "1"}, map[string]any{"id": "2"}}, "next_page_token": "tok2"},
+		{"items": []any{map[string]any{"id": "1", "amount": int64(9007199254740993)}, map[string]any{"id": "2"}}, "next_page_token": "tok2"},
 		{"items": []any{map[string]any{"id": "3"}}, "next_page_token": ""},
 	}
 	var call int32
@@ -37,12 +37,15 @@ func TestPaginateAll_Cursor(t *testing.T) {
 		t.Fatalf("PaginateAll: %v", err)
 	}
 
-	var result map[string][]map[string]string
+	var result map[string][]map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if len(result["items"]) != 3 {
 		t.Errorf("got %d items, want 3", len(result["items"]))
+	}
+	if !strings.Contains(string(data), "9007199254740993") {
+		t.Errorf("merged output lost integer precision: %s", data)
 	}
 	if atomic.LoadInt32(&call) != 2 {
 		t.Errorf("made %d requests, want 2", atomic.LoadInt32(&call))

@@ -1,11 +1,26 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"strconv"
 	"strings"
 )
+
+func decodeNumberPreserving(data []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var v any
+	if err := decoder.Decode(&v); err != nil {
+		return nil, err
+	}
+	if decoder.More() {
+		return nil, errors.New("trailing data after JSON value")
+	}
+	return v, nil
+}
 
 func formatColumnValue(value any, format ColumnFormat) (string, bool) {
 	if format.Kind != "currency" || !validColumnFormat(format) {

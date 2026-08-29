@@ -22,8 +22,8 @@ func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *st
 	collected := map[string]any{}
 	stopped := false
 	handle := func(transportEvent string, data []byte) error {
-		var payload any
-		if err := json.Unmarshal(data, &payload); err != nil {
+		payload, err := decodeNumberPreserving(data)
+		if err != nil {
 			return newAPIError(fmt.Errorf("decode %s stream event: %w", hint.Strategy, err), 0)
 		}
 		event := transportEvent
