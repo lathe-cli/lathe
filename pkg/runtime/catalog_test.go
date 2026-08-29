@@ -301,6 +301,34 @@ func TestBuildCatalog_ProjectsLegacyExample(t *testing.T) {
 	}
 }
 
+func TestBuildCatalog_BodyFlagLocation(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group:   "Keys",
+		Use:     "replace-limits",
+		Method:  "PATCH",
+		PathTpl: "/keys/{id}/limits",
+		Params: []ParamSpec{
+			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
+			{Name: "allowedModels", Flag: "allowed-models", In: InBody, GoType: "[]string", ItemEnum: []string{"model-a", "model-b"}},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+	}})
+	catalog := BuildCatalog(root, CatalogOptions{CLIName: "myctl"})
+	if len(catalog.Commands) != 1 {
+		t.Fatalf("commands = %d", len(catalog.Commands))
+	}
+	var bodyFlag *CatalogFlag
+	for i := range catalog.Commands[0].Flags {
+		if catalog.Commands[0].Flags[i].Name == "allowedModels" {
+			bodyFlag = &catalog.Commands[0].Flags[i]
+		}
+	}
+	if bodyFlag == nil || bodyFlag.Location != InBody || bodyFlag.Flag != "allowed-models" || !reflect.DeepEqual(bodyFlag.ItemEnum, []string{"model-a", "model-b"}) {
+		t.Fatalf("body flag = %#v", bodyFlag)
+	}
+}
+
 func TestBuildCatalog_RequestBodyEnvelope(t *testing.T) {
 	root := newRootWithModuleGroup()
 	const tmpl = `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`

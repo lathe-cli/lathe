@@ -77,5 +77,7 @@ commands:
 #         argument: workspace
 #         help: "Target workspace name"
 #         default: "default"
+#     body:
+#       flags: true
 #   internal-debug:
 #     ignore: true

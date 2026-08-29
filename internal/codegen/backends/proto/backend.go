@@ -217,6 +217,7 @@ func (idx *index) buildOperation(
 			schema = idx.bodyWildcardSchema(reqMsg, pathParamSet, extra)
 		} else if field := findField(reqMsg, rule.body); field != nil {
 			schema = idx.fieldToSchema(field, extra, map[string]bool{})
+			schema.Description = fieldComment(reqMsg, field)
 		}
 		op.RequestBody = &rawir.RawRequestBody{Required: true, Schema: schema}
 	}
@@ -382,10 +383,9 @@ func (idx *index) messageToSchema(entry *messageEntry, out map[string]*rawir.Raw
 		}
 		out[key] = sch
 		for _, f := range entry.msg.Field {
-			if idx.isMapField(f) {
-				continue
-			}
-			sch.Properties[jsonName(f)] = idx.fieldToSchema(f, out, visiting)
+			property := idx.fieldToSchema(f, out, visiting)
+			property.Description = fieldComment(entry, f)
+			sch.Properties[jsonName(f)] = property
 		}
 	}
 	return &rawir.RawSchema{Ref: rawir.RefPrefix + key}
@@ -413,10 +413,9 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 		if pathParamSet[f.GetName()] {
 			continue
 		}
-		if idx.isMapField(f) {
-			continue
-		}
-		schema.Properties[jsonName(f)] = idx.fieldToSchema(f, out, map[string]bool{})
+		property := idx.fieldToSchema(f, out, map[string]bool{})
+		property.Description = fieldComment(reqMsg, f)
+		schema.Properties[jsonName(f)] = property
 	}
 	if len(schema.Properties) == 0 {
 		schema.Properties = nil
@@ -425,6 +424,21 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 }
 
 func (idx *index) fieldToSchema(f *descriptorpb.FieldDescriptorProto, out map[string]*rawir.RawSchema, visiting map[string]bool) *rawir.RawSchema {
+	if idx.isMapField(f) {
+		entry := idx.messages[f.GetTypeName()]
+		value := findField(entry, "value")
+		var valueSchema *rawir.RawSchema
+		if value != nil {
+			valueSchema = idx.fieldToSchema(value, out, visiting)
+		}
+		return &rawir.RawSchema{
+			Type: "object",
+			AdditionalProperties: &rawir.RawAdditionalProperties{
+				Allowed: true,
+				Schema:  valueSchema,
+			},
+		}
+	}
 	repeated := f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
 	s := scalarOrMessageSchema(idx, f, out, visiting)
 	if repeated {
@@ -447,7 +461,13 @@ func scalarOrMessageSchema(idx *index, f *descriptorpb.FieldDescriptorProto, out
 	case descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_TYPE_BYTES:
 		return &rawir.RawSchema{Type: "string"}
 	case descriptorpb.FieldDescriptorProto_TYPE_ENUM:
-		return &rawir.RawSchema{Type: "string"}
+		schema := &rawir.RawSchema{Type: "string"}
+		if enum := idx.enums[f.GetTypeName()]; enum != nil {
+			for _, value := range enum.Value {
+				schema.Enum = append(schema.Enum, value.GetName())
+			}
+		}
+		return schema
 	case descriptorpb.FieldDescriptorProto_TYPE_INT32, descriptorpb.FieldDescriptorProto_TYPE_INT64,
 		descriptorpb.FieldDescriptorProto_TYPE_UINT32, descriptorpb.FieldDescriptorProto_TYPE_UINT64,
 		descriptorpb.FieldDescriptorProto_TYPE_SINT32, descriptorpb.FieldDescriptorProto_TYPE_SINT64,

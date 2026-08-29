@@ -1,6 +1,7 @@
 package swagger
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -66,11 +67,38 @@ type response struct {
 }
 
 type schemaNode struct {
-	Ref        string                 `json:"$ref,omitempty"`
-	Type       string                 `json:"type,omitempty"`
-	Properties map[string]*schemaNode `json:"properties,omitempty"`
-	Required   []string               `json:"required,omitempty"`
-	Items      *schemaNode            `json:"items,omitempty"`
+	Ref                  string                      `json:"$ref,omitempty"`
+	Type                 string                      `json:"type,omitempty"`
+	Description          string                      `json:"description,omitempty"`
+	Format               string                      `json:"format,omitempty"`
+	Enum                 []any                       `json:"enum,omitempty"`
+	Properties           map[string]*schemaNode      `json:"properties,omitempty"`
+	Required             []string                    `json:"required,omitempty"`
+	Items                *schemaNode                 `json:"items,omitempty"`
+	AdditionalProperties *schemaAdditionalProperties `json:"additionalProperties,omitempty"`
+}
+
+type schemaAdditionalProperties struct {
+	Allowed bool
+	Schema  *schemaNode
+}
+
+func (p *schemaAdditionalProperties) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if bytes.Equal(data, []byte("true")) || bytes.Equal(data, []byte("false")) {
+		p.Schema = nil
+		return json.Unmarshal(data, &p.Allowed)
+	}
+	if len(data) == 0 || data[0] != '{' {
+		return fmt.Errorf("additionalProperties must be a boolean or schema")
+	}
+	var schema schemaNode
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return err
+	}
+	p.Allowed = false
+	p.Schema = &schema
+	return nil
 }
 
 func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
@@ -258,8 +286,11 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		return nil
 	}
 	out := &rawir.RawSchema{
-		Ref:  s.Ref,
-		Type: s.Type,
+		Ref:         s.Ref,
+		Type:        s.Type,
+		Description: s.Description,
+		Format:      s.Format,
+		Enum:        anySliceToStrings(s.Enum),
 	}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*rawir.RawSchema, len(s.Properties))
@@ -272,6 +303,12 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 	}
 	if s.Items != nil {
 		out.Items = convertSchema(s.Items)
+	}
+	if s.AdditionalProperties != nil {
+		out.AdditionalProperties = &rawir.RawAdditionalProperties{
+			Allowed: s.AdditionalProperties.Allowed,
+			Schema:  convertSchema(s.AdditionalProperties.Schema),
+		}
 	}
 	return out
 }

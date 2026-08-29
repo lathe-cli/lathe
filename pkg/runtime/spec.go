@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 12
+const SchemaVersion = 13
 
 type CommandSpec struct {
 	Group           string
@@ -68,6 +68,7 @@ type ParamSpec struct {
 	Required   bool
 	Default    string
 	Enum       []string
+	ItemEnum   []string `json:",omitempty"`
 	Format     string
 	Deprecated bool
 	Context    string `json:",omitempty"`
@@ -79,6 +80,7 @@ const (
 	InHeader   = "header"
 	InFormData = "formData"
 	InVariable = "variable"
+	InBody     = "body"
 	InInput    = "input"
 )
 
@@ -101,7 +103,10 @@ type RuntimeSchemaSpec struct {
 type SchemaSpec struct {
 	Ref                  string                    `json:"ref,omitempty"`
 	Type                 string                    `json:"type,omitempty"`
+	Description          string                    `json:"description,omitempty"`
+	Format               string                    `json:"format,omitempty"`
 	Nullable             bool                      `json:"nullable,omitempty"`
+	Enum                 []string                  `json:"enum,omitempty"`
 	Properties           map[string]*SchemaSpec    `json:"properties,omitempty"`
 	Required             []string                  `json:"required,omitempty"`
 	Items                *SchemaSpec               `json:"items,omitempty"`

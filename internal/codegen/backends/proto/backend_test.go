@@ -72,6 +72,27 @@ func TestParseIgnoresImportedDependencyServices(t *testing.T) {
 	}
 }
 
+func TestParsePreservesMapRequestBodySchema(t *testing.T) {
+	fds := buildGoogleAPIHTTPPostBodyStarPath()
+	data, err := proto.Marshal(fds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(syncDir, descriptorFile), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := &sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}
+	mod, err := Parse(src, syncDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := mod.Operations[0].RequestBody.Schema.Properties["labels"]
+	if labels == nil || labels.Type != "object" || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
+		t.Fatalf("labels schema = %#v", labels)
+	}
+}
+
 // ---- descriptor builders ----------------------------------------------------
 
 func scalarField(name string, num int32, typ descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto {

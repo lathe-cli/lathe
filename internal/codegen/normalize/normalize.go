@@ -737,10 +737,13 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 				return &runtime.SchemaSpec{AllOf: []*runtime.SchemaSpec{base, runtimeSchema(&sibling, defs, visited)}}
 			}
 			base.Nullable = base.Nullable || s.Nullable
+			if s.Description != "" {
+				base.Description = s.Description
+			}
 			return base
 		}
 	}
-	out := &runtime.SchemaSpec{Ref: s.Ref, Type: s.Type, Nullable: s.Nullable}
+	out := &runtime.SchemaSpec{Ref: s.Ref, Type: s.Type, Description: s.Description, Format: s.Format, Nullable: s.Nullable, Enum: append([]string(nil), s.Enum...)}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*runtime.SchemaSpec, len(s.Properties))
 		for k, v := range s.Properties {
@@ -772,7 +775,7 @@ func runtimeSchema(s *rawir.RawSchema, defs map[string]*rawir.RawSchema, visited
 }
 
 func rawSchemaHasRefSiblings(s *rawir.RawSchema) bool {
-	return s.Type != "" || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
+	return s.Type != "" || s.Format != "" || len(s.Enum) > 0 || len(s.Properties) > 0 || len(s.Required) > 0 || s.Items != nil || len(s.AnyOf) > 0 || len(s.OneOf) > 0 || len(s.AllOf) > 0 || s.AdditionalProperties != nil
 }
 
 func runtimeSchemas(schemas []*rawir.RawSchema, defs map[string]*rawir.RawSchema, visited map[string]bool) []*runtime.SchemaSpec {

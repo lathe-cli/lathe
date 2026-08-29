@@ -12,6 +12,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/overlay"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
@@ -70,7 +71,10 @@ func RenderModule(name, cliName string, specs []runtime.CommandSpec, overrides m
 	if err := ValidateOverlayModule(specs, mod); err != nil {
 		return err
 	}
-	merged := MergeOverlayModule(specs, mod)
+	merged, err := MergeOverlayModule(specs, mod)
+	if err != nil {
+		return err
+	}
 	return renderModuleSpecs(name, cliName, merged)
 }
 
@@ -255,18 +259,24 @@ func ValidateModuleNames(names []string) error {
 	return nil
 }
 
-func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
+func MergeOverlay(specs []runtime.CommandSpec, overrides map[string]overlay.Override) ([]runtime.CommandSpec, error) {
 	return MergeOverlayModule(specs, overlay.Module{Commands: overrides})
 }
 
-func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
-	merged := mergeOverlaySpecs(specs, mod)
+func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) ([]runtime.CommandSpec, error) {
+	merged, err := mergeOverlaySpecs(specs, mod)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateJSONBodyFlagParams(merged); err != nil {
+		return nil, err
+	}
 	applyRuntimeSchemaBindings(specs, merged, mod)
 	applyGroupOverrides(merged, mod.Groups)
-	return merged
+	return merged, nil
 }
 
-func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
+func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) ([]runtime.CommandSpec, error) {
 	var merged []runtime.CommandSpec
 	var overrides []overlay.Override
 	var matched []bool
@@ -287,10 +297,13 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) []runtim
 	for i := range merged {
 		applyBulkDefaults(&merged[i], mod.Defaults, matchedLegacyUses[i])
 		if matched[i] {
+			if err := applyBodyFlags(&merged[i], overrides[i]); err != nil {
+				return nil, fmt.Errorf("command %q body.flags: %w", merged[i].Use, err)
+			}
 			applyCommandOverride(&merged[i], overrides[i])
 		}
 	}
-	return merged
+	return merged, nil
 }
 
 // legacyOverlayUses reproduces the pre-v0.6 collision keys so existing
@@ -373,12 +386,32 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 				return fmt.Errorf("command %q stream policy: %w", spec.Use, err)
 			}
 		}
+		if override.Body != nil && override.Body.Flags {
+			if _, err := normalize.ExpandJSONBodyFlags(spec); err != nil {
+				return fmt.Errorf("command %q body.flags: %w", spec.Use, err)
+			}
+		}
 	}
-	merged := mergeOverlaySpecs(specs, mod)
+	merged, err := mergeOverlaySpecs(specs, mod)
+	if err != nil {
+		return err
+	}
+	if err := validateJSONBodyFlagParams(merged); err != nil {
+		return err
+	}
 	if err := validateGroupOverrides(merged, mod.Groups); err != nil {
 		return err
 	}
 	return validateRuntimeSchemaBindings(specs, merged, mod)
+}
+
+func validateJSONBodyFlagParams(specs []runtime.CommandSpec) error {
+	for _, spec := range specs {
+		if err := normalize.ValidateJSONBodyFlagParams(spec); err != nil {
+			return fmt.Errorf("command %q body.flags: %w", spec.Use, err)
+		}
+	}
+	return nil
 }
 
 func validateGroupOverrides(specs []runtime.CommandSpec, groups map[string]overlay.GroupOverride) error {
@@ -791,6 +824,7 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	for i := range cloned.Params {
 		cloned.Params[i].Aliases = append([]string(nil), spec.Params[i].Aliases...)
 		cloned.Params[i].Enum = append([]string(nil), spec.Params[i].Enum...)
+		cloned.Params[i].ItemEnum = append([]string(nil), spec.Params[i].ItemEnum...)
 	}
 	if spec.RequestBody != nil {
 		body := *spec.RequestBody
@@ -833,6 +867,18 @@ func matchesAny(patterns []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func applyBodyFlags(spec *runtime.CommandSpec, override overlay.Override) error {
+	if override.Body == nil || !override.Body.Flags {
+		return nil
+	}
+	params, err := normalize.ExpandJSONBodyFlags(*spec)
+	if err != nil {
+		return err
+	}
+	spec.Params = append(spec.Params, params...)
+	return nil
 }
 
 func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) {
@@ -1360,6 +1406,7 @@ func paramSpecsLiteral(params []runtime.ParamSpec) string {
 		writeBoolField(&b, "Required", param.Required)
 		writeStringField(&b, "Default", param.Default)
 		writeStringSliceField(&b, "Enum", param.Enum)
+		writeStringSliceField(&b, "ItemEnum", param.ItemEnum)
 		writeStringField(&b, "Format", param.Format)
 		writeBoolField(&b, "Deprecated", param.Deprecated)
 		writeStringField(&b, "Context", param.Context)
@@ -1586,6 +1633,9 @@ func writeSchemaLiteral(b *strings.Builder, s *runtime.SchemaSpec) {
 	if s.Type != "" {
 		fmt.Fprintf(b, "Type: %q,", s.Type)
 	}
+	writeStringField(b, "Description", s.Description)
+	writeStringField(b, "Format", s.Format)
+	writeStringSliceField(b, "Enum", s.Enum)
 	writeBoolField(b, "Nullable", s.Nullable)
 	if len(s.Properties) > 0 {
 		b.WriteString("Properties: map[string]*runtime.SchemaSpec{")
@@ -1752,7 +1802,7 @@ var Specs = []runtime.CommandSpec{
 		{{- if $op.Params}}
 		Params: []runtime.ParamSpec{
 			{{- range $op.Params}}
-			{Name: {{printf "%q" .Name}}, Flag: {{printf "%q" .Flag}}{{- if .Aliases}}, Aliases: []string{ {{- range .Aliases}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Argument}}, Argument: {{printf "%q" .Argument}}{{end}}, In: {{printf "%q" .In}}, GoType: {{printf "%q" .GoType}}, Help: {{printf "%q" .Help}}, Required: {{.Required}}{{- if .Default}}, Default: {{printf "%q" .Default}}{{end}}{{- if .Enum}}, Enum: []string{ {{- range .Enum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Format}}, Format: {{printf "%q" .Format}}{{end}}{{- if .Deprecated}}, Deprecated: true{{end}}{{- if .Context}}, Context: {{printf "%q" .Context}}{{end}}},
+			{Name: {{printf "%q" .Name}}, Flag: {{printf "%q" .Flag}}{{- if .Aliases}}, Aliases: []string{ {{- range .Aliases}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Argument}}, Argument: {{printf "%q" .Argument}}{{end}}, In: {{printf "%q" .In}}, GoType: {{printf "%q" .GoType}}, Help: {{printf "%q" .Help}}, Required: {{.Required}}{{- if .Default}}, Default: {{printf "%q" .Default}}{{end}}{{- if .Enum}}, Enum: []string{ {{- range .Enum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .ItemEnum}}, ItemEnum: []string{ {{- range .ItemEnum}}{{printf "%q" .}}, {{end -}} }{{end}}{{- if .Format}}, Format: {{printf "%q" .Format}}{{end}}{{- if .Deprecated}}, Deprecated: true{{end}}{{- if .Context}}, Context: {{printf "%q" .Context}}{{end}}},
 			{{- end}}
 		},
 		{{- end}}

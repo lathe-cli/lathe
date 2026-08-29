@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -55,6 +56,36 @@ func TestBuild_RejectsExistingRootCommandConflict(t *testing.T) {
 	if len(root.Commands()) != 1 {
 		t.Fatalf("conflicting module must not be mounted; root commands = %v", cmdNames(root.Commands()))
 	}
+}
+
+func TestBuild_RejectsParamFlagCollision(t *testing.T) {
+	t.Run("across parameters", func(t *testing.T) {
+		root := newRootWithModuleGroup()
+		err := Build(root, "demo", []CommandSpec{{
+			Group: "Users",
+			Use:   "update",
+			Params: []ParamSpec{
+				{Name: "tokenEnv", Flag: "token-env", In: InQuery, GoType: "string"},
+				{Name: "token", Flag: "token", In: InBody, GoType: "string"},
+			},
+		}})
+		if err == nil {
+			t.Fatal("expected parameter flag collision error")
+		}
+	})
+	t.Run("within sensitive aliases", func(t *testing.T) {
+		root := newRootWithModuleGroup()
+		err := Build(root, "demo", []CommandSpec{{
+			Group: "Users",
+			Use:   "update",
+			Params: []ParamSpec{{
+				Name: "token", Flag: "token", Aliases: []string{"token-env"}, In: InBody, GoType: "string",
+			}},
+		}})
+		if err == nil {
+			t.Fatal("expected sensitive alias binding collision error")
+		}
+	})
 }
 
 func TestBuild_RejectsCompletionModuleName(t *testing.T) {
@@ -547,7 +578,123 @@ func TestBuild_SetStrSendsStringBodyFields(t *testing.T) {
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
+		t.Errorf("body = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuild_TypedBodyFlagsSendJSON(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "replace-limits",
+		Method:  "PATCH",
+		PathTpl: "/keys/{id}/limits",
+		Params: []ParamSpec{
+			{Name: "id", Flag: "id", Argument: "key-id", In: InPath, GoType: "string", Required: true},
+			{Name: "maxBudgetUsd", Flag: "max-budget-usd", In: InBody, GoType: "float64"},
+			{Name: "budgetDuration", Flag: "budget-duration", In: InBody, GoType: "string", Enum: []string{"daily", "weekly", "monthly"}},
+			{Name: "rpmLimit", Flag: "rpm-limit", In: InBody, GoType: "int64"},
+			{Name: "allowedModels", Flag: "allowed-models", In: InBody, GoType: "[]string"},
+			{Name: "expiresAt", Flag: "expires-at", In: InBody, GoType: "string"},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+		Security:    &SecurityHint{Public: true},
+	}}
+
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{
+		"--hostname", srv.URL,
+		"demo", "keys", "replace-limits", "key-1",
+		"--max-budget-usd", "100",
+		"--budget-duration", "monthly",
+		"--rpm-limit", "60",
+		"--allowed-models", "model-a,model-b",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	want := map[string]any{
+		"maxBudgetUsd":   float64(100),
+		"budgetDuration": "monthly",
+		"rpmLimit":       float64(60),
+		"allowedModels":  []any{"model-a", "model-b"},
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
+	}
+}
+
+func TestBuild_RequiredBodyFieldsAcceptEveryBodyInput(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+	bodyFile := filepath.Join(t.TempDir(), "body.json")
+	if err := os.WriteFile(bodyFile, []byte(`{"name":"from-file"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name         string
+		bodyRequired bool
+		args         []string
+		wantBody     string
+	}{
+		{name: "typed flag", bodyRequired: true, args: []string{"--name", "from-flag"}, wantBody: `{"name":"from-flag"}`},
+		{name: "set", bodyRequired: true, args: []string{"--set", "name=from-set"}, wantBody: `{"name":"from-set"}`},
+		{name: "file", bodyRequired: true, args: []string{"--file", bodyFile}, wantBody: `{"name":"from-file"}`},
+		{name: "explicit null", bodyRequired: true, args: []string{"--set", "name=null"}, wantBody: `{"name":null}`},
+		{name: "optional body omitted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, _ := io.ReadAll(r.Body)
+				gotBody = string(raw)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer srv.Close()
+
+			root := newRootWithModuleGroup()
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "raw", "")
+			mustBuild(t, root, "demo", []CommandSpec{{
+				Group:   "Users",
+				Use:     "create-user",
+				Method:  "POST",
+				PathTpl: "/users",
+				Params: []ParamSpec{{
+					Name: "name", Flag: "name", In: InBody, GoType: "string", Required: true,
+				}},
+				RequestBody: &RequestBody{Required: tc.bodyRequired, MediaType: "application/json"},
+				Security:    &SecurityHint{Public: true},
+			}})
+			args := []string{"--hostname", srv.URL, "demo", "users", "create-user"}
+			root.SetArgs(append(args, tc.args...))
+			if err := root.Execute(); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if gotBody != tc.wantBody {
+				t.Fatalf("body = %q, want %q", gotBody, tc.wantBody)
+			}
+		})
 	}
 }
 
@@ -761,11 +908,18 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
 			{Name: "limit", Flag: "limit", In: InQuery, GoType: "int64"},
 			{Name: "opaque", Flag: "opaque", In: InQuery, GoType: "string", Format: "password"},
+			{Name: "value", Flag: "value", In: InBody, GoType: "string", Format: "password"},
+			{Name: "values", Flag: "values", In: InBody, GoType: "[]string"},
 			{Name: "page_token", Flag: "page-token", In: InQuery, GoType: "string"},
 			{Name: "key", Flag: "key", In: InQuery, GoType: "string"},
 			{Name: "Authorization", Flag: "authorization", In: InHeader, GoType: "string"},
 		},
-		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json", Schema: &SchemaSpec{
+			Type: "object",
+			Properties: map[string]*SchemaSpec{
+				"values": {Type: "array", Items: &SchemaSpec{Type: "string", Format: "password"}},
+			},
+		}},
 		Output: OutputHints{
 			ListPath:          "data.items",
 			DefaultColumns:    []string{"id", "name"},
@@ -779,6 +933,8 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 		"--id", "u 1",
 		"--limit", "5",
 		"--opaque", "dry-run-query-secret",
+		"--value", "dry-run-body-secret",
+		"--values", "dry-run-array-secret,another-array-secret",
 		"--page-token", "cursor-1",
 		"--key", "dry-run-key-secret",
 		"--authorization", "Bearer secret",
@@ -819,8 +975,8 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 	if out.URL != srv.URL+"/users/u%201?key=%2A%2A%2A&limit=5&opaque=%2A%2A%2A&page_token=cursor-1" {
 		t.Fatalf("url = %q", out.URL)
 	}
-	if strings.Contains(stdout.String(), "dry-run-query-secret") || strings.Contains(stdout.String(), "dry-run-key-secret") {
-		t.Fatalf("dry-run leaked query credential: %s", stdout.String())
+	if strings.Contains(stdout.String(), "dry-run-query-secret") || strings.Contains(stdout.String(), "dry-run-key-secret") || strings.Contains(stdout.String(), "dry-run-body-secret") || strings.Contains(stdout.String(), "dry-run-array-secret") || strings.Contains(stdout.String(), "another-array-secret") {
+		t.Fatalf("dry-run leaked credential: %s", stdout.String())
 	}
 	if out.Headers["Authorization"] != "***" {
 		t.Fatalf("authorization header = %q", out.Headers["Authorization"])
@@ -833,6 +989,12 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 	}
 	if out.Body["name"] != "alice" || out.Body["password"] != "***" {
 		t.Fatalf("body = %#v", out.Body)
+	}
+	if out.Body["value"] != "***" {
+		t.Fatalf("sensitive body field = %#v", out.Body["value"])
+	}
+	if out.Body["values"] != "***" {
+		t.Fatalf("sensitive body array = %#v", out.Body["values"])
 	}
 	envVars, ok := out.Body["envVars"].([]any)
 	if !ok || len(envVars) != 1 {

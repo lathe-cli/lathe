@@ -40,6 +40,7 @@ type ContextSetOnSuccess struct {
 }
 
 type BodyOverride struct {
+	Flags         bool                   `yaml:"flags"`
 	RuntimeSchema *RuntimeSchemaOverride `yaml:"runtime_schema"`
 }
 

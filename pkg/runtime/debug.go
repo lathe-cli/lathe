@@ -113,7 +113,7 @@ func isSensitiveDebugName(name string) bool {
 	return false
 }
 
-func redactDebugBody(contentType string, body []byte) []byte {
+func redactDebugBody(contentType string, body []byte, sensitive map[string]bool) []byte {
 	if len(body) == 0 {
 		return body
 	}
@@ -121,7 +121,7 @@ func redactDebugBody(contentType string, body []byte) []byte {
 	if mt == "application/json" {
 		var v any
 		if err := json.Unmarshal(body, &v); err == nil {
-			if redactDebugJSON(v) {
+			if redactDebugJSON(v, sensitive) {
 				redacted, err := json.Marshal(v)
 				if err == nil {
 					return redacted
@@ -132,16 +132,21 @@ func redactDebugBody(contentType string, body []byte) []byte {
 	return []byte(redactDebugText(string(body)))
 }
 
-func redactDebugJSON(v any) bool {
-	return redactDebugJSONAt(v, nil)
+func redactDebugJSON(v any, sensitive map[string]bool) bool {
+	return redactDebugJSONAt(v, nil, sensitive)
 }
 
-func redactDebugJSONAt(v any, path []string) bool {
+func redactDebugJSONAt(v any, path []string, sensitive map[string]bool) bool {
 	switch tv := v.(type) {
 	case map[string]any:
 		changed := false
 		envVarPair := isDebugEnvVarPair(path, tv)
 		for k, child := range tv {
+			if len(path) == 0 && sensitive[k] {
+				tv[k] = "***"
+				changed = true
+				continue
+			}
 			if envVarPair && strings.EqualFold(k, "value") {
 				tv[k] = "***"
 				changed = true
@@ -155,7 +160,7 @@ func redactDebugJSONAt(v any, path []string) bool {
 				changed = true
 				continue
 			}
-			if redactDebugJSONAt(child, append(path, k)) {
+			if redactDebugJSONAt(child, append(path, k), sensitive) {
 				changed = true
 			}
 		}
@@ -163,7 +168,7 @@ func redactDebugJSONAt(v any, path []string) bool {
 	case []any:
 		changed := false
 		for _, child := range tv {
-			if redactDebugJSONAt(child, path) {
+			if redactDebugJSONAt(child, path, sensitive) {
 				changed = true
 			}
 		}
@@ -171,6 +176,42 @@ func redactDebugJSONAt(v any, path []string) bool {
 	default:
 		return false
 	}
+}
+
+func sensitiveBodyFields(s CommandSpec) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range s.Params {
+		if p.In == InBody && isSensitiveStringParam(p) {
+			out[p.Name] = true
+		}
+	}
+	if s.RequestBody == nil || s.RequestBody.Schema == nil {
+		return out
+	}
+	for name, schema := range s.RequestBody.Schema.Properties {
+		if schemaUsesPasswordFormat(schema, map[*SchemaSpec]bool{}) {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+func schemaUsesPasswordFormat(s *SchemaSpec, visited map[*SchemaSpec]bool) bool {
+	if s == nil || visited[s] {
+		return false
+	}
+	visited[s] = true
+	if strings.EqualFold(s.Format, "password") || schemaUsesPasswordFormat(s.Items, visited) {
+		return true
+	}
+	for _, variants := range [][]*SchemaSpec{s.AnyOf, s.OneOf, s.AllOf} {
+		for _, variant := range variants {
+			if schemaUsesPasswordFormat(variant, visited) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isDebugEnvVarPair(path []string, v map[string]any) bool {

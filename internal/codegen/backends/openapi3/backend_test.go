@@ -231,6 +231,50 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 	}
 }
 
+func TestParse_NullableEnumAnyOfBecomesBodyFlagSchema(t *testing.T) {
+	input := `{
+  "openapi": "3.1.0",
+  "paths": {
+    "/keys/{id}/limits": {
+      "patch": {
+        "operationId": "updateLimits",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+				  "budgetDuration": {"description": "Budget duration", "anyOf": [{"type": "string", "enum": ["daily", "weekly", "monthly"]}, {"type": "null"}]},
+                  "maxBudgetUsd": {"anyOf": [{"type": "number"}, {"type": "null"}]}
+                }
+              }
+            }
+          }
+        },
+        "responses": {"200": {}}
+      }
+    }
+  }
+}`
+	spec := parseNormalized(t, input)[0]
+	duration := spec.RequestBody.Schema.Properties["budgetDuration"]
+	if duration.Type != "string" || !duration.Nullable || len(duration.Enum) != 3 || duration.Enum[0] != "daily" {
+		t.Fatalf("budgetDuration = %#v", duration)
+	}
+	if spec.RequestBody.Schema.Properties["maxBudgetUsd"].Type != "number" || !spec.RequestBody.Schema.Properties["maxBudgetUsd"].Nullable {
+		t.Fatalf("maxBudgetUsd = %#v", spec.RequestBody.Schema.Properties["maxBudgetUsd"])
+	}
+	got, err := normalize.ExpandJSONBodyFlags(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Flag != "budget-duration" || got[0].Enum[0] != "daily" || !strings.Contains(got[0].Help, "Budget duration") || got[1].GoType != "float64" {
+		t.Fatalf("flags = %#v", got)
+	}
+}
+
 func TestParse_MultipartBodyFields(t *testing.T) {
 	input := `{
   "openapi": "3.0.3",

@@ -85,6 +85,9 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 	ordered := make([]*cobra.Command, 0)
 	for i := range specs {
 		s := specs[i]
+		if err := ValidateParamFlags(s.Params); err != nil {
+			return nil, fmt.Errorf("command %q: %w", s.Use, err)
+		}
 		groupShort := s.GroupShort
 		if groupShort == "" {
 			groupShort = s.Group + " operations"
@@ -370,12 +373,62 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 		cmd.Flags().StringVar(v, p.Flag, p.Default, p.Help)
 		addSafeInputFlags(cmd, p)
 	}
-	if p.Required && p.Default == "" && p.Argument == "" && p.Context == "" && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
+	if p.Required && p.Default == "" && p.Argument == "" && p.Context == "" && p.In != InBody && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
 		_ = cmd.MarkFlagRequired(p.Flag)
 	}
 	if p.Deprecated {
 		_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
 	}
+}
+
+func ValidateParamFlags(params []ParamSpec) error {
+	type bindingOwner struct {
+		param  int
+		target string
+	}
+	seen := map[string]bindingOwner{}
+	for i, param := range params {
+		for _, binding := range paramFlagBindings(param) {
+			if binding.name == "" {
+				return fmt.Errorf("parameter %q has an empty flag name", param.Name)
+			}
+			if prior, ok := seen[binding.name]; ok {
+				if prior.param != i {
+					return fmt.Errorf("flag %q is shared by parameters %q and %q", binding.name, params[prior.param].Name, param.Name)
+				}
+				if prior.target != binding.target {
+					return fmt.Errorf("flag %q has conflicting bindings for parameter %q", binding.name, param.Name)
+				}
+				continue
+			}
+			seen[binding.name] = bindingOwner{param: i, target: binding.target}
+		}
+	}
+	return nil
+}
+
+type paramFlagBinding struct {
+	name   string
+	target string
+}
+
+func paramFlagBindings(param ParamSpec) []paramFlagBinding {
+	bindings := []paramFlagBinding{{name: param.Flag, target: param.Flag}}
+	for _, alias := range param.Aliases {
+		bindings = append(bindings, paramFlagBinding{name: alias, target: param.Flag})
+	}
+	if !isSensitiveStringParam(param) {
+		return bindings
+	}
+	for _, suffix := range []string{"-env", "-file", "-stdin"} {
+		bindings = append(bindings, paramFlagBinding{name: param.Flag + suffix, target: param.Flag + suffix})
+	}
+	for _, alias := range param.Aliases {
+		for _, suffix := range []string{"-env", "-file", "-stdin"} {
+			bindings = append(bindings, paramFlagBinding{name: alias + suffix, target: param.Flag + suffix})
+		}
+	}
+	return bindings
 }
 
 func redactedDryRunHeaders(headers map[string][]string) map[string]string {
@@ -386,14 +439,14 @@ func redactedDryRunHeaders(headers map[string][]string) map[string]string {
 	return out
 }
 
-func redactedDryRunBody(contentType string, body []byte) any {
+func redactedDryRunBody(contentType string, body []byte, sensitive map[string]bool) any {
 	if len(body) == 0 {
 		return nil
 	}
 	if isMultipartMediaType(contentType) {
 		return fmt.Sprintf("<multipart body omitted: %d bytes>", len(body))
 	}
-	redacted := redactDebugBody(contentType, body)
+	redacted := redactDebugBody(contentType, body, sensitive)
 	if strings.HasPrefix(contentType, "application/json") {
 		var v any
 		if err := json.Unmarshal(redacted, &v); err == nil {
@@ -484,6 +537,9 @@ func validateRequiredParams(params []ParamSpec, hasRequestBody bool, changed map
 			continue
 		}
 		if p.In == InVariable && hasRequestBody {
+			continue
+		}
+		if p.In == InBody {
 			continue
 		}
 		if !changed[boundParamKey(p)] {
@@ -671,6 +727,35 @@ func validateRequiredVariableParams(s CommandSpec, body any) error {
 	return nil
 }
 
+func validateRequiredBodyParams(s CommandSpec, body any) error {
+	if body == nil {
+		return nil
+	}
+	required := make([]ParamSpec, 0)
+	for _, p := range s.Params {
+		if p.In == InBody && p.Required && p.Default == "" {
+			required = append(required, p)
+		}
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	raw, _, err := encodeRequestBody(body)
+	if err != nil {
+		return err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("validate request body: %w", err)
+	}
+	for _, p := range required {
+		if _, ok := doc[p.Name]; !ok {
+			return fmt.Errorf("required body field missing: %s", p.Name)
+		}
+	}
+	return nil
+}
+
 func shortcutName(use string, target string) (string, error) {
 	name := strings.TrimSpace(use)
 	if name == "" || name != use || len(strings.Fields(name)) != 1 {
@@ -697,7 +782,7 @@ func validateShortcutParamValue(p ParamSpec, value string) error {
 		return fmt.Errorf("type %s is not supported for %s params", p.GoType, p.In)
 	case p.In == InFormData && p.GoType == "float64":
 		return fmt.Errorf("type %s is not supported for %s params", p.GoType, p.In)
-	case p.In != InVariable && p.GoType == "float64":
+	case p.In != InVariable && p.In != InBody && p.GoType == "float64":
 		return fmt.Errorf("type %s is not supported for %s params", p.GoType, p.In)
 	}
 	switch p.GoType {

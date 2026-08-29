@@ -117,6 +117,7 @@ commands:
         name: workspace
         from_param: status
     body:
+      flags: true
       runtime_schema:
         operation_id: describeUser
         response_path: input_schema
@@ -189,8 +190,8 @@ commands:
 	if cu.Context == nil || cu.Context.SetOnSuccess == nil || cu.Context.SetOnSuccess.Name != "workspace" || cu.Context.SetOnSuccess.FromParam != "status" {
 		t.Errorf("context = %#v", cu.Context)
 	}
-	if cu.Body == nil || cu.Body.RuntimeSchema == nil || cu.Body.RuntimeSchema.OperationID != "describeUser" || cu.Body.RuntimeSchema.ResponsePath != "input_schema" || cu.Body.RuntimeSchema.Params["user_id"] != "${params.user_id}" {
-		t.Errorf("runtime schema = %#v", cu.Body)
+	if cu.Body == nil || !cu.Body.Flags || cu.Body.RuntimeSchema == nil || cu.Body.RuntimeSchema.OperationID != "describeUser" || cu.Body.RuntimeSchema.ResponsePath != "input_schema" || cu.Body.RuntimeSchema.Params["user_id"] != "${params.user_id}" {
+		t.Errorf("body override = %#v", cu.Body)
 	}
 	if cu.Output == nil || len(cu.Output.DefaultColumns) != 3 || cu.Output.DefaultColumns[0] != "name" || cu.Output.DefaultColumns[1] != "spendMicro" || cu.Output.DefaultColumns[2] != "status.phase" {
 		t.Errorf("output = %#v", cu.Output)
