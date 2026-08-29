@@ -3,8 +3,116 @@ package runtime
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestJSONBodyFromFlags(t *testing.T) {
+	spec := CommandSpec{
+		Method:  "PATCH",
+		PathTpl: "/keys/{id}/limits",
+		Params: []ParamSpec{
+			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
+			{Name: "maxBudgetUsd", Flag: "max-budget-usd", In: InBody, GoType: "float64"},
+			{Name: "budgetDuration", Flag: "budget-duration", In: InBody, GoType: "string", Enum: []string{"daily", "weekly", "monthly"}},
+			{Name: "rpmLimit", Flag: "rpm-limit", In: InBody, GoType: "int64"},
+			{Name: "allowedModels", Flag: "allowed-models", In: InBody, GoType: "[]string", ItemEnum: []string{"model-a", "model-b"}},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+	}
+	budget := 100.0
+	rpm := int64(60)
+	models := []string{"model-a", "model-b"}
+	duration := "monthly"
+	input := OperationInput{
+		Values: map[string]any{
+			boundParamKey(spec.Params[0]): "key-1",
+			boundParamKey(spec.Params[1]): &budget,
+			boundParamKey(spec.Params[2]): &duration,
+			boundParamKey(spec.Params[3]): &rpm,
+			boundParamKey(spec.Params[4]): &models,
+		},
+		Changed: map[string]bool{
+			boundParamKey(spec.Params[0]): true,
+			boundParamKey(spec.Params[1]): true,
+			boundParamKey(spec.Params[2]): true,
+			boundParamKey(spec.Params[3]): true,
+			boundParamKey(spec.Params[4]): true,
+		},
+	}
+	_, body, _, err := resolveOperationRequest(spec, input, ClientOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := encodeRequestBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"maxBudgetUsd":   float64(100),
+		"budgetDuration": "monthly",
+		"rpmLimit":       float64(60),
+		"allowedModels":  []any{"model-a", "model-b"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	models = []string{"model-a", "unknown"}
+	if _, _, _, err := resolveOperationRequest(spec, input, ClientOptions{}); err == nil {
+		t.Fatal("expected invalid array item error")
+	}
+}
+
+func TestJSONBodyFlagsExclusiveWithFileAndSet(t *testing.T) {
+	spec := CommandSpec{
+		Method:  "PATCH",
+		PathTpl: "/keys/{id}",
+		Params: []ParamSpec{
+			{Name: "maxBudgetUsd", Flag: "max-budget-usd", In: InBody, GoType: "float64"},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+	}
+	budget := 100.0
+	flagKey := boundParamKey(spec.Params[0])
+	_, _, _, err := resolveOperationRequest(spec, OperationInput{
+		Values:   map[string]any{flagKey: &budget},
+		Changed:  map[string]bool{flagKey: true},
+		HasFile:  true,
+		FileBody: []byte(`{"maxBudgetUsd":1}`),
+	}, ClientOptions{})
+	if err == nil || !strings.Contains(err.Error(), "--file cannot be combined") {
+		t.Fatalf("error = %v", err)
+	}
+	_, _, _, err = resolveOperationRequest(spec, OperationInput{
+		Values:   map[string]any{flagKey: &budget},
+		Changed:  map[string]bool{flagKey: true},
+		BodySets: []string{"maxBudgetUsd=null"},
+	}, ClientOptions{})
+	if err == nil || !strings.Contains(err.Error(), "cannot be set by both") {
+		t.Fatalf("error = %v", err)
+	}
+	_, body, _, err := resolveOperationRequest(spec, OperationInput{
+		BodySets: []string{"expiresAt=null"},
+	}, ClientOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := encodeRequestBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["expiresAt"]; !ok || got["expiresAt"] != nil {
+		t.Fatalf("got %#v", got)
+	}
+}
 
 func TestBuildBodyFromSet(t *testing.T) {
 	cases := []struct {

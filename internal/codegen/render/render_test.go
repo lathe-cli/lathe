@@ -56,11 +56,29 @@ func generatedWorkflows(t *testing.T) string {
 	return string(out)
 }
 
+func mustMergeOverlay(t *testing.T, specs []runtime.CommandSpec, overrides map[string]overlay.Override) []runtime.CommandSpec {
+	t.Helper()
+	merged, err := MergeOverlay(specs, overrides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return merged
+}
+
+func mustMergeOverlayModule(t *testing.T, specs []runtime.CommandSpec, mod overlay.Module) []runtime.CommandSpec {
+	t.Helper()
+	merged, err := MergeOverlayModule(specs, mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return merged
+}
+
 func TestRenderModule_AppliesOverlay(t *testing.T) {
 	chdirWithGoMod(t)
 
 	specs := []runtime.CommandSpec{
-		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/api/v1/addon", Params: []runtime.ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: runtime.InQuery, GoType: "string"}}, RequestBody: &runtime.RequestBody{Required: true, Schema: &runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"name": {Type: "string"}}}}, Output: runtime.OutputHints{DefaultColumns: []string{"id"}}},
+		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/api/v1/addon", Params: []runtime.ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: runtime.InQuery, GoType: "string"}}, RequestBody: &runtime.RequestBody{Required: true, Schema: &runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"name": {Type: "string", Description: "Addon name", Format: "password", Enum: []string{"primary"}}}}}, Output: runtime.OutputHints{DefaultColumns: []string{"id"}}},
 		{Group: "Addon", Use: "untouched", Short: "untouched short", Method: "GET", PathTpl: "/api/v1/x"},
 	}
 	overrides := map[string]overlay.Override{
@@ -133,6 +151,9 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`Properties: map[string]*runtime.SchemaSpec`,
 		`"name":`,
 		`Type: "string"`,
+		`Description: "Addon name"`,
+		`Format: "password"`,
+		`Enum: []string{"primary"}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q", want)
@@ -274,7 +295,7 @@ func TestRenderModule_GroupAndHiddenOverride(t *testing.T) {
 	if err := ValidateOverlayModule(specs, mod); err != nil {
 		t.Fatalf("ValidateOverlayModule: %v", err)
 	}
-	merged := MergeOverlayModule(specs, mod)
+	merged := mustMergeOverlayModule(t, specs, mod)
 	if merged[0].GroupShort != "Inspect inventory items" {
 		t.Fatalf("group short = %q", merged[0].GroupShort)
 	}
@@ -327,7 +348,7 @@ func TestMergeOverlayModule_IgnoresCollisionBeforeDisambiguation(t *testing.T) {
 	mod := overlay.Module{Commands: map[string]overlay.Override{
 		"list": {Match: overlay.OperationMatch{Path: "/v2/groups"}, Ignore: true},
 	}}
-	merged := MergeOverlayModule(specs, mod)
+	merged := mustMergeOverlayModule(t, specs, mod)
 	if len(merged) != 1 {
 		t.Fatalf("merged command count = %d, want 1", len(merged))
 	}
@@ -352,7 +373,7 @@ func TestMergeOverlayModule_PreservesLegacyCollisionOverlayKey(t *testing.T) {
 		if err := ValidateOverlayModule(specs, mod); err != nil {
 			t.Fatalf("ValidateOverlayModule: %v", err)
 		}
-		merged := MergeOverlayModule(specs, mod)
+		merged := mustMergeOverlayModule(t, specs, mod)
 		if len(merged) != 1 || merged[0].PathTpl != "/v1/groups" || merged[0].Use != "list" {
 			t.Fatalf("merged = %#v, want only /v1/groups as list", merged)
 		}
@@ -365,14 +386,14 @@ func TestMergeOverlayModule_PreservesLegacyCollisionOverlayKey(t *testing.T) {
 		if err := ValidateOverlayModule(specs, mod); err != nil {
 			t.Fatalf("ValidateOverlayModule: %v", err)
 		}
-		merged := MergeOverlayModule(specs, mod)
+		merged := mustMergeOverlayModule(t, specs, mod)
 		if len(merged) != 2 || merged[0].Short == "Legacy second command" || merged[1].Short != "Legacy second command" {
 			t.Fatalf("merged = %#v, want override only on second command", merged)
 		}
 	})
 
 	t.Run("unsuffixed override remains first", func(t *testing.T) {
-		merged := MergeOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
+		merged := mustMergeOverlayModule(t, specs, overlay.Module{Commands: map[string]overlay.Override{
 			"list": {Short: "First command only"},
 		}})
 		if len(merged) != 2 || merged[0].Short != "First command only" || merged[1].Short == "First command only" {
@@ -386,7 +407,7 @@ func TestMergeOverlayModule_DisambiguatesSurvivingCollisions(t *testing.T) {
 		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/Groups"},
 		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/groups"},
 	}})
-	merged := MergeOverlayModule(specs, overlay.Module{})
+	merged := mustMergeOverlayModule(t, specs, overlay.Module{})
 	if len(merged) != 2 {
 		t.Fatalf("merged command count = %d, want 2", len(merged))
 	}
@@ -414,7 +435,7 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 			},
 		},
 	}
-	merged := MergeOverlay(specs, overrides)
+	merged := mustMergeOverlay(t, specs, overrides)
 	if merged[0].Params[0].Argument != "state" {
 		t.Fatalf("merged positional mapping = %#v", merged[0].Params[0])
 	}
@@ -488,7 +509,7 @@ func TestMergeOverlayModule_RuntimeSchema(t *testing.T) {
 	if err := ValidateOverlayModule(specs, mod); err != nil {
 		t.Fatalf("ValidateOverlayModule: %v", err)
 	}
-	merged := MergeOverlayModule(specs, mod)
+	merged := mustMergeOverlayModule(t, specs, mod)
 	binding := merged[1].RequestBody.RuntimeSchema
 	if binding == nil || binding.Operation.OperationID != "describeApp" || binding.Operation.DefaultHostname != "https://api.example.com" || binding.Params["app_id"] != "${params.app-id}" {
 		t.Fatalf("runtime schema = %#v", binding)
@@ -554,6 +575,124 @@ func TestMergeOverlayModule_RuntimeSchema(t *testing.T) {
 	}
 }
 
+func TestMergeOverlayModule_BodyFlags(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group:  "keys",
+		Use:    "update-limits",
+		Method: "PATCH",
+		Params: []runtime.ParamSpec{{Name: "id", Flag: "id", In: runtime.InPath, GoType: "string", Required: true}},
+		RequestBody: &runtime.RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Schema: &runtime.SchemaSpec{
+				Type: "object",
+				Properties: map[string]*runtime.SchemaSpec{
+					"maxBudgetUsd":   {Type: "number", Nullable: true},
+					"budgetDuration": {Type: "string", Nullable: true, Enum: []string{"monthly"}},
+				},
+			},
+		},
+	}}
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"update-limits": {
+			Use:  "replace-limits",
+			Body: &overlay.BodyOverride{Flags: true},
+			Params: map[string]overlay.ParamOverride{
+				"maxBudgetUsd": {Help: "Budget in USD"},
+			},
+		},
+	}}
+	if err := ValidateOverlayModule(specs, mod); err != nil {
+		t.Fatalf("ValidateOverlayModule: %v", err)
+	}
+	merged := mustMergeOverlayModule(t, specs, mod)
+	if merged[0].Use != "replace-limits" {
+		t.Fatalf("use = %q", merged[0].Use)
+	}
+	if len(merged[0].Params) != 3 {
+		t.Fatalf("params = %#v", merged[0].Params)
+	}
+	byName := map[string]runtime.ParamSpec{}
+	for _, param := range merged[0].Params {
+		byName[param.Name] = param
+	}
+	if byName["maxBudgetUsd"].In != runtime.InBody || byName["maxBudgetUsd"].Flag != "max-budget-usd" || byName["maxBudgetUsd"].Help != "Budget in USD" {
+		t.Fatalf("maxBudgetUsd = %+v", byName["maxBudgetUsd"])
+	}
+	if byName["budgetDuration"].Enum[0] != "monthly" {
+		t.Fatalf("budgetDuration = %+v", byName["budgetDuration"])
+	}
+}
+
+func TestValidateOverlayModule_RejectsNestedBodyFlags(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group: "keys",
+		Use:   "create",
+		RequestBody: &runtime.RequestBody{
+			MediaType: "application/json",
+			Schema: &runtime.SchemaSpec{
+				Type: "object",
+				Properties: map[string]*runtime.SchemaSpec{
+					"limits": {Type: "object", Properties: map[string]*runtime.SchemaSpec{"rpm": {Type: "integer"}}},
+				},
+			},
+		},
+	}}
+	err := ValidateOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
+		"create": {Body: &overlay.BodyOverride{Flags: true}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "nested objects") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateOverlayModule_RejectsBodyFlagOverrideCollision(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group:  "users",
+		Use:    "update",
+		Method: "PATCH",
+		Params: []runtime.ParamSpec{{Name: "id", Flag: "id", In: runtime.InPath, GoType: "string", Required: true}},
+		RequestBody: &runtime.RequestBody{MediaType: "application/json", Schema: &runtime.SchemaSpec{
+			Type:       "object",
+			Properties: map[string]*runtime.SchemaSpec{"name": {Type: "string"}},
+		}},
+	}}
+	err := ValidateOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
+		"update": {
+			Body:   &overlay.BodyOverride{Flags: true},
+			Params: map[string]overlay.ParamOverride{"name": {Flag: "id"}},
+		},
+	}})
+	if err == nil {
+		t.Fatal("expected duplicate flag validation error")
+	}
+	specs[0].Params = []runtime.ParamSpec{{Name: "tokenEnv", Flag: "token-env", In: runtime.InQuery, GoType: "string"}}
+	specs[0].RequestBody.Schema.Properties = map[string]*runtime.SchemaSpec{"token": {Type: "string"}}
+	err = ValidateOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
+		"update": {Body: &overlay.BodyOverride{Flags: true}},
+	}})
+	if err == nil {
+		t.Fatal("expected sensitive input companion collision error")
+	}
+}
+
+func TestMergeOverlayModule_ReturnsBodyFlagExpansionError(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group: "users",
+		Use:   "update",
+		RequestBody: &runtime.RequestBody{MediaType: "application/json", Schema: &runtime.SchemaSpec{
+			Type:       "object",
+			Properties: map[string]*runtime.SchemaSpec{"profile": {Type: "object"}},
+		}},
+	}}
+	_, err := MergeOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
+		"update": {Body: &overlay.BodyOverride{Flags: true}},
+	}})
+	if err == nil {
+		t.Fatal("expected body flag expansion error")
+	}
+}
+
 func TestMergeOverlay_ParamRequiredOverride(t *testing.T) {
 	specs := []runtime.CommandSpec{
 		{
@@ -564,7 +703,7 @@ func TestMergeOverlay_ParamRequiredOverride(t *testing.T) {
 		},
 	}
 
-	merged := MergeOverlay(specs, map[string]overlay.Override{
+	merged := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"get-user": {
 			Params: map[string]overlay.ParamOverride{
 				"type":    {Required: true, Help: "override help"},
@@ -594,7 +733,7 @@ func TestMergeOverlay_UseRename(t *testing.T) {
 		Use:     "create-repo",
 		Aliases: []string{"new-repo"},
 	}}
-	merged := MergeOverlay(specs, map[string]overlay.Override{
+	merged := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"create-repo": {Use: "create", Aliases: []string{"new"}},
 	})
 
@@ -616,7 +755,7 @@ func TestMergeOverlay_PathScopedRename(t *testing.T) {
 		t.Fatalf("conflict error = %v", err)
 	}
 
-	merged := MergeOverlay(specs, map[string]overlay.Override{
+	merged := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"create-service": {Match: overlay.OperationMatch{Method: "POST", Path: "/apis/v1alpha2/services"}, Use: "create-service-v1alpha2"},
 	})
 	if merged[0].Use != "create-service" || merged[1].Use != "create-service-v1alpha2" {
@@ -651,7 +790,7 @@ func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
 		},
 	}
 
-	bulk := MergeOverlayModule(specs, overlay.Module{
+	bulk := mustMergeOverlayModule(t, specs, overlay.Module{
 		Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
 			MatchCommands: []string{"list-*", "query-*"},
 			Params:        map[string]string{"page": "1", "pageSize": "20"},
@@ -660,7 +799,7 @@ func TestMergeOverlayModule_BulkPaginationDefaults(t *testing.T) {
 			"query-users": {Params: map[string]overlay.ParamOverride{"page": {Default: "7"}}},
 		},
 	})
-	explicit := MergeOverlay(specs, map[string]overlay.Override{
+	explicit := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"list-users": {
 			Params: map[string]overlay.ParamOverride{
 				"page":     {Default: "1"},
@@ -688,7 +827,7 @@ func TestMergeOverlayModule_BulkDefaultsUseLegacyCollisionName(t *testing.T) {
 		{Group: "Groups", OperationID: "Groups_List", Method: "GET", Path: "/v1/groups", Parameters: []rawir.RawParameter{{Name: "page", In: "query", Type: "integer"}}},
 		{Group: "Groups", OperationID: "Groups_list", Method: "GET", Path: "/v2/groups", Parameters: []rawir.RawParameter{{Name: "page", In: "query", Type: "integer"}}},
 	}})
-	merged := MergeOverlayModule(specs, overlay.Module{Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
+	merged := mustMergeOverlayModule(t, specs, overlay.Module{Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
 		MatchCommands: []string{"list-2"},
 		Params:        map[string]string{"page": "2"},
 	}}})
@@ -708,7 +847,7 @@ func TestMergeOverlayModule_BulkDefaultsDoNotReplaceSpecDefaults(t *testing.T) {
 		},
 	}
 
-	merged := MergeOverlayModule(specs, overlay.Module{
+	merged := mustMergeOverlayModule(t, specs, overlay.Module{
 		Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
 			MatchCommands: []string{"list-*"},
 			Params:        map[string]string{"page": "1", "pageSize": "20"},
@@ -725,7 +864,7 @@ func TestMergeOverlayModule_BulkDefaultsDoNotReplaceSpecDefaults(t *testing.T) {
 		t.Fatalf("bulk pageSize default = %q, want 20", got)
 	}
 
-	withoutCommandOverride := MergeOverlayModule(specs, overlay.Module{
+	withoutCommandOverride := mustMergeOverlayModule(t, specs, overlay.Module{
 		Defaults: overlay.Defaults{Pagination: &overlay.PaginationDefaults{
 			MatchCommands: []string{"list-*"},
 			Params:        map[string]string{"page": "1"},
@@ -754,7 +893,7 @@ func TestMergeOverlayModule_StreamPolicy(t *testing.T) {
 	if err := ValidateOverlayModule(specs, mod); err != nil {
 		t.Fatalf("ValidateOverlayModule: %v", err)
 	}
-	merged := MergeOverlayModule(specs, mod)
+	merged := mustMergeOverlayModule(t, specs, mod)
 	policy := merged[0].Output.Streaming.Policy
 	if policy == nil || policy.Collect == nil || policy.Collect.Fields[0].Reduce != "concat" || policy.Live == nil {
 		t.Fatalf("policy = %#v", policy)
@@ -787,7 +926,7 @@ func TestMergeOverlayModule_OutputColumns(t *testing.T) {
 	if err := ValidateOverlayModule(specs, mod); err != nil {
 		t.Fatalf("ValidateOverlayModule: %v", err)
 	}
-	merged := MergeOverlayModule(specs, mod)
+	merged := mustMergeOverlayModule(t, specs, mod)
 	if got := strings.Join(merged[0].Output.DefaultColumns, ","); got != "resourceId,displayName,spendMicro" {
 		t.Fatalf("default columns = %q", got)
 	}
@@ -1075,7 +1214,7 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		t.Fatalf("expected duplicate group flat conflict error, got %v", err)
 	}
 
-	renamed := MergeOverlay([]runtime.CommandSpec{
+	renamed := mustMergeOverlay(t, []runtime.CommandSpec{
 		{Group: "Repos", Use: "create-repo", OperationID: "Repos_CreateRepo"},
 		{Group: "Repos", Use: "create", OperationID: "Repos_Create"},
 	}, map[string]overlay.Override{
@@ -1086,7 +1225,7 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		t.Fatalf("expected renamed command conflict error, got %v", err)
 	}
 
-	aliased := MergeOverlay([]runtime.CommandSpec{
+	aliased := mustMergeOverlay(t, []runtime.CommandSpec{
 		{Group: "Users", Use: "get-user", OperationID: "Users_GetUser", Method: "GET", PathTpl: "/users/{id}"},
 		{Group: "Users", Use: "remove-user", OperationID: "Users_RemoveUser", Method: "DELETE", PathTpl: "/users/{id}"},
 	}, map[string]overlay.Override{

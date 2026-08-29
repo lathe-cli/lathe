@@ -667,6 +667,9 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					if len(p.Enum) > 0 {
 						enum = ", one of: " + strings.Join(p.Enum, "|")
 					}
+					if len(p.ItemEnum) > 0 {
+						enum = ", items one of: " + strings.Join(p.ItemEnum, "|")
+					}
 					deprecated := ""
 					if p.Deprecated {
 						deprecated = ", deprecated"

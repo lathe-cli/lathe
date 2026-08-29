@@ -68,7 +68,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		},
 		{Group: "Users", Use: "delete-user", Short: "Delete user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
 	}
-	merged := MergeOverlay(specs, map[string]overlay.Override{
+	merged := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"create-user": {
 			Short:         "Create a user",
 			Group:         "Accounts",

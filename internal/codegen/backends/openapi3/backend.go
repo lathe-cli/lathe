@@ -85,6 +85,7 @@ type response struct {
 type schemaNode struct {
 	Ref                  string                      `json:"$ref,omitempty" yaml:"$ref,omitempty"`
 	Type                 schemaType                  `json:"type,omitempty" yaml:"type,omitempty"`
+	Description          string                      `json:"description,omitempty" yaml:"description,omitempty"`
 	Format               string                      `json:"format,omitempty" yaml:"format,omitempty"`
 	Default              any                         `json:"default,omitempty" yaml:"default,omitempty"`
 	Enum                 []any                       `json:"enum,omitempty" yaml:"enum,omitempty"`
@@ -588,14 +589,19 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 	if len(s.OneOf) == 0 && len(s.AllOf) == 0 {
 		if option, ok := nullableAlternative(s, s.AnyOf); ok {
 			out := convertSchema(option)
+			if s.Description != "" {
+				out.Description = s.Description
+			}
 			out.Nullable = true
 			return out
 		}
 	}
 	out := &rawir.RawSchema{
-		Type:     s.Type.Value,
-		Format:   s.Format,
-		Nullable: s.Nullable || s.Type.Nullable,
+		Type:        s.Type.Value,
+		Description: s.Description,
+		Format:      s.Format,
+		Nullable:    s.Nullable || s.Type.Nullable,
+		Enum:        anySliceToStrings(s.Enum),
 	}
 	if s.Ref != "" {
 		if strings.HasPrefix(s.Ref, oas3RefPrefix) {

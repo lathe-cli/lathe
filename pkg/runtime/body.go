@@ -28,25 +28,79 @@ func BuildBodyFromSet(sets []string) ([]byte, error) {
 
 func buildBodyFromSet(sets []string, stringSets []string) ([]byte, error) {
 	out := map[string]any{}
+	if err := mergeJSONBodySets(out, nil, sets, stringSets); err != nil {
+		return nil, err
+	}
+	return json.Marshal(out)
+}
+
+func hasJSONBodyFlags(params []ParamSpec) bool {
+	for _, param := range params {
+		if param.In == InBody {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonBodyFromFlags(s CommandSpec, input OperationInput) (map[string]any, map[string]ParamSpec, error) {
+	out := map[string]any{}
+	changed := map[string]ParamSpec{}
+	for _, p := range s.Params {
+		if p.In != InBody || !operationChanged(input, p) {
+			continue
+		}
+		v, _, err := operationValue(input, p)
+		if err != nil {
+			return nil, nil, err
+		}
+		out[p.Name] = v
+		changed[p.Name] = p
+	}
+	return out, changed, nil
+}
+
+func mergeJSONBodySets(out map[string]any, flagFields map[string]ParamSpec, sets, stringSets []string) error {
 	for _, kv := range sets {
 		path, value, err := parseSet(kv, "--set")
 		if err != nil {
-			return nil, err
+			return err
+		}
+		if err := rejectBodyFlagSetConflict(path, flagFields, "--set"); err != nil {
+			return err
 		}
 		if err := setNestedPath(out, path, inferValue(value)); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, kv := range stringSets {
 		path, value, err := parseSet(kv, "--set-str")
 		if err != nil {
-			return nil, err
+			return err
+		}
+		if err := rejectBodyFlagSetConflict(path, flagFields, "--set-str"); err != nil {
+			return err
 		}
 		if err := setNestedPath(out, path, value); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return json.Marshal(out)
+	return nil
+}
+
+func rejectBodyFlagSetConflict(path string, flagFields map[string]ParamSpec, setFlag string) error {
+	if len(flagFields) == 0 {
+		return nil
+	}
+	segs := parsePath(path)
+	if len(segs) == 0 {
+		return nil
+	}
+	param, ok := flagFields[segs[0].key]
+	if !ok {
+		return nil
+	}
+	return fmt.Errorf("body field %q cannot be set by both --%s and %s", param.Name, param.Flag, setFlag)
 }
 
 func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {

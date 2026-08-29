@@ -299,11 +299,11 @@ commands:
 
 Supported uses include command/group summaries, aliases, examples, shortcuts,
 visibility, parameter help/defaults/required tightening/deprecation, positional
-alternatives, active contexts, runtime schema preflights, and stream collection.
-Unknown groups and conflicting root names fail codegen. Command overrides apply
-only to an exact command/match; unmatched command entries and most unmatched
-parameter entries are ignored. An `argument` entry for an unknown parameter
-fails validation.
+alternatives, active contexts, runtime schema preflights, JSON body flags, and
+stream collection. Unknown groups and conflicting root names fail codegen.
+Command overrides apply only to an exact command/match; unmatched command
+entries and most unmatched parameter entries are ignored. An `argument` entry
+for an unknown parameter fails validation.
 
 `ignore: true` removes a command. `hidden: true` keeps it out of normal help,
 search, and catalog output; `--include-hidden` can still inspect it.
@@ -314,6 +314,30 @@ OpenAPI multipart object fields and Swagger `formData` parameters become
 normal command flags. A field with `format: binary` accepts a local file path;
 the runtime opens it and builds the multipart request. These commands do not use
 the JSON body builder's `--file`, `--set`, or `--set-str` flags.
+
+### JSON Body Flags
+
+Opt in per command to turn a flat JSON object body into typed flags. Default
+codegen is unchanged.
+
+```yaml
+commands:
+  update-limits:
+    body:
+      flags: true
+```
+
+Supported property types are string, number, integer, boolean, nullable scalars,
+and scalar arrays. Nested objects, maps, leftover `oneOf`/`anyOf`/`allOf` after
+nullable flattening, multipart bodies, and GraphQL templates fail codegen.
+Property descriptions become flag help, and typed scalar or array-item enum
+flags are validated locally. Required properties may be supplied by a typed flag,
+`--file`, `--set`, or `--set-str`; omitting an optional body remains valid.
+`--file` cannot be combined with `--set`, `--set-str`, or body flags on these
+commands. The same field cannot be set by a typed flag and `--set`. Explicit
+`null` still uses `--set field=null`. Upgrading to this capability requires
+regenerating modules against the matching runtime and updating catalog consumers
+for the new body-location and array-item enum contract.
 
 ### Runtime Body Schema
 

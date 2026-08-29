@@ -197,6 +197,8 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 				form.Set(p.Name, operationStringValue(v))
 			}
 			continue
+		case InBody:
+			continue
 		}
 		if !operationChanged(input, p) {
 			continue
@@ -235,6 +237,9 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	if err := validateRequiredVariableParams(s, body); err != nil {
 		return "", nil, ClientOptions{}, err
 	}
+	if err := validateRequiredBodyParams(s, body); err != nil {
+		return "", nil, ClientOptions{}, err
+	}
 	if body != nil && s.RequestBody != nil && s.RequestBody.MediaType != "" && !isMultipartMediaType(s.RequestBody.MediaType) {
 		hdrs["Content-Type"] = s.RequestBody.MediaType
 	}
@@ -259,8 +264,25 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 	if s.RequestBody.Template != "" {
 		return buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, vars, input.BodySets, input.BodyStringSets, input.FileBody, input.HasFile)
 	}
+	hasSets := len(input.BodySets) > 0 || len(input.BodyStringSets) > 0
+	flagBody, flagFields, err := jsonBodyFromFlags(s, input)
+	if err != nil {
+		return nil, err
+	}
+	if hasJSONBodyFlags(s.Params) && input.HasFile && (hasSets || len(flagFields) > 0) {
+		return nil, fmt.Errorf("--file cannot be combined with --set, --set-str, or body flags")
+	}
+	if len(flagFields) > 0 || (hasJSONBodyFlags(s.Params) && hasSets) {
+		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
+			return nil, fmt.Errorf("request body media type %s requires --file; --set and --set-str only support JSON request bodies", s.RequestBody.MediaType)
+		}
+		if err := mergeJSONBodySets(flagBody, flagFields, input.BodySets, input.BodyStringSets); err != nil {
+			return nil, err
+		}
+		return json.Marshal(flagBody)
+	}
 	switch {
-	case len(input.BodySets) > 0 || len(input.BodyStringSets) > 0:
+	case hasSets:
 		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
 			return nil, fmt.Errorf("request body media type %s requires --file; --set and --set-str only support JSON request bodies", s.RequestBody.MediaType)
 		}
@@ -270,6 +292,9 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 	case s.RequestBody.Required:
 		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
 			return nil, fmt.Errorf("request body media type %s requires --file", s.RequestBody.MediaType)
+		}
+		if hasJSONBodyFlags(s.Params) {
+			return nil, fmt.Errorf("request body required: pass --file, --set, --set-str, or a body flag")
 		}
 		return nil, fmt.Errorf("request body required: pass --file, --set, or --set-str")
 	default:
@@ -304,7 +329,7 @@ func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, hostSource
 		Hostname:   hostname,
 		HostSource: hostSource,
 		Headers:    redactedDryRunHeaders(req.Header),
-		Body:       redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes),
+		Body:       redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes, sensitiveBodyFields(s)),
 		Auth:       dryRunAuthForSpec(s),
 		Output: CatalogOutput{
 			ListPath:          s.Output.ListPath,
@@ -324,6 +349,9 @@ func validateRequiredOperationParams(s CommandSpec, input OperationInput) error 
 		if p.In == InVariable && s.RequestBody != nil {
 			continue
 		}
+		if p.In == InBody {
+			continue
+		}
 		if !operationChanged(input, p) {
 			return fmt.Errorf("required param %q missing", p.Name)
 		}
@@ -333,26 +361,62 @@ func validateRequiredOperationParams(s CommandSpec, input OperationInput) error 
 
 func validateOperationEnums(s CommandSpec, input OperationInput) error {
 	for _, p := range s.Params {
-		if len(p.Enum) == 0 || !operationChanged(input, p) {
+		if len(p.Enum) == 0 && len(p.ItemEnum) == 0 || !operationChanged(input, p) {
 			continue
 		}
 		v, _, err := operationValue(input, p)
 		if err != nil {
 			return err
 		}
-		raw := operationStringValue(v)
-		valid := false
-		for _, e := range p.Enum {
-			if raw == e {
-				valid = true
-				break
+		if len(p.Enum) > 0 {
+			raw := operationStringValue(v)
+			if !enumContains(p.Enum, raw) {
+				return fmt.Errorf("invalid value %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.Enum, ", "))
 			}
 		}
-		if !valid {
-			return fmt.Errorf("invalid value %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.Enum, ", "))
+		for _, raw := range operationStringValues(v) {
+			if len(p.ItemEnum) > 0 && !enumContains(p.ItemEnum, raw) {
+				return fmt.Errorf("invalid item %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.ItemEnum, ", "))
+			}
 		}
 	}
 	return nil
+}
+
+func enumContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func operationStringValues(v any) []string {
+	switch tv := v.(type) {
+	case []string:
+		return append([]string(nil), tv...)
+	case []int64:
+		out := make([]string, len(tv))
+		for i, value := range tv {
+			out[i] = strconv.FormatInt(value, 10)
+		}
+		return out
+	case []float64:
+		out := make([]string, len(tv))
+		for i, value := range tv {
+			out[i] = strconv.FormatFloat(value, 'f', -1, 64)
+		}
+		return out
+	case []bool:
+		out := make([]string, len(tv))
+		for i, value := range tv {
+			out[i] = strconv.FormatBool(value)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func operationChanged(input OperationInput, p ParamSpec) bool {

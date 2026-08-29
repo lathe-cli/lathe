@@ -11,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 19
+const CatalogSchemaVersion = 20
 const DefaultSearchLimit = 20
 
 const (
@@ -185,6 +185,7 @@ type CatalogFlag struct {
 	Required   bool                   `json:"required"`
 	Default    string                 `json:"default,omitempty"`
 	Enum       []string               `json:"enum,omitempty"`
+	ItemEnum   []string               `json:"item_enum,omitempty"`
 	Format     string                 `json:"format,omitempty"`
 	InputModes []string               `json:"input_modes,omitempty"`
 	Deprecated bool                   `json:"deprecated"`
@@ -572,6 +573,7 @@ func catalogFlags(params []ParamSpec) []CatalogFlag {
 			Required:   p.Required,
 			Default:    p.Default,
 			Enum:       append([]string(nil), p.Enum...),
+			ItemEnum:   append([]string(nil), p.ItemEnum...),
 			Format:     p.Format,
 			InputModes: inputModes,
 			Deprecated: p.Deprecated,

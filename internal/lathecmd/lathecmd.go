@@ -239,7 +239,10 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		if err := render.ValidateOverlayModule(specs, overlays[src.Name]); err != nil {
 			return nil, fmt.Errorf("source %q overlay: %w", src.Name, err)
 		}
-		specs = render.MergeOverlayModule(specs, overlays[src.Name])
+		specs, err = render.MergeOverlayModule(specs, overlays[src.Name])
+		if err != nil {
+			return nil, fmt.Errorf("source %q overlay: %w", src.Name, err)
+		}
 		if len(specs) == 0 {
 			return nil, fmt.Errorf("source %q produced no commands: check its entry/file list, expose policy, and overlay ignore rules", src.Name)
 		}

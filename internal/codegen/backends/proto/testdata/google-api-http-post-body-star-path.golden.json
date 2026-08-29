@@ -33,6 +33,21 @@
               "Properties": null,
               "Items": null
             },
+            "labels": {
+              "Ref": "",
+              "Type": "object",
+              "Properties": null,
+              "Items": null,
+              "AdditionalProperties": {
+                "Allowed": true,
+                "Schema": {
+                  "Ref": "",
+                  "Type": "string",
+                  "Properties": null,
+                  "Items": null
+                }
+              }
+            },
             "name": {
               "Ref": "",
               "Type": "string",

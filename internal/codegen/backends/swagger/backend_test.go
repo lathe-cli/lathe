@@ -148,6 +148,49 @@ func TestParse_SecuritySemantics(t *testing.T) {
 	}
 }
 
+func TestParse_PreservesBodySchemaMetadata(t *testing.T) {
+	input := `{
+	  "swagger": "2.0",
+	  "paths": {
+	    "/secrets": {
+	      "post": {
+	        "operationId": "Secrets_Create",
+	        "parameters": [{
+	          "name": "body",
+	          "in": "body",
+	          "required": true,
+	          "schema": {
+	            "type": "object",
+	            "properties": {
+	              "value": {"type": "string", "description": "Secret value", "format": "password", "enum": ["primary"]},
+	              "labels": {"type": "object", "additionalProperties": {"type": "string"}}
+	            }
+	          }
+	        }],
+	        "responses": {"200": {}}
+	      }
+	    }
+	  }
+	}`
+	syncDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(syncDir, "swagger.json"), []byte(input), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mod, err := Parse(&sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: []string{"swagger.json"}}}, syncDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := normalize.Normalize(mod)[0].RequestBody.Schema
+	value := schema.Properties["value"]
+	labels := schema.Properties["labels"]
+	if value.Description != "Secret value" || value.Format != "password" || len(value.Enum) != 1 || value.Enum[0] != "primary" {
+		t.Fatalf("value schema = %#v", value)
+	}
+	if labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
+		t.Fatalf("labels schema = %#v", labels)
+	}
+}
+
 const petstoreMinInput = `{
   "swagger": "2.0",
   "definitions": {
