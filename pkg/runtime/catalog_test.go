@@ -50,8 +50,12 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 				},
 			},
 			Output: OutputHints{
-				ListPath:          "data.items",
-				DefaultColumns:    []string{"id", "name"},
+				ListPath:       "data.items",
+				DefaultColumns: []string{"id", "name"},
+				ColumnLabels:   map[string]string{"id": "ID"},
+				ColumnFormats: map[string]ColumnFormat{
+					"id": {Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6},
+				},
 				ResponseMediaType: "application/json",
 				Pagination:        &PaginationHint{Strategy: "cursor", TokenParam: "page_token", TokenField: "next_page_token", LimitParam: "limit"},
 				Streaming: &StreamingHint{Strategy: "sse", Policy: &StreamPolicy{
@@ -140,6 +144,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	if cmd.Output.Pagination == nil || cmd.Output.Pagination.TokenParam != "page_token" {
 		t.Fatalf("pagination = %+v", cmd.Output.Pagination)
 	}
+	if cmd.Output.ColumnLabels["id"] != "ID" || cmd.Output.ColumnFormats["id"].SourceScale != 6 {
+		t.Fatalf("column metadata = %+v", cmd.Output)
+	}
 	if cmd.Output.Streaming == nil || cmd.Output.Streaming.Strategy != "sse" {
 		t.Fatalf("streaming = %+v", cmd.Output.Streaming)
 	}
@@ -175,6 +182,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if !reflect.DeepEqual(roundTrip.Commands[0].KnownErrors, cmd.KnownErrors) {
 		t.Fatalf("round-trip known errors = %#v", roundTrip.Commands[0].KnownErrors)
+	}
+	if !reflect.DeepEqual(roundTrip.Commands[0].Output.ColumnLabels, cmd.Output.ColumnLabels) || !reflect.DeepEqual(roundTrip.Commands[0].Output.ColumnFormats, cmd.Output.ColumnFormats) {
+		t.Fatalf("round-trip column metadata = %#v", roundTrip.Commands[0].Output)
 	}
 	if len(roundTrip.Commands[0].Examples) != 1 || roundTrip.Commands[0].Examples[0].OutputHints.IDPath != "data.user.id" {
 		t.Fatalf("round-trip examples = %#v", roundTrip.Commands[0].Examples)

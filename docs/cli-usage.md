@@ -347,17 +347,30 @@ columns do not surface the operator-facing identity or status fields:
 commands:
   list-resources:
     output:
-      default_columns: [resourceId, displayName, status]
+      default_columns: [resourceId, displayName, status, spendMicro]
       column_labels:
         resourceId: Resource ID
         displayName: Name
+      column_formats:
+        spendMicro:
+          kind: currency
+          currency: USD
+          source_scale: 6
+          grouping: true
+          min_fraction_digits: 2
+          max_fraction_digits: 6
 ```
 
 The paths are ordered, dot-separated JSON fields. The override is compiled
 into the generated command and affects table output only; JSON, YAML, and raw
 responses remain unchanged. `column_labels` changes only the displayed header;
 it does not transform values. Unlabeled columns retain the default uppercase
-header.
+header. `column_formats` transforms table values only. Currency formats treat
+the source as a fixed-point integer, move the decimal point left by
+`source_scale`, and retain every non-zero fractional digit through
+`max_fraction_digits`. The maximum must be at least the source scale, so
+configured output never rounds away source precision. USD uses `$`; other
+three-letter currency codes remain explicit.
 
 ### Stream Collection
 

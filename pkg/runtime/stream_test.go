@@ -22,7 +22,7 @@ func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
 		close(firstSent)
 		select {
 		case <-release:
-			_, _ = io.WriteString(w, "data: {\"kind\":\"chunk\",\"text\":\"lo\"}\r\rdata: {\"kind\":\"done\",\"id\":\"msg-1\"}\r\r")
+			_, _ = io.WriteString(w, "data: {\"kind\":\"chunk\",\"text\":\"lo\"}\r\rdata: {\"kind\":\"done\",\"id\":\"msg-1\",\"usage\":9007199254740993}\r\r")
 		case <-r.Context().Done():
 		}
 	}))
@@ -37,6 +37,7 @@ func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
 				{Events: []string{"chunk"}, From: "text", To: "answer", Reduce: "concat"},
 				{Events: []string{"chunk"}, From: "mode", To: "mode", Reduce: "first"},
 				{Events: []string{"done"}, From: "id", To: "message_id", Reduce: "last"},
+				{Events: []string{"done"}, From: "usage", To: "usage", Reduce: "last"},
 			},
 		},
 		Live: &StreamLiveHint{Events: []string{"chunk"}, From: "text"},
@@ -72,11 +73,11 @@ func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
 	if result.Outcome != OperationOutcomeCompleted || out.String() != "hello" {
 		t.Fatalf("outcome = %q, live = %q", result.Outcome, out.String())
 	}
-	var got map[string]any
-	if err := json.Unmarshal(result.Data, &got); err != nil {
+	got, err := decodeNumberPreserving(result.Data)
+	if err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
-	want := map[string]any{"answer": "hello", "message_id": "msg-1", "mode": "chat"}
+	want := map[string]any{"answer": "hello", "message_id": "msg-1", "mode": "chat", "usage": json.Number("9007199254740993")}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("result = %#v, want %#v", got, want)
 	}

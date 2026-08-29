@@ -11,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 18
+const CatalogSchemaVersion = 19
 const DefaultSearchLimit = 20
 
 const (
@@ -204,11 +204,13 @@ type CatalogContextSet struct {
 }
 
 type CatalogOutput struct {
-	ListPath          string             `json:"list_path,omitempty"`
-	DefaultColumns    []string           `json:"default_columns,omitempty"`
-	ResponseMediaType string             `json:"response_media_type,omitempty"`
-	Pagination        *CatalogPagination `json:"pagination,omitempty"`
-	Streaming         *CatalogStreaming  `json:"streaming,omitempty"`
+	ListPath          string                  `json:"list_path,omitempty"`
+	DefaultColumns    []string                `json:"default_columns,omitempty"`
+	ColumnLabels      map[string]string       `json:"column_labels,omitempty"`
+	ColumnFormats     map[string]ColumnFormat `json:"column_formats,omitempty"`
+	ResponseMediaType string                  `json:"response_media_type,omitempty"`
+	Pagination        *CatalogPagination      `json:"pagination,omitempty"`
+	Streaming         *CatalogStreaming       `json:"streaming,omitempty"`
 }
 
 type CatalogPagination struct {
@@ -430,6 +432,8 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		Output: CatalogOutput{
 			ListPath:          spec.Output.ListPath,
 			DefaultColumns:    append([]string(nil), spec.Output.DefaultColumns...),
+			ColumnLabels:      copyStringMap(spec.Output.ColumnLabels),
+			ColumnFormats:     copyColumnFormats(spec.Output.ColumnFormats),
 			ResponseMediaType: spec.Output.ResponseMediaType,
 			Pagination:        catalogPagination(spec.Output.Pagination),
 			Streaming:         catalogStreaming(spec.Output.Streaming),
@@ -533,6 +537,8 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 		Output: CatalogOutput{
 			ListPath:          spec.Output.ListPath,
 			DefaultColumns:    append([]string(nil), spec.Output.DefaultColumns...),
+			ColumnLabels:      copyStringMap(spec.Output.ColumnLabels),
+			ColumnFormats:     copyColumnFormats(spec.Output.ColumnFormats),
 			ResponseMediaType: spec.Output.ResponseMediaType,
 			Pagination:        catalogPagination(spec.Output.Pagination),
 			Streaming:         catalogStreaming(spec.Output.Streaming),
@@ -612,6 +618,17 @@ func copyStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func copyColumnFormats(in map[string]ColumnFormat) map[string]ColumnFormat {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]ColumnFormat, len(in))
 	for key, value := range in {
 		out[key] = value
 	}

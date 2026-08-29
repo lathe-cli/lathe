@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 11
+const SchemaVersion = 12
 
 type CommandSpec struct {
 	Group           string
@@ -144,10 +144,20 @@ func (s *AdditionalPropertiesSpec) UnmarshalJSON(data []byte) error {
 type OutputHints struct {
 	ListPath          string
 	DefaultColumns    []string
-	ColumnLabels      map[string]string `json:",omitempty"`
+	ColumnLabels      map[string]string       `json:",omitempty"`
+	ColumnFormats     map[string]ColumnFormat `json:",omitempty"`
 	ResponseMediaType string
 	Pagination        *PaginationHint
 	Streaming         *StreamingHint
+}
+
+type ColumnFormat struct {
+	Kind              string `json:"kind"`
+	Currency          string `json:"currency,omitempty"`
+	SourceScale       int    `json:"source_scale,omitempty"`
+	Grouping          bool   `json:"grouping,omitempty"`
+	MinFractionDigits int    `json:"min_fraction_digits,omitempty"`
+	MaxFractionDigits int    `json:"max_fraction_digits,omitempty"`
 }
 
 type PaginationHint struct {

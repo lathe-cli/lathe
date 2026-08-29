@@ -20,10 +20,18 @@
 commands:
   list-resources:
     output:
-      default_columns: [resourceId, displayName, status]
+      default_columns: [resourceId, displayName, status, spendMicro]
       column_labels:
         resourceId: Resource ID
         displayName: Name
+      column_formats:
+        spendMicro:
+          kind: currency
+          currency: USD
+          source_scale: 6
+          grouping: true
+          min_fraction_digits: 2
+          max_fraction_digits: 6
 # Example:
 # defaults:
 #   pagination:

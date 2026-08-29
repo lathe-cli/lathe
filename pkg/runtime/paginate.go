@@ -89,8 +89,8 @@ func setBodyParam(body any, path string, value string) ([]byte, error) {
 }
 
 func extractItemsRaw(data []byte, listPath string) []json.RawMessage {
-	var root any
-	if err := json.Unmarshal(data, &root); err != nil {
+	root, err := decodeNumberPreserving(data)
+	if err != nil {
 		return nil
 	}
 	var arr []any

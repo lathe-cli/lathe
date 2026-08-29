@@ -83,7 +83,13 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
 			Params:        map[string]overlay.ParamOverride{"workspace_id": {Context: "workspace"}},
 			Context:       &overlay.ContextOverride{SetOnSuccess: &overlay.ContextSetOnSuccess{Name: "workspace", FromParam: "workspace_id"}},
-			Output:        &overlay.OutputOverride{DefaultColumns: []string{"name"}, ColumnLabels: map[string]string{"name": "Addon"}},
+			Output: &overlay.OutputOverride{
+				DefaultColumns: []string{"name", "spendMicro"},
+				ColumnLabels:   map[string]string{"name": "Addon"},
+				ColumnFormats: map[string]overlay.ColumnFormatOverride{
+					"spendMicro": {Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6},
+				},
+			},
 		},
 	}
 
@@ -113,8 +119,9 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`Cause: "missing addon name"`,
 		`Context: "workspace"`,
 		`SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}`,
-		`DefaultColumns: []string{"name"}`,
+		`DefaultColumns: []string{"name", "spendMicro"}`,
 		`ColumnLabels: map[string]string{"name": "Addon"}`,
+		`ColumnFormats: map[string]runtime.ColumnFormat{"spendMicro": runtime.ColumnFormat{Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6}}`,
 		`"untouched short"`,
 		`generatedSchemaVersion`,
 		`func Mount(root *cobra.Command) error`,
@@ -770,19 +777,26 @@ func TestMergeOverlayModule_OutputColumns(t *testing.T) {
 	}}
 	mod := overlay.Module{Commands: map[string]overlay.Override{
 		"list": {Output: &overlay.OutputOverride{
-			DefaultColumns: []string{"resourceId", "displayName"},
+			DefaultColumns: []string{"resourceId", "displayName", "spendMicro"},
 			ColumnLabels:   map[string]string{"resourceId": "Resource ID", "displayName": "Name"},
+			ColumnFormats: map[string]overlay.ColumnFormatOverride{
+				"spendMicro": {Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6},
+			},
 		}},
 	}}
 	if err := ValidateOverlayModule(specs, mod); err != nil {
 		t.Fatalf("ValidateOverlayModule: %v", err)
 	}
 	merged := MergeOverlayModule(specs, mod)
-	if got := strings.Join(merged[0].Output.DefaultColumns, ","); got != "resourceId,displayName" {
+	if got := strings.Join(merged[0].Output.DefaultColumns, ","); got != "resourceId,displayName,spendMicro" {
 		t.Fatalf("default columns = %q", got)
 	}
 	if got := merged[0].Output.ColumnLabels["resourceId"]; got != "Resource ID" {
 		t.Fatalf("column label = %q", got)
+	}
+	format := merged[0].Output.ColumnFormats["spendMicro"]
+	if format.Kind != "currency" || format.Currency != "USD" || format.SourceScale != 6 || !format.Grouping || format.MinFractionDigits != 2 || format.MaxFractionDigits != 6 {
+		t.Fatalf("column format = %#v", format)
 	}
 	if got := strings.Join(specs[0].Output.DefaultColumns, ","); got != "id,category" {
 		t.Fatalf("source default columns = %q", got)
@@ -812,6 +826,25 @@ func TestMergeOverlayModule_OutputColumns(t *testing.T) {
 		}}
 		if err := ValidateOverlayModule(specs, bad); err == nil {
 			t.Fatalf("ValidateOverlayModule accepted labels %#v", labels)
+		}
+	}
+
+	for _, formats := range []map[string]overlay.ColumnFormatOverride{
+		{"unknown": {Kind: "currency", Currency: "USD", MaxFractionDigits: 2}},
+		{"resourceId": {Kind: "number", Currency: "USD", MaxFractionDigits: 2}},
+		{"resourceId": {Kind: "currency", Currency: "usd", MaxFractionDigits: 2}},
+		{"resourceId": {Kind: "currency", Currency: "USD", SourceScale: -1, MaxFractionDigits: 2}},
+		{"resourceId": {Kind: "currency", Currency: "USD", SourceScale: 6, MinFractionDigits: 2, MaxFractionDigits: 5}},
+		{"resourceId": {Kind: "currency", Currency: "USD", MinFractionDigits: 3, MaxFractionDigits: 2}},
+	} {
+		bad := overlay.Module{Commands: map[string]overlay.Override{
+			"list": {Output: &overlay.OutputOverride{
+				DefaultColumns: []string{"resourceId", "displayName"},
+				ColumnFormats:  formats,
+			}},
+		}}
+		if err := ValidateOverlayModule(specs, bad); err == nil {
+			t.Fatalf("ValidateOverlayModule accepted formats %#v", formats)
 		}
 	}
 }
