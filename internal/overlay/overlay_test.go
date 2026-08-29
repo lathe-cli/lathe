@@ -122,6 +122,10 @@ commands:
         response_path: input_schema
         params:
           user_id: ${params.user_id}
+    output:
+      default_columns: [name, status.phase]
+      column_labels:
+        status.phase: Status
     params:
       status:
         flag: user-status
@@ -179,6 +183,12 @@ commands:
 	}
 	if cu.Body == nil || cu.Body.RuntimeSchema == nil || cu.Body.RuntimeSchema.OperationID != "describeUser" || cu.Body.RuntimeSchema.ResponsePath != "input_schema" || cu.Body.RuntimeSchema.Params["user_id"] != "${params.user_id}" {
 		t.Errorf("runtime schema = %#v", cu.Body)
+	}
+	if cu.Output == nil || len(cu.Output.DefaultColumns) != 2 || cu.Output.DefaultColumns[0] != "name" || cu.Output.DefaultColumns[1] != "status.phase" {
+		t.Errorf("output = %#v", cu.Output)
+	}
+	if cu.Output.ColumnLabels["status.phase"] != "Status" {
+		t.Errorf("column labels = %#v", cu.Output.ColumnLabels)
 	}
 	sp := cu.Params["status"]
 	if sp.Flag != "user-status" {

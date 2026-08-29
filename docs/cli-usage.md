@@ -338,6 +338,27 @@ body before the target request. External `$ref` loading is disabled.
 schemas from the API spec remain discovery metadata; they are not runtime
 validators.
 
+### Table Columns
+
+Override the generated table columns for one command when schema-derived
+columns do not surface the operator-facing identity or status fields:
+
+```yaml
+commands:
+  list-resources:
+    output:
+      default_columns: [resourceId, displayName, status]
+      column_labels:
+        resourceId: Resource ID
+        displayName: Name
+```
+
+The paths are ordered, dot-separated JSON fields. The override is compiled
+into the generated command and affects table output only; JSON, YAML, and raw
+responses remain unchanged. `column_labels` changes only the displayed header;
+it does not transform values. Unlabeled columns retain the default uppercase
+header.
+
 ### Stream Collection
 
 ```yaml

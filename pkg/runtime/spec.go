@@ -144,6 +144,7 @@ func (s *AdditionalPropertiesSpec) UnmarshalJSON(data []byte) error {
 type OutputHints struct {
 	ListPath          string
 	DefaultColumns    []string
+	ColumnLabels      map[string]string `json:",omitempty"`
 	ResponseMediaType string
 	Pagination        *PaginationHint
 	Streaming         *StreamingHint
