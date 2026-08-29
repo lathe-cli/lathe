@@ -99,6 +99,51 @@ func TestFormatOutput_TableUsesConfiguredColumnLabels(t *testing.T) {
 	}
 }
 
+func TestFormatOutput_TableUsesExactCurrencyFormats(t *testing.T) {
+	var buf bytes.Buffer
+	data := []byte(`{"items":[{"amount":1000000},{"amount":1234567},{"amount":1},{"amount":-5000000},{"amount":9007199254740993},{"amount":"2500000"},{"amount":1.25}]}`)
+	err := FormatOutput(data, "table", &buf, OutputHints{
+		ListPath:       "items",
+		DefaultColumns: []string{"amount"},
+		ColumnFormats: map[string]ColumnFormat{
+			"amount": {
+				Kind:              "currency",
+				Currency:          "USD",
+				SourceScale:       6,
+				Grouping:          true,
+				MinFractionDigits: 2,
+				MaxFractionDigits: 6,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "AMOUNT\n$1.00\n$1.234567\n$0.000001\n-$5.00\n$9,007,199,254.740993\n$2.50\n1.25\n"
+	if buf.String() != want {
+		t.Fatalf("table output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestFormatOutput_CurrencyFormatIsTableOnly(t *testing.T) {
+	data := []byte(`{"amount":1000000}`)
+	hints := OutputHints{
+		DefaultColumns: []string{"amount"},
+		ColumnFormats: map[string]ColumnFormat{
+			"amount": {Kind: "currency", Currency: "USD", SourceScale: 6, MinFractionDigits: 2, MaxFractionDigits: 6},
+		},
+	}
+	for _, format := range []string{"json", "raw"} {
+		var buf bytes.Buffer
+		if err := FormatOutput(data, format, &buf, hints); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		if !strings.Contains(buf.String(), "1000000") || strings.Contains(buf.String(), "$1.00") {
+			t.Fatalf("%s output changed: %q", format, buf.String())
+		}
+	}
+}
+
 func TestRegisterFormatter(t *testing.T) {
 	RegisterFormatter("custom", rawFormatter{})
 	defer delete(formatters, "custom")

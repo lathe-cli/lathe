@@ -50,9 +50,19 @@ type RuntimeSchemaOverride struct {
 }
 
 type OutputOverride struct {
-	DefaultColumns []string           `yaml:"default_columns"`
-	ColumnLabels   map[string]string  `yaml:"column_labels"`
-	Streaming      *StreamingOverride `yaml:"streaming"`
+	DefaultColumns []string                        `yaml:"default_columns"`
+	ColumnLabels   map[string]string               `yaml:"column_labels"`
+	ColumnFormats  map[string]ColumnFormatOverride `yaml:"column_formats"`
+	Streaming      *StreamingOverride              `yaml:"streaming"`
+}
+
+type ColumnFormatOverride struct {
+	Kind              string `yaml:"kind"`
+	Currency          string `yaml:"currency"`
+	SourceScale       int    `yaml:"source_scale"`
+	Grouping          bool   `yaml:"grouping"`
+	MinFractionDigits int    `yaml:"min_fraction_digits"`
+	MaxFractionDigits int    `yaml:"max_fraction_digits"`
 }
 
 type StreamingOverride struct {

@@ -364,6 +364,9 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 			if err := validateColumnLabelsOverride(columns, override.Output.ColumnLabels); err != nil {
 				return fmt.Errorf("command %q output: %w", spec.Use, err)
 			}
+			if err := validateColumnFormatsOverride(columns, override.Output.ColumnFormats); err != nil {
+				return fmt.Errorf("command %q output: %w", spec.Use, err)
+			}
 		}
 		if override.Output != nil && override.Output.Streaming != nil {
 			if err := validateStreamingOverride(spec, *override.Output.Streaming); err != nil {
@@ -655,6 +658,55 @@ func validateColumnLabelsOverride(columns []string, labels map[string]string) er
 	return nil
 }
 
+func validateColumnFormatsOverride(columns []string, formats map[string]overlay.ColumnFormatOverride) error {
+	known := make(map[string]bool, len(columns))
+	for _, column := range columns {
+		known[column] = true
+	}
+	paths := make([]string, 0, len(formats))
+	for path := range formats {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		format := formats[path]
+		if !known[path] {
+			return fmt.Errorf("column format %q does not match a default column", path)
+		}
+		if format.Kind != "currency" {
+			return fmt.Errorf("column format %q kind must be currency", path)
+		}
+		if !validCurrencyCode(format.Currency) {
+			return fmt.Errorf("column format %q currency must be a three-letter uppercase code", path)
+		}
+		if format.SourceScale < 0 || format.SourceScale > 18 {
+			return fmt.Errorf("column format %q source_scale must be between 0 and 18", path)
+		}
+		if format.MinFractionDigits < 0 || format.MinFractionDigits > 18 {
+			return fmt.Errorf("column format %q min_fraction_digits must be between 0 and 18", path)
+		}
+		if format.MaxFractionDigits < format.MinFractionDigits || format.MaxFractionDigits > 18 {
+			return fmt.Errorf("column format %q max_fraction_digits must be between min_fraction_digits and 18", path)
+		}
+		if format.MaxFractionDigits < format.SourceScale {
+			return fmt.Errorf("column format %q max_fraction_digits must be at least source_scale", path)
+		}
+	}
+	return nil
+}
+
+func validCurrencyCode(value string) bool {
+	if len(value) != 3 {
+		return false
+	}
+	for _, r := range value {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
 func validateStreamingOverride(spec runtime.CommandSpec, stream overlay.StreamingOverride) error {
 	if spec.Output.Streaming == nil {
 		return fmt.Errorf("operation is not declared as streaming")
@@ -867,6 +919,19 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 	}
 	if override.Output != nil && len(override.Output.ColumnLabels) > 0 {
 		spec.Output.ColumnLabels = copyStringMap(override.Output.ColumnLabels)
+	}
+	if override.Output != nil && len(override.Output.ColumnFormats) > 0 {
+		spec.Output.ColumnFormats = make(map[string]runtime.ColumnFormat, len(override.Output.ColumnFormats))
+		for path, format := range override.Output.ColumnFormats {
+			spec.Output.ColumnFormats[path] = runtime.ColumnFormat{
+				Kind:              format.Kind,
+				Currency:          format.Currency,
+				SourceScale:       format.SourceScale,
+				Grouping:          format.Grouping,
+				MinFractionDigits: format.MinFractionDigits,
+				MaxFractionDigits: format.MaxFractionDigits,
+			}
+		}
 	}
 	if override.Output != nil && override.Output.Streaming != nil {
 		stream := override.Output.Streaming
@@ -1123,6 +1188,38 @@ func stringMapLiteral(values map[string]string) string {
 	return b.String()
 }
 
+func columnFormatMapLiteral(values map[string]runtime.ColumnFormat) string {
+	if len(values) == 0 {
+		return "nil"
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("map[string]runtime.ColumnFormat{")
+	for _, key := range keys {
+		format := values[key]
+		fmt.Fprintf(&b, "%q: runtime.ColumnFormat{", key)
+		writeStringField(&b, "Kind", format.Kind)
+		writeStringField(&b, "Currency", format.Currency)
+		if format.SourceScale != 0 {
+			fmt.Fprintf(&b, "SourceScale: %d,", format.SourceScale)
+		}
+		writeBoolField(&b, "Grouping", format.Grouping)
+		if format.MinFractionDigits != 0 {
+			fmt.Fprintf(&b, "MinFractionDigits: %d,", format.MinFractionDigits)
+		}
+		if format.MaxFractionDigits != 0 {
+			fmt.Fprintf(&b, "MaxFractionDigits: %d,", format.MaxFractionDigits)
+		}
+		b.WriteString("},")
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
 func workflowSpecLiteral(spec runtime.WorkflowSpec) string {
 	var b strings.Builder
 	b.WriteString("runtime.WorkflowSpec{")
@@ -1353,6 +1450,9 @@ func outputHintsLiteral(hints runtime.OutputHints) string {
 	if len(hints.ColumnLabels) > 0 {
 		fmt.Fprintf(&b, "ColumnLabels: %s,", stringMapLiteral(hints.ColumnLabels))
 	}
+	if len(hints.ColumnFormats) > 0 {
+		fmt.Fprintf(&b, "ColumnFormats: %s,", columnFormatMapLiteral(hints.ColumnFormats))
+	}
 	writeStringField(&b, "ResponseMediaType", hints.ResponseMediaType)
 	if hints.Pagination != nil {
 		fmt.Fprintf(&b, "Pagination: %s,", paginationHintLiteral(hints.Pagination))
@@ -1447,7 +1547,7 @@ func knownErrorsLiteral(errors []runtime.KnownError) string {
 }
 
 func outputHintsSet(hints runtime.OutputHints) bool {
-	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || len(hints.ColumnLabels) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
+	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || len(hints.ColumnLabels) > 0 || len(hints.ColumnFormats) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
 }
 
 func writeStringField(b *strings.Builder, name, value string) {
@@ -1676,7 +1776,7 @@ var Specs = []runtime.CommandSpec{
 				{{- end}}
 			},
 			{{- end}}
-		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ColumnLabels $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
+		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ColumnLabels $op.Output.ColumnFormats $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
 		Output: {{outputHintsLiteral $op.Output}},
 		{{- end}}
 		{{- if $op.Security}}

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,7 +29,9 @@ const maxColumns = 6
 
 func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&v); err != nil {
 		_, werr := w.Write(data)
 		return werr
 	}
@@ -40,7 +43,7 @@ func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	if len(cols) == 0 {
 		return renderJSON(data, w)
 	}
-	return writeTable(cols, rows, hints.ColumnLabels, w)
+	return writeTable(cols, rows, hints.ColumnLabels, hints.ColumnFormats, w)
 }
 
 // chooseColumns prefers codegen-supplied DefaultColumns when available,
@@ -173,10 +176,15 @@ func collectPaths(v any, prefix string, maxDepth int, out map[string]struct{}) {
 	}
 }
 
-func lookupPath(row map[string]any, path string) string {
+func lookupPath(row map[string]any, path string, formats map[string]ColumnFormat) string {
 	v, ok := tableValue(row, path)
 	if !ok {
 		return ""
+	}
+	if format, ok := formats[path]; ok {
+		if formatted, ok := formatColumnValue(v, format); ok {
+			return formatted
+		}
 	}
 	return stringify(v)
 }
@@ -210,6 +218,12 @@ func stringify(v any) string {
 		return x
 	case nil:
 		return ""
+	case json.Number:
+		value, err := x.Float64()
+		if err != nil {
+			return x.String()
+		}
+		return stringify(value)
 	case float64:
 		if x == float64(int64(x)) {
 			return fmt.Sprintf("%d", int64(x))
@@ -222,7 +236,7 @@ func stringify(v any) string {
 	}
 }
 
-func writeTable(cols []string, rows []map[string]any, labels map[string]string, w io.Writer) error {
+func writeTable(cols []string, rows []map[string]any, labels map[string]string, formats map[string]ColumnFormat, w io.Writer) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for i, c := range cols {
 		if i > 0 {
@@ -236,7 +250,7 @@ func writeTable(cols []string, rows []map[string]any, labels map[string]string, 
 			if i > 0 {
 				fmt.Fprint(tw, "\t")
 			}
-			fmt.Fprint(tw, lookupPath(r, c))
+			fmt.Fprint(tw, lookupPath(r, c, formats))
 		}
 		fmt.Fprintln(tw)
 	}
