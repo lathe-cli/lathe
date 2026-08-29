@@ -353,6 +353,18 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 		if err := validateArguments(spec, override.Params); err != nil {
 			return fmt.Errorf("command %q: %w", spec.Use, err)
 		}
+		if override.Output != nil {
+			if err := validateDefaultColumnsOverride(override.Output.DefaultColumns); err != nil {
+				return fmt.Errorf("command %q output: %w", spec.Use, err)
+			}
+			columns := spec.Output.DefaultColumns
+			if len(override.Output.DefaultColumns) > 0 {
+				columns = override.Output.DefaultColumns
+			}
+			if err := validateColumnLabelsOverride(columns, override.Output.ColumnLabels); err != nil {
+				return fmt.Errorf("command %q output: %w", spec.Use, err)
+			}
+		}
 		if override.Output != nil && override.Output.Streaming != nil {
 			if err := validateStreamingOverride(spec, *override.Output.Streaming); err != nil {
 				return fmt.Errorf("command %q stream policy: %w", spec.Use, err)
@@ -602,6 +614,47 @@ func validArgumentName(name string) bool {
 	return true
 }
 
+func validateDefaultColumnsOverride(columns []string) error {
+	seen := map[string]bool{}
+	for i, column := range columns {
+		if column == "" || strings.TrimSpace(column) != column {
+			return fmt.Errorf("default_columns[%d] must be a non-empty trimmed path", i)
+		}
+		for _, part := range strings.Split(column, ".") {
+			if strings.TrimSpace(part) == "" {
+				return fmt.Errorf("default_columns[%d] contains an empty path segment", i)
+			}
+		}
+		if seen[column] {
+			return fmt.Errorf("default column %q is duplicated", column)
+		}
+		seen[column] = true
+	}
+	return nil
+}
+
+func validateColumnLabelsOverride(columns []string, labels map[string]string) error {
+	known := make(map[string]bool, len(columns))
+	for _, column := range columns {
+		known[column] = true
+	}
+	keys := make([]string, 0, len(labels))
+	for path := range labels {
+		keys = append(keys, path)
+	}
+	sort.Strings(keys)
+	for _, path := range keys {
+		label := labels[path]
+		if !known[path] {
+			return fmt.Errorf("column label %q does not match a default column", path)
+		}
+		if label == "" || strings.TrimSpace(label) != label || strings.ContainsAny(label, "\t\v\f\r\n") {
+			return fmt.Errorf("column label %q must be non-empty, trimmed, and single-line", path)
+		}
+	}
+	return nil
+}
+
 func validateStreamingOverride(spec runtime.CommandSpec, stream overlay.StreamingOverride) error {
 	if spec.Output.Streaming == nil {
 		return fmt.Errorf("operation is not declared as streaming")
@@ -808,6 +861,12 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 	if override.Context != nil && override.Context.SetOnSuccess != nil {
 		set := override.Context.SetOnSuccess
 		spec.SetContext = &runtime.ContextSetHint{Name: set.Name, Param: set.FromParam}
+	}
+	if override.Output != nil && len(override.Output.DefaultColumns) > 0 {
+		spec.Output.DefaultColumns = append([]string(nil), override.Output.DefaultColumns...)
+	}
+	if override.Output != nil && len(override.Output.ColumnLabels) > 0 {
+		spec.Output.ColumnLabels = copyStringMap(override.Output.ColumnLabels)
 	}
 	if override.Output != nil && override.Output.Streaming != nil {
 		stream := override.Output.Streaming
@@ -1291,6 +1350,9 @@ func outputHintsLiteral(hints runtime.OutputHints) string {
 	b.WriteString("runtime.OutputHints{")
 	writeStringField(&b, "ListPath", hints.ListPath)
 	writeStringSliceField(&b, "DefaultColumns", hints.DefaultColumns)
+	if len(hints.ColumnLabels) > 0 {
+		fmt.Fprintf(&b, "ColumnLabels: %s,", stringMapLiteral(hints.ColumnLabels))
+	}
 	writeStringField(&b, "ResponseMediaType", hints.ResponseMediaType)
 	if hints.Pagination != nil {
 		fmt.Fprintf(&b, "Pagination: %s,", paginationHintLiteral(hints.Pagination))
@@ -1385,7 +1447,7 @@ func knownErrorsLiteral(errors []runtime.KnownError) string {
 }
 
 func outputHintsSet(hints runtime.OutputHints) bool {
-	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
+	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || len(hints.ColumnLabels) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
 }
 
 func writeStringField(b *strings.Builder, name, value string) {
@@ -1614,7 +1676,7 @@ var Specs = []runtime.CommandSpec{
 				{{- end}}
 			},
 			{{- end}}
-		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
+		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ColumnLabels $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
 		Output: {{outputHintsLiteral $op.Output}},
 		{{- end}}
 		{{- if $op.Security}}

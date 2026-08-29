@@ -60,7 +60,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	chdirWithGoMod(t)
 
 	specs := []runtime.CommandSpec{
-		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/api/v1/addon", Params: []runtime.ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: runtime.InQuery, GoType: "string"}}, RequestBody: &runtime.RequestBody{Required: true, Schema: &runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"name": {Type: "string"}}}}},
+		{Group: "Addon", Use: "install-addon", Short: "raw short", Method: "POST", PathTpl: "/api/v1/addon", Params: []runtime.ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: runtime.InQuery, GoType: "string"}}, RequestBody: &runtime.RequestBody{Required: true, Schema: &runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"name": {Type: "string"}}}}, Output: runtime.OutputHints{DefaultColumns: []string{"id"}}},
 		{Group: "Addon", Use: "untouched", Short: "untouched short", Method: "GET", PathTpl: "/api/v1/x"},
 	}
 	overrides := map[string]overlay.Override{
@@ -83,6 +83,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
 			Params:        map[string]overlay.ParamOverride{"workspace_id": {Context: "workspace"}},
 			Context:       &overlay.ContextOverride{SetOnSuccess: &overlay.ContextSetOnSuccess{Name: "workspace", FromParam: "workspace_id"}},
+			Output:        &overlay.OutputOverride{DefaultColumns: []string{"name"}, ColumnLabels: map[string]string{"name": "Addon"}},
 		},
 	}
 
@@ -112,6 +113,8 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`Cause: "missing addon name"`,
 		`Context: "workspace"`,
 		`SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}`,
+		`DefaultColumns: []string{"name"}`,
+		`ColumnLabels: map[string]string{"name": "Addon"}`,
 		`"untouched short"`,
 		`generatedSchemaVersion`,
 		`func Mount(root *cobra.Command) error`,
@@ -757,6 +760,59 @@ func TestMergeOverlayModule_StreamPolicy(t *testing.T) {
 	bad[0].Output.Streaming = nil
 	if err := ValidateOverlayModule(bad, mod); err == nil || !strings.Contains(err.Error(), "not declared as streaming") {
 		t.Fatalf("validation error = %v", err)
+	}
+}
+
+func TestMergeOverlayModule_OutputColumns(t *testing.T) {
+	specs := []runtime.CommandSpec{{
+		Group: "Resources", Use: "list", Method: "GET", PathTpl: "/resources",
+		Output: runtime.OutputHints{ListPath: "items", DefaultColumns: []string{"id", "category"}},
+	}}
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"list": {Output: &overlay.OutputOverride{
+			DefaultColumns: []string{"resourceId", "displayName"},
+			ColumnLabels:   map[string]string{"resourceId": "Resource ID", "displayName": "Name"},
+		}},
+	}}
+	if err := ValidateOverlayModule(specs, mod); err != nil {
+		t.Fatalf("ValidateOverlayModule: %v", err)
+	}
+	merged := MergeOverlayModule(specs, mod)
+	if got := strings.Join(merged[0].Output.DefaultColumns, ","); got != "resourceId,displayName" {
+		t.Fatalf("default columns = %q", got)
+	}
+	if got := merged[0].Output.ColumnLabels["resourceId"]; got != "Resource ID" {
+		t.Fatalf("column label = %q", got)
+	}
+	if got := strings.Join(specs[0].Output.DefaultColumns, ","); got != "id,category" {
+		t.Fatalf("source default columns = %q", got)
+	}
+
+	for _, columns := range [][]string{{"displayName", "displayName"}, {"status..phase"}, {" name"}} {
+		bad := overlay.Module{Commands: map[string]overlay.Override{
+			"list": {Output: &overlay.OutputOverride{DefaultColumns: columns}},
+		}}
+		if err := ValidateOverlayModule(specs, bad); err == nil {
+			t.Fatalf("ValidateOverlayModule accepted columns %#v", columns)
+		}
+	}
+
+	for _, labels := range []map[string]string{
+		{"unknown": "Unknown"},
+		{"resourceId": ""},
+		{"resourceId": " Resource ID"},
+		{"resourceId": "Resource\tID"},
+		{"resourceId": "Resource\nID"},
+	} {
+		bad := overlay.Module{Commands: map[string]overlay.Override{
+			"list": {Output: &overlay.OutputOverride{
+				DefaultColumns: []string{"resourceId", "displayName"},
+				ColumnLabels:   labels,
+			}},
+		}}
+		if err := ValidateOverlayModule(specs, bad); err == nil {
+			t.Fatalf("ValidateOverlayModule accepted labels %#v", labels)
+		}
 	}
 }
 

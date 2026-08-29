@@ -17,7 +17,13 @@
 # Leave the file empty ({} / no "commands:" key) if you do not want to override
 # anything; the generated layer passes through verbatim.
 
-commands: {}
+commands:
+  list-resources:
+    output:
+      default_columns: [resourceId, displayName, status]
+      column_labels:
+        resourceId: Resource ID
+        displayName: Name
 # Example:
 # defaults:
 #   pagination:

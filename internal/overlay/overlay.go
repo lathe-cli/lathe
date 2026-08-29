@@ -50,7 +50,9 @@ type RuntimeSchemaOverride struct {
 }
 
 type OutputOverride struct {
-	Streaming *StreamingOverride `yaml:"streaming"`
+	DefaultColumns []string           `yaml:"default_columns"`
+	ColumnLabels   map[string]string  `yaml:"column_labels"`
+	Streaming      *StreamingOverride `yaml:"streaming"`
 }
 
 type StreamingOverride struct {

@@ -74,6 +74,31 @@ func TestFormatOutput_TableUsesNestedListPath(t *testing.T) {
 	}
 }
 
+func TestFormatOutput_TableUsesConfiguredColumnLabels(t *testing.T) {
+	var buf bytes.Buffer
+	data := []byte(`{"items":[{"resourceId":"r1","createdAt":"2026-08-28","status":"active","details":{"owner":{"profile":{"contact":{"display name":"Alice Smith","user-name":"alice"}}}}}]}`)
+	err := FormatOutput(data, "table", &buf, OutputHints{
+		ListPath:       "items",
+		DefaultColumns: []string{"resourceId", "createdAt", "status", "details.owner.profile.contact.display name", "details.owner.profile.contact.user-name"},
+		ColumnLabels: map[string]string{
+			"resourceId": "Resource ID",
+			"createdAt":  "Created at",
+			"status":     "Status",
+			"details.owner.profile.contact.display name": "Display name",
+			"details.owner.profile.contact.user-name":    "User",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	for _, want := range []string{"Resource ID", "Created at", "Status", "Display name", "User", "r1", "2026-08-28", "active", "Alice Smith", "alice"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("table output missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRegisterFormatter(t *testing.T) {
 	RegisterFormatter("custom", rawFormatter{})
 	defer delete(formatters, "custom")

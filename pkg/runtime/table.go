@@ -40,7 +40,7 @@ func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	if len(cols) == 0 {
 		return renderJSON(data, w)
 	}
-	return writeTable(cols, rows, w)
+	return writeTable(cols, rows, hints.ColumnLabels, w)
 }
 
 // chooseColumns prefers codegen-supplied DefaultColumns when available,
@@ -50,14 +50,13 @@ func chooseColumns(rows []map[string]any, hints OutputHints) []string {
 	if len(hints.DefaultColumns) == 0 {
 		return pickColumns(rows)
 	}
-	pathSet := map[string]struct{}{}
-	for _, r := range rows {
-		collectPaths(r, "", 4, pathSet)
-	}
 	var picked []string
 	for _, c := range hints.DefaultColumns {
-		if _, ok := pathSet[c]; ok {
-			picked = append(picked, c)
+		for _, r := range rows {
+			if _, ok := tableValue(r, c); ok {
+				picked = append(picked, c)
+				break
+			}
 		}
 	}
 	if len(picked) == 0 {
@@ -175,19 +174,34 @@ func collectPaths(v any, prefix string, maxDepth int, out map[string]struct{}) {
 }
 
 func lookupPath(row map[string]any, path string) string {
-	parts := strings.Split(path, ".")
-	var cur any = row
-	for _, p := range parts {
-		m, ok := cur.(map[string]any)
+	v, ok := tableValue(row, path)
+	if !ok {
+		return ""
+	}
+	return stringify(v)
+}
+
+func tableValue(row map[string]any, path string) (any, bool) {
+	var v any = row
+	for _, part := range strings.Split(path, ".") {
+		m, ok := v.(map[string]any)
 		if !ok {
-			return ""
+			return nil, false
 		}
-		cur, ok = m[p]
+		v, ok = m[part]
 		if !ok {
-			return ""
+			return nil, false
 		}
 	}
-	return stringify(cur)
+	if v == nil {
+		return nil, false
+	}
+	switch v.(type) {
+	case map[string]any, []any:
+		return nil, false
+	default:
+		return v, true
+	}
 }
 
 func stringify(v any) string {
@@ -208,13 +222,13 @@ func stringify(v any) string {
 	}
 }
 
-func writeTable(cols []string, rows []map[string]any, w io.Writer) error {
+func writeTable(cols []string, rows []map[string]any, labels map[string]string, w io.Writer) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for i, c := range cols {
 		if i > 0 {
 			fmt.Fprint(tw, "\t")
 		}
-		fmt.Fprint(tw, columnHeader(c))
+		fmt.Fprint(tw, columnHeader(c, labels))
 	}
 	fmt.Fprintln(tw)
 	for _, r := range rows {
@@ -229,7 +243,10 @@ func writeTable(cols []string, rows []map[string]any, w io.Writer) error {
 	return tw.Flush()
 }
 
-func columnHeader(path string) string {
+func columnHeader(path string, labels map[string]string) string {
+	if label := labels[path]; label != "" {
+		return label
+	}
 	if i := strings.LastIndexByte(path, '.'); i >= 0 {
 		return strings.ToUpper(path[i+1:])
 	}
