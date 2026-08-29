@@ -29,9 +29,15 @@ const maxColumns = 6
 
 func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	var v any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&v); err != nil {
+	var err error
+	if len(hints.ColumnFormats) == 0 {
+		err = json.Unmarshal(data, &v)
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		err = decoder.Decode(&v)
+	}
+	if err != nil {
 		_, werr := w.Write(data)
 		return werr
 	}
