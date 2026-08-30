@@ -390,7 +390,7 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 			}
 		}
 		if override.Body != nil && override.Body.Flags {
-			if _, err := normalize.ExpandJSONBodyFlags(spec); err != nil {
+			if _, _, err := normalize.ExpandJSONBodyFlags(spec); err != nil {
 				return fmt.Errorf("command %q body.flags: %w", spec.Use, err)
 			}
 		}
@@ -886,11 +886,12 @@ func applyBodyFlags(spec *runtime.CommandSpec, override overlay.Override) error 
 	if override.Body == nil || !override.Body.Flags {
 		return nil
 	}
-	params, err := normalize.ExpandJSONBodyFlags(*spec)
+	params, setOnly, err := normalize.ExpandJSONBodyFlags(*spec)
 	if err != nil {
 		return err
 	}
 	spec.Params = append(spec.Params, params...)
+	spec.RequestBody.SetOnlyFields = setOnly
 	return nil
 }
 
@@ -1494,6 +1495,7 @@ func requestBodyLiteral(body *runtime.RequestBody) string {
 	}
 	writeStringField(&b, "Template", body.Template)
 	writeStringField(&b, "MergePath", body.MergePath)
+	writeStringSliceField(&b, "SetOnlyFields", body.SetOnlyFields)
 	b.WriteByte('}')
 	return b.String()
 }
@@ -1849,6 +1851,11 @@ var Specs = []runtime.CommandSpec{
 				{{- end}}
 				{{- if $op.RequestBody.Template}}
 				Template: {{printf "%q" $op.RequestBody.Template}},
+				{{- end}}
+				{{- if $op.RequestBody.SetOnlyFields}}
+				SetOnlyFields: []string{
+					{{- range $op.RequestBody.SetOnlyFields}}{{printf "%q" .}},{{end}}
+				},
 				{{- end}}
 				{{- if $op.RequestBody.MergePath}}
 				MergePath: {{printf "%q" $op.RequestBody.MergePath}},

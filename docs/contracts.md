@@ -66,6 +66,11 @@ command-name or operation-id matches. Generated Skill module references list
 them per operation. Downstream CLIs must be regenerated to pick up
 `search_terms` (SchemaVersion 15, CatalogSchemaVersion 22).
 
+When JSON body flags are enabled, `body.set_only_fields` lists body fields
+that received no typed flag (nested object properties); they remain settable
+through `--set`, `--set-str`, or `--file` (SchemaVersion 16,
+CatalogSchemaVersion 23).
+
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
 write vs read from the HTTP method, and do not assume a `--dry-run` flag is

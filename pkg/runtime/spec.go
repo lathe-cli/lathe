@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 15
+const SchemaVersion = 16
 
 type CommandSpec struct {
 	Group           string
@@ -92,8 +92,9 @@ type RequestBody struct {
 	Schema        *SchemaSpec        `json:",omitempty"`
 	RuntimeSchema *RuntimeSchemaSpec `json:",omitempty"`
 
-	Template  string `json:",omitempty"`
-	MergePath string `json:",omitempty"`
+	Template      string   `json:",omitempty"`
+	MergePath     string   `json:",omitempty"`
+	SetOnlyFields []string `json:",omitempty"`
 }
 
 type RuntimeSchemaSpec struct {

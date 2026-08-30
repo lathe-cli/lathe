@@ -268,6 +268,11 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			setHelp += suffix
 			setStrHelp += suffix
 		}
+		if len(s.RequestBody.SetOnlyFields) > 0 {
+			suffix := fmt.Sprintf(" (no typed flags for body fields: %s)", strings.Join(s.RequestBody.SetOnlyFields, ", "))
+			setHelp += suffix
+			setStrHelp += suffix
+		}
 		cmd.Flags().StringVarP(&bodyFile, bodyFileFlag, "f", "", fileHelp)
 		cmd.Flags().StringArrayVar(&bodySets, bodySetFlag, nil, setHelp)
 		cmd.Flags().StringArrayVar(&bodyStringSets, bodyStringSetFlag, nil, setStrHelp)

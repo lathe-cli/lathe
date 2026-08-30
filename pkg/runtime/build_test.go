@@ -1690,3 +1690,64 @@ func TestBuild_APIErrorKnownErrorFallbackDetail(t *testing.T) {
 		})
 	}
 }
+
+func TestBuild_SetOnlyBodyFieldsHelpAndCoexistence(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "create",
+		Method:  "POST",
+		PathTpl: "/keys",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InBody, GoType: "string", Required: true, Help: "name (body, required)"},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json", SetOnlyFields: []string{"limits"}},
+		Security:    &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", specs)
+
+	cmd, _, err := root.Find([]string{"demo", "keys", "create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, flag := range []string{"set", "set-str"} {
+		usage := cmd.Flags().Lookup(flag).Usage
+		if !strings.Contains(usage, "limits") {
+			t.Fatalf("--%s help missing set-only field note: %q", flag, usage)
+		}
+	}
+
+	root.SetArgs([]string{
+		"--hostname", srv.URL,
+		"demo", "keys", "create",
+		"--name", "demo",
+		"--set", "limits.maxBudgetUsd=3",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	want := map[string]any{
+		"name":   "demo",
+		"limits": map[string]any{"maxBudgetUsd": float64(3)},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("body = %#v, want %#v", got, want)
+	}
+}

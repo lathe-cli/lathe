@@ -28,9 +28,12 @@ func TestExpandJSONBodyFlags(t *testing.T) {
 			},
 		},
 	}
-	got, err := ExpandJSONBodyFlags(spec)
+	got, setOnly, err := ExpandJSONBodyFlags(spec)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(setOnly) != 0 {
+		t.Fatalf("setOnly = %#v, want empty", setOnly)
 	}
 	byName := map[string]runtime.ParamSpec{}
 	for _, param := range got {
@@ -72,12 +75,12 @@ func TestExpandJSONBodyFlags_RequiredAndCollision(t *testing.T) {
 			},
 		},
 	}
-	if _, err := ExpandJSONBodyFlags(spec); err == nil || !strings.Contains(err.Error(), "conflicts") {
+	if _, _, err := ExpandJSONBodyFlags(spec); err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("error = %v, want flag conflict", err)
 	}
 	spec.Params = nil
 	spec.RequestBody.Schema.Properties = map[string]*runtime.SchemaSpec{"name": {Type: "string"}, "enabled": {Type: "boolean"}}
-	got, err := ExpandJSONBodyFlags(spec)
+	got, _, err := ExpandJSONBodyFlags(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +96,9 @@ func TestExpandJSONBodyFlags_RejectsUnsupported(t *testing.T) {
 		want string
 	}{
 		{
-			name: "nested",
+			name: "only nested properties",
 			spec: jsonBodySpec(&runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"limits": {Type: "object", Properties: map[string]*runtime.SchemaSpec{"rpm": {Type: "integer"}}}}}),
-			want: "nested objects",
+			want: "no body properties support typed flags",
 		},
 		{
 			name: "oneof",
@@ -120,11 +123,33 @@ func TestExpandJSONBodyFlags_RejectsUnsupported(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ExpandJSONBodyFlags(tc.spec)
+			_, _, err := ExpandJSONBodyFlags(tc.spec)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestExpandJSONBodyFlags_SkipsNestedObjectProperties(t *testing.T) {
+	spec := jsonBodySpec(&runtime.SchemaSpec{
+		Type:     "object",
+		Required: []string{"name"},
+		Properties: map[string]*runtime.SchemaSpec{
+			"name":   {Type: "string"},
+			"limits": {Type: "object", Properties: map[string]*runtime.SchemaSpec{"maxBudgetUsd": {Type: "number"}}},
+			"admins": {Type: "array", Items: &runtime.SchemaSpec{Type: "object", Properties: map[string]*runtime.SchemaSpec{"id": {Type: "string"}}}},
+		},
+	})
+	got, setOnly, err := ExpandJSONBodyFlags(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "name" || got[0].Flag != "name" || !got[0].Required {
+		t.Fatalf("params = %#v", got)
+	}
+	if !equalStrings(setOnly, []string{"admins", "limits"}) {
+		t.Fatalf("setOnly = %#v", setOnly)
 	}
 }
 
