@@ -164,6 +164,10 @@ func TestWithUsageDetailSanitizesAndBounds(t *testing.T) {
 	if le.Detail != "a b c d e" {
 		t.Fatalf("sanitized detail = %q", le.Detail)
 	}
+	hostile := UsageError(nil, WithUsageDetail(errors.New("x"), "a\u009b31mb c\u009d0;d e\u202ef"))
+	if hostile.Detail != "a 31mb c 0;d e f" {
+		t.Fatalf("hostile detail = %q, C1/bidi runes must be stripped", hostile.Detail)
+	}
 	long := strings.Repeat("v", 500)
 	bounded := UsageError(nil, WithUsageDetail(errors.New("x"), long))
 	if n := len([]rune(bounded.Detail)); n > 240 {
@@ -242,14 +246,14 @@ func TestClassifyError_DeclaredServerMessageDetail(t *testing.T) {
 }
 
 func TestClassifyError_ServerMessageSanitizedAndBounded(t *testing.T) {
-	msg := "line1\nline2\t\x07" + strings.Repeat("x", 400)
+	msg := "line1\nline2\t\x07\u009b31m\u009d0;\u202e" + strings.Repeat("x", 400)
 	body, err := json.Marshal(map[string]string{"message": msg})
 	if err != nil {
 		t.Fatal(err)
 	}
 	he := &HTTPError{Status: 500, ContentType: "application/json", Body: body}
 	le := ClassifyError(he)
-	if strings.ContainsAny(le.Detail, "\n\t\x07") {
+	if strings.ContainsAny(le.Detail, "\n\t\x07\u009b\u009d\u202e") {
 		t.Fatalf("detail not sanitized: %q", le.Detail)
 	}
 	if n := len([]rune(le.Detail)); n > 240 {

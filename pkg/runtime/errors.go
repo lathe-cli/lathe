@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -103,7 +104,7 @@ func WithUsageDetail(cause error, detail string) error {
 func sanitizeErrorDetail(detail string) string {
 	var b strings.Builder
 	for _, r := range detail {
-		if r < 0x20 || r == 0x7f {
+		if !unicode.IsGraphic(r) {
 			r = ' '
 		}
 		b.WriteRune(r)
