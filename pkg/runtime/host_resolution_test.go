@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/lathe-cli/lathe/pkg/config"
 )
@@ -99,6 +102,32 @@ func TestResolveConfiguredHost_MultipleHostErrorStaysVisible(t *testing.T) {
 	}
 	if le.ExitCode != ExitGeneral {
 		t.Errorf("exit = %d, want %d", le.ExitCode, ExitGeneral)
+	}
+}
+
+func TestLoadHostOptions_UnknownExplicitHostIsActionable(t *testing.T) {
+	bindTestManifest(t, "demo", "DEMO_HOST")
+	hosts := hostsWith(t, "", "known.example.com")
+	if err := hosts.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	root := &cobra.Command{Use: "demo"}
+	root.PersistentFlags().String("hostname", "missing.example.com", "")
+
+	_, _, err := loadHostOptions(root, "", false)
+	if !errors.Is(err, ErrNotAuthenticated) {
+		t.Fatalf("err = %v, want ErrNotAuthenticated", err)
+	}
+	le := ClassifyError(err)
+	if le.Code != CodeNotAuthenticated || le.ExitCode != ExitNotAuthenticated {
+		t.Fatalf("classified error = %#v", le)
+	}
+	if le.Message != `no credentials for host "missing.example.com"` {
+		t.Errorf("message = %q", le.Message)
+	}
+	if !strings.Contains(le.Hint, "demo auth login --hostname <host>") || !strings.Contains(le.Hint, `"known.example.com"`) {
+		t.Errorf("hint = %q", le.Hint)
 	}
 }
 
