@@ -1582,6 +1582,59 @@ func TestBuild_MissingBodyFieldUsageErrorDetail(t *testing.T) {
 	}
 }
 
+func TestBuild_RequiredBodyUsageErrorDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	tests := []struct {
+		name       string
+		params     []ParamSpec
+		wantDetail string
+	}{
+		{
+			name:       "with body flags",
+			params:     []ParamSpec{{Name: "name", Flag: "name", In: InBody, GoType: "string"}},
+			wantDetail: "request body required: pass --file, --set, --set-str, or a body flag",
+		},
+		{
+			name:       "without body flags",
+			wantDetail: "request body required: pass --file, --set, or --set-str",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			specs := []CommandSpec{{
+				Group:       "Keys",
+				Use:         "create",
+				Method:      "POST",
+				PathTpl:     "/keys",
+				Params:      tc.params,
+				RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+				Security:    &SecurityHint{Public: true},
+			}}
+			root := newRootWithModuleGroup()
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "table", "")
+			root.SilenceErrors = true
+			root.SilenceUsage = true
+			mustBuild(t, root, "demo", specs)
+			root.SetArgs([]string{"demo", "keys", "create"})
+
+			err := root.Execute()
+			var le *LatheError
+			if !errors.As(err, &le) {
+				t.Fatalf("expected LatheError, got %v", err)
+			}
+			if le.Code != CodeUsage {
+				t.Fatalf("code = %q, want %q", le.Code, CodeUsage)
+			}
+			if le.Detail != tc.wantDetail {
+				t.Fatalf("detail = %q, want %q", le.Detail, tc.wantDetail)
+			}
+		})
+	}
+}
+
 func TestBuild_UnsupportedOutputFormatDetail(t *testing.T) {
 	bindTestManifest(t, "myctl", "MYCTL_HOST")
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
