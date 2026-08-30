@@ -99,6 +99,8 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 			Notes:         []string{"Use the canonical addon ID."},
 			Prerequisites: []string{"List clusters before installing."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
+			Mutation:      "read",
+			SearchTerms:   []string{"spend", "cost"},
 			Params:        map[string]overlay.ParamOverride{"workspace_id": {Context: "workspace"}},
 			Context:       &overlay.ContextOverride{SetOnSuccess: &overlay.ContextSetOnSuccess{Name: "workspace", FromParam: "workspace_id"}},
 			Output: &overlay.OutputOverride{
@@ -136,7 +138,6 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`Status: 400`,
 		`Cause: "missing addon name"`,
 		`Context: "workspace"`,
-		`SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}`,
 		`DefaultColumns: []string{"name", "spendMicro"}`,
 		`ColumnLabels: map[string]string{"name": "Addon"}`,
 		`ColumnFormats: map[string]runtime.ColumnFormat{"spendMicro": runtime.ColumnFormat{Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6}}`,
@@ -161,6 +162,16 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	}
 	if strings.Contains(got, `"raw short"`) {
 		t.Errorf("overlay did not replace Short; raw value leaked into output")
+	}
+	flat := strings.Join(strings.Fields(got), " ")
+	if !strings.Contains(flat, `Mutation: "read"`) {
+		t.Errorf("output missing mutation override literal")
+	}
+	if !strings.Contains(flat, `SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}`) {
+		t.Errorf("output missing set-context literal")
+	}
+	if !strings.Contains(flat, `SearchTerms: []string{ "spend", "cost", }`) && !strings.Contains(flat, `SearchTerms: []string{"spend", "cost"}`) && !strings.Contains(flat, `SearchTerms: []string{"spend","cost",}`) {
+		t.Errorf("output missing search terms literal:\n%s", flat)
 	}
 }
 
@@ -337,6 +348,20 @@ func TestValidateOverlayModule_RejectsInvalidGroups(t *testing.T) {
 				t.Fatalf("validation error = %v", err)
 			}
 		})
+	}
+}
+
+func TestOverlayModule_RejectsInvalidMutationOverride(t *testing.T) {
+	specs := []runtime.CommandSpec{{Group: "Reports", Use: "query-report", Method: "POST", PathTpl: "/reports/query"}}
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"query-report": {Mutation: "maybe"},
+	}}
+	wantMsg := `mutation must be "read" or "write"`
+	if err := ValidateOverlayModule(specs, mod); err == nil || !strings.Contains(err.Error(), wantMsg) {
+		t.Fatalf("validate error = %v", err)
+	}
+	if _, err := MergeOverlayModule(specs, mod); err == nil || !strings.Contains(err.Error(), wantMsg) {
+		t.Fatalf("merge error = %v", err)
 	}
 }
 
@@ -589,6 +614,7 @@ func TestMergeOverlayModule_BodyFlags(t *testing.T) {
 				Properties: map[string]*runtime.SchemaSpec{
 					"maxBudgetUsd":   {Type: "number", Nullable: true},
 					"budgetDuration": {Type: "string", Nullable: true, Enum: []string{"monthly"}},
+					"limits":         {Type: "object", Properties: map[string]*runtime.SchemaSpec{"rpm": {Type: "integer"}}},
 				},
 			},
 		},
@@ -622,6 +648,47 @@ func TestMergeOverlayModule_BodyFlags(t *testing.T) {
 	if byName["budgetDuration"].Enum[0] != "monthly" {
 		t.Fatalf("budgetDuration = %+v", byName["budgetDuration"])
 	}
+	if _, ok := byName["limits"]; ok {
+		t.Fatalf("nested object property must not produce a typed flag: %#v", byName["limits"])
+	}
+	if got := merged[0].RequestBody.SetOnlyFields; len(got) != 1 || got[0] != "limits" {
+		t.Fatalf("set-only fields = %#v", got)
+	}
+}
+
+func TestRenderModule_EmitsSetOnlyBodyFields(t *testing.T) {
+	chdirWithGoMod(t)
+
+	specs := []runtime.CommandSpec{{
+		Group:   "Keys",
+		Use:     "create-key",
+		Short:   "Create a key",
+		Method:  "POST",
+		PathTpl: "/keys",
+		RequestBody: &runtime.RequestBody{
+			Required:  true,
+			MediaType: "application/json",
+			Schema: &runtime.SchemaSpec{
+				Type:     "object",
+				Required: []string{"name"},
+				Properties: map[string]*runtime.SchemaSpec{
+					"name":   {Type: "string"},
+					"limits": {Type: "object", Properties: map[string]*runtime.SchemaSpec{"maxBudgetUsd": {Type: "number"}}},
+				},
+			},
+		},
+	}}
+	overrides := map[string]overlay.Override{"create-key": {Body: &overlay.BodyOverride{Flags: true}}}
+	if err := RenderModule("demo", "", specs, overrides); err != nil {
+		t.Fatalf("RenderModule: %v", err)
+	}
+	flat := strings.Join(strings.Fields(generatedModule(t, "demo")), " ")
+	if !strings.Contains(flat, `SetOnlyFields: []string{"limits"}`) {
+		t.Errorf("output missing set-only fields literal:\n%s", flat)
+	}
+	if !strings.Contains(flat, `Flag: "name"`) {
+		t.Errorf("output missing typed flag for top-level scalar:\n%s", flat)
+	}
 }
 
 func TestValidateOverlayModule_RejectsNestedBodyFlags(t *testing.T) {
@@ -641,7 +708,7 @@ func TestValidateOverlayModule_RejectsNestedBodyFlags(t *testing.T) {
 	err := ValidateOverlayModule(specs, overlay.Module{Commands: map[string]overlay.Override{
 		"create": {Body: &overlay.BodyOverride{Flags: true}},
 	}})
-	if err == nil || !strings.Contains(err.Error(), "nested objects") {
+	if err == nil || !strings.Contains(err.Error(), "no body properties support typed flags") {
 		t.Fatalf("error = %v", err)
 	}
 }

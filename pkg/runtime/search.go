@@ -96,6 +96,9 @@ func newSearchView(cmd CatalogCommand) searchView {
 	}
 	view.identity = appendSearchField(view.identity, strings.Join(cmd.Path, " "), weightPath)
 	view.identity = appendSearchField(view.identity, cmd.HTTP.PathTemplate, weightPathTemplate)
+	for _, term := range cmd.SearchTerms {
+		view.identity = appendSearchField(view.identity, term, weightText)
+	}
 
 	view.descriptive = appendSearchField(view.descriptive, cmd.Summary, weightText)
 	view.descriptive = appendSearchField(view.descriptive, cmd.Description, weightText)

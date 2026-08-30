@@ -11,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 20
+const CatalogSchemaVersion = 23
 const DefaultSearchLimit = 20
 
 const (
@@ -95,6 +95,7 @@ type CatalogCommand struct {
 	Prerequisites []string           `json:"prerequisites,omitempty"`
 	KnownErrors   []KnownError       `json:"known_errors,omitempty"`
 	SetsContext   *CatalogContextSet `json:"sets_context,omitempty"`
+	SearchTerms   []string           `json:"search_terms,omitempty"`
 }
 
 type CatalogWorkflow struct {
@@ -164,6 +165,7 @@ type CatalogBody struct {
 	RuntimeSchema *CatalogRuntimeSchema `json:"runtime_schema,omitempty"`
 	Template      string                `json:"template,omitempty"`
 	MergePath     string                `json:"merge_path,omitempty"`
+	SetOnlyFields []string              `json:"set_only_fields,omitempty"`
 }
 
 type CatalogRuntimeSchema struct {
@@ -444,17 +446,19 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		Notes:         append([]string(nil), spec.Notes...),
 		Prerequisites: append([]string(nil), spec.Prerequisites...),
 		KnownErrors:   append([]KnownError(nil), spec.KnownErrors...),
+		SearchTerms:   append([]string(nil), spec.SearchTerms...),
 	}
 	if spec.SetContext != nil {
 		cmd.SetsContext = &CatalogContextSet{Name: spec.SetContext.Name, FromParam: spec.SetContext.Param}
 	}
 	if spec.RequestBody != nil {
 		cmd.Body = &CatalogBody{
-			Required:  spec.RequestBody.Required,
-			MediaType: spec.RequestBody.MediaType,
-			Schema:    spec.RequestBody.Schema,
-			Template:  spec.RequestBody.Template,
-			MergePath: spec.RequestBody.MergePath,
+			Required:      spec.RequestBody.Required,
+			MediaType:     spec.RequestBody.MediaType,
+			Schema:        spec.RequestBody.Schema,
+			Template:      spec.RequestBody.Template,
+			MergePath:     spec.RequestBody.MergePath,
+			SetOnlyFields: append([]string(nil), spec.RequestBody.SetOnlyFields...),
 		}
 		if binding := spec.RequestBody.RuntimeSchema; binding != nil {
 			cmd.Body.RuntimeSchema = &CatalogRuntimeSchema{

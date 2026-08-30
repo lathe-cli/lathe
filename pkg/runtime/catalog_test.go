@@ -48,6 +48,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 					ResponsePath: "input_schema",
 					Params:       map[string]string{"id": "${params.user_id}"},
 				},
+				SetOnlyFields: []string{"limits"},
 			},
 			Output: OutputHints{
 				ListPath:       "data.items",
@@ -68,6 +69,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 			Notes:         []string{"Use the canonical user ID."},
 			Prerequisites: []string{"List users before fetching details."},
 			KnownErrors:   []KnownError{{Status: 400, Cause: "missing id"}},
+			SearchTerms:   []string{"account", "profile"},
 		},
 	})
 
@@ -161,6 +163,12 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cmd.KnownErrors, []KnownError{{Status: 400, Cause: "missing id"}}) {
 		t.Fatalf("known errors = %#v", cmd.KnownErrors)
+	}
+	if !reflect.DeepEqual(cmd.SearchTerms, []string{"account", "profile"}) {
+		t.Fatalf("search terms = %#v", cmd.SearchTerms)
+	}
+	if !reflect.DeepEqual(cmd.Body.SetOnlyFields, []string{"limits"}) {
+		t.Fatalf("set-only fields = %#v", cmd.Body.SetOnlyFields)
 	}
 
 	raw, err := json.Marshal(catalog)

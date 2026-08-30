@@ -37,7 +37,10 @@ func NewApp(m *config.Manifest) *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			if !slices.Contains(runtime.FormatterNames(), format) {
-				return runtime.UsageError(cmd, fmt.Errorf("unsupported output format"))
+				return runtime.UsageError(cmd, runtime.WithUsageDetail(
+					fmt.Errorf("unsupported output format"),
+					"--output accepts: "+strings.Join(runtime.FormatterNames(), ", "),
+				))
 			}
 			return nil
 		},

@@ -44,15 +44,32 @@ Catalog entries have two kinds:
   is the heaviest step classification. Workflow `dry_run.mode` is
   `unsupported`.
 
-`mutation` is `read`, `write`, or `unknown`. GET and HEAD are `read`. GraphQL
+`mutation` is `read`, `write`, or `unknown`. An explicit overlay
+`mutation: read|write` override wins over every inference. Otherwise GraphQL
 operations are classified from the request template (`query` / `mutation`),
-not from HTTP POST. Other methods stay `unknown` unless the template proves
-otherwise.
+not from HTTP POST. Otherwise RFC 9110 safe methods (GET, HEAD, OPTIONS,
+TRACE) are `read` and every other declared method is `write`; `unknown` is
+reserved for operations whose method cannot be determined. Consumers that
+previously treated `unknown` as dangerous now see `write` for the same
+operations: handle it the same way, the classification is just more precise.
 
 Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
 `__lathe` are discovered through `--help`; they are not operation entries.
 `catalog.cli.capabilities` reports compiled first-party capabilities such as
 `skill.bundle` and `workflow.dsl`.
+
+Operation entries may carry `search_terms`: overlay-curated synonyms that
+flow from the overlay through the generated `CommandSpec` into the catalog.
+Search indexes them as identifying synonyms weighted like the summary text,
+so a single curated term surfaces the command without outranking exact
+command-name or operation-id matches. Generated Skill module references list
+them per operation. Downstream CLIs must be regenerated to pick up
+`search_terms` (SchemaVersion 15, CatalogSchemaVersion 22).
+
+When JSON body flags are enabled, `body.set_only_fields` lists body fields
+that received no typed flag (nested object properties); they remain settable
+through `--set`, `--set-str`, or `--file` (SchemaVersion 16,
+CatalogSchemaVersion 23).
 
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
@@ -78,6 +95,25 @@ probe. Capability-specific checks are added only when compiled in:
 and YAML errors contain `code`, `message`, and `hint`; `error.http` may contain
 only a numeric status. URLs, headers, bodies, credentials, and raw transport
 errors are excluded.
+
+`error.detail` is optional, locally constructed from spec metadata only
+(flag names, declared value sets, required field names); it never echoes
+user-provided values. It is a single bounded line. Human-readable output
+prints it as a `Detail:` line between `Error:` and `Hint:`. Cobra unknown
+command and unknown flag errors never carry a detail.
+
+For `api_error`, `message` stays `API request failed` and `detail` is filled
+from the first available layer:
+
+1. The response Content-Type is JSON and a string is extractable from a
+   declared field (`message`; `error` as a string or `error.message`;
+   `detail`; depth <= 2): detail is that message, control characters
+   stripped, bounded to 240 runes. Bodies over 32KB are never parsed.
+2. Otherwise, if the command catalog declares a `known_errors` entry matching
+   the HTTP status, detail is its `cause`. Layers never stack.
+3. Otherwise detail is absent and only the numeric status plus hint remain.
+
+The raw response body is never emitted in any layer.
 
 | Code | Exit |
 | --- | ---: |

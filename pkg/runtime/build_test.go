@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -1476,4 +1477,326 @@ func isRequiredFlag(annotations map[string][]string) bool {
 		}
 	}
 	return false
+}
+
+func TestBuild_EnumUsageErrorSafeDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:   "Usage",
+		Use:     "summary",
+		Method:  "GET",
+		PathTpl: "/usage",
+		Params: []ParamSpec{
+			{Name: "range", Flag: "range", In: InQuery, GoType: "string", Enum: []string{"7", "30"}},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"demo", "usage", "summary", "--range", "14"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Code != CodeUsage {
+		t.Fatalf("code = %q, want %q", le.Code, CodeUsage)
+	}
+	if le.Detail != "--range accepts: 7, 30" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+	if strings.Contains(le.Detail, "14") {
+		t.Fatalf("detail echoed user input: %q", le.Detail)
+	}
+}
+
+func TestBuild_RequiredFlagUsageErrorDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "get",
+		Method:  "GET",
+		PathTpl: "/keys/{id}",
+		Params: []ParamSpec{
+			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"demo", "keys", "get"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Detail != "missing required: --id" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+}
+
+func TestBuild_MissingBodyFieldUsageErrorDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "create",
+		Method:  "POST",
+		PathTpl: "/keys",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InVariable, GoType: "string", Required: true},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+		Security:    &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"demo", "keys", "create", "--set", "other=1"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Detail != "missing required: name" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+}
+
+func TestBuild_UnsupportedOutputFormatDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:    "Usage",
+		Use:      "summary",
+		Method:   "GET",
+		PathTpl:  "/usage",
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"-o", "bogus-format", "demo", "usage", "summary"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	want := "--output accepts: " + strings.Join(FormatterNames(), ", ")
+	if le.Detail != want {
+		t.Fatalf("detail = %q, want %q", le.Detail, want)
+	}
+	if strings.Contains(le.Detail, "bogus-format") {
+		t.Fatalf("detail echoed user input: %q", le.Detail)
+	}
+}
+
+func TestBuild_APIErrorKnownErrorFallbackDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	cases := []struct {
+		name        string
+		contentType string
+		body        string
+		known       []KnownError
+		wantDetail  string
+	}{
+		{
+			name:        "declared message wins over known error",
+			contentType: "application/json",
+			body:        `{"message":"key was revoked upstream"}`,
+			known:       []KnownError{{Status: 403, Cause: "the API key is revoked"}},
+			wantDetail:  "key was revoked upstream",
+		},
+		{
+			name:        "known error fallback for non-json body",
+			contentType: "text/plain",
+			body:        "upstream-secret",
+			known:       []KnownError{{Status: 403, Cause: "the API key is revoked"}},
+			wantDetail:  "the API key is revoked",
+		},
+		{
+			name:        "status mismatch keeps detail empty",
+			contentType: "text/plain",
+			body:        "upstream-secret",
+			known:       []KnownError{{Status: 404, Cause: "no such key"}},
+			wantDetail:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			specs := []CommandSpec{{
+				Group:       "Keys",
+				Use:         "reveal",
+				Method:      "GET",
+				PathTpl:     "/keys/reveal",
+				KnownErrors: tc.known,
+				Security:    &SecurityHint{Public: true},
+			}}
+			root := newRootWithModuleGroup()
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "table", "")
+			root.SilenceErrors = true
+			root.SilenceUsage = true
+			mustBuild(t, root, "demo", specs)
+			root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "reveal"})
+
+			err := root.Execute()
+			var le *LatheError
+			if !errors.As(err, &le) {
+				t.Fatalf("expected LatheError, got %v", err)
+			}
+			if le.Code != CodeAPIError || le.Message != "API request failed" {
+				t.Fatalf("error = %#v", le)
+			}
+			if le.Detail != tc.wantDetail {
+				t.Fatalf("detail = %q, want %q", le.Detail, tc.wantDetail)
+			}
+			if strings.Contains(le.Detail, "upstream-secret") {
+				t.Fatalf("detail leaked raw body: %q", le.Detail)
+			}
+		})
+	}
+}
+
+func TestBuild_SetOnlyBodyFieldsHelpAndCoexistence(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	var rawBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "create",
+		Method:  "POST",
+		PathTpl: "/keys",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InBody, GoType: "string", Required: true, Help: "name (body, required)"},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json", SetOnlyFields: []string{"limits"}},
+		Security:    &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	mustBuild(t, root, "demo", specs)
+
+	cmd, _, err := root.Find([]string{"demo", "keys", "create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, flag := range []string{"set", "set-str"} {
+		usage := cmd.Flags().Lookup(flag).Usage
+		if !strings.Contains(usage, "limits") {
+			t.Fatalf("--%s help missing set-only field note: %q", flag, usage)
+		}
+	}
+
+	root.SetArgs([]string{
+		"--hostname", srv.URL,
+		"demo", "keys", "create",
+		"--name", "demo",
+		"--set", "limits.maxBudgetUsd=3",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("invalid request JSON %q: %v", string(rawBody), err)
+	}
+	want := map[string]any{
+		"name":   "demo",
+		"limits": map[string]any{"maxBudgetUsd": float64(3)},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("body = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuild_RequiredSetOnlyBodyFieldValidatedLocally(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "create",
+		Method:  "POST",
+		PathTpl: "/keys",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InBody, GoType: "string", Required: true, Help: "name (body, required)"},
+		},
+		RequestBody: &RequestBody{
+			Required:      true,
+			MediaType:     "application/json",
+			Schema:        &SchemaSpec{Type: "object", Required: []string{"name", "limits"}, Properties: map[string]*SchemaSpec{"name": {Type: "string"}, "limits": {Type: "object"}}},
+			SetOnlyFields: []string{"limits"},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "create", "--name", "demo"})
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError for missing required set-only field, got %v", err)
+	}
+	if le.Code != CodeUsage || le.Detail != "missing required: limits" {
+		t.Fatalf("error = %#v", le)
+	}
+
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "create", "--name", "demo", "--set", "limits.rpm=3"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute with --set limits: %v", err)
+	}
 }

@@ -1,6 +1,7 @@
 package normalize
 
 import (
+	"errors"
 	"fmt"
 	"mime"
 	"sort"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
+
+var errNestedObjectProperty = errors.New("nested objects are not supported")
 
 var reservedBodyFlagNames = map[string]bool{
 	"all":       true,
@@ -25,32 +28,32 @@ var reservedBodyFlagNames = map[string]bool{
 	"wait":      true,
 }
 
-func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, error) {
+func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, []string, error) {
 	if spec.RequestBody == nil {
-		return nil, fmt.Errorf("command has no request body")
+		return nil, nil, fmt.Errorf("command has no request body")
 	}
 	if spec.RequestBody.Template != "" {
-		return nil, fmt.Errorf("GraphQL request templates cannot enable body flags")
+		return nil, nil, fmt.Errorf("GraphQL request templates cannot enable body flags")
 	}
 	mediaType, _, err := mime.ParseMediaType(spec.RequestBody.MediaType)
 	if spec.RequestBody.MediaType != "" && err != nil {
-		return nil, fmt.Errorf("request body media type: %w", err)
+		return nil, nil, fmt.Errorf("request body media type: %w", err)
 	}
 	if mediaType == "" {
 		mediaType = spec.RequestBody.MediaType
 	}
 	if isMultipartMediaType(mediaType) || hasFormDataParams(spec.Params) {
-		return nil, fmt.Errorf("multipart request bodies cannot enable body flags")
+		return nil, nil, fmt.Errorf("multipart request bodies cannot enable body flags")
 	}
 	if !runtimeJSONBodyMediaType(mediaType) {
-		return nil, fmt.Errorf("request body media type %q cannot enable body flags", spec.RequestBody.MediaType)
+		return nil, nil, fmt.Errorf("request body media type %q cannot enable body flags", spec.RequestBody.MediaType)
 	}
 	schema := spec.RequestBody.Schema
 	if schema == nil {
-		return nil, fmt.Errorf("request body schema is required")
+		return nil, nil, fmt.Errorf("request body schema is required")
 	}
 	if err := rejectUnsupportedJSONBodySchema(schema, true); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	required := make(map[string]bool, len(schema.Required))
 	for _, name := range schema.Required {
@@ -70,25 +73,30 @@ func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, error) 
 		}
 	}
 	out := make([]runtime.ParamSpec, 0, len(names))
+	setOnly := make([]string, 0)
 	seenFlags := map[string]string{}
 	for _, name := range names {
 		property := schema.Properties[name]
 		goType, err := jsonBodyFlagGoType(property)
+		if errors.Is(err, errNestedObjectProperty) {
+			setOnly = append(setOnly, name)
+			continue
+		}
 		if err != nil {
-			return nil, fmt.Errorf("property %q: %w", name, err)
+			return nil, nil, fmt.Errorf("property %q: %w", name, err)
 		}
 		flag := camelToKebab(name)
 		if flag == "" {
-			return nil, fmt.Errorf("property %q does not produce a flag name", name)
+			return nil, nil, fmt.Errorf("property %q does not produce a flag name", name)
 		}
 		if reservedBodyFlagNames[flag] {
-			return nil, fmt.Errorf("property %q flag %q conflicts with a reserved flag", name, flag)
+			return nil, nil, fmt.Errorf("property %q flag %q conflicts with a reserved flag", name, flag)
 		}
 		if existing[flag] || existing[name] {
-			return nil, fmt.Errorf("property %q flag %q conflicts with an existing parameter", name, flag)
+			return nil, nil, fmt.Errorf("property %q flag %q conflicts with an existing parameter", name, flag)
 		}
 		if prior, ok := seenFlags[flag]; ok {
-			return nil, fmt.Errorf("properties %q and %q produce the same flag %q", prior, name, flag)
+			return nil, nil, fmt.Errorf("properties %q and %q produce the same flag %q", prior, name, flag)
 		}
 		seenFlags[flag] = name
 		out = append(out, runtime.ParamSpec{
@@ -103,7 +111,13 @@ func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, error) 
 			Format:   property.Format,
 		})
 	}
-	return out, nil
+	if len(out) == 0 {
+		return nil, nil, fmt.Errorf("no body properties support typed flags (nested object fields: %s); use --set, --set-str, or --file", strings.Join(setOnly, ", "))
+	}
+	if len(setOnly) == 0 {
+		setOnly = nil
+	}
+	return out, setOnly, nil
 }
 
 func ValidateJSONBodyFlagParams(spec runtime.CommandSpec) error {
@@ -190,7 +204,7 @@ func rejectUnsupportedJSONBodySchema(schema *runtime.SchemaSpec, root bool) erro
 		return nil
 	}
 	if schema.Type == "object" || len(schema.Properties) > 0 {
-		return fmt.Errorf("nested objects are not supported")
+		return errNestedObjectProperty
 	}
 	return nil
 }

@@ -353,7 +353,7 @@ func validateRequiredOperationParams(s CommandSpec, input OperationInput) error 
 			continue
 		}
 		if !operationChanged(input, p) {
-			return fmt.Errorf("required param %q missing", p.Name)
+			return WithUsageDetail(fmt.Errorf("required param %q missing", p.Name), "missing required: --"+p.Flag)
 		}
 	}
 	return nil
@@ -371,16 +371,26 @@ func validateOperationEnums(s CommandSpec, input OperationInput) error {
 		if len(p.Enum) > 0 {
 			raw := operationStringValue(v)
 			if !enumContains(p.Enum, raw) {
-				return fmt.Errorf("invalid value %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.Enum, ", "))
+				return WithUsageDetail(
+					fmt.Errorf("invalid value %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.Enum, ", ")),
+					enumDetail(p.Flag, p.Enum),
+				)
 			}
 		}
 		for _, raw := range operationStringValues(v) {
 			if len(p.ItemEnum) > 0 && !enumContains(p.ItemEnum, raw) {
-				return fmt.Errorf("invalid item %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.ItemEnum, ", "))
+				return WithUsageDetail(
+					fmt.Errorf("invalid item %q for --%s: must be one of %s", raw, p.Flag, strings.Join(p.ItemEnum, ", ")),
+					enumDetail(p.Flag, p.ItemEnum),
+				)
 			}
 		}
 	}
 	return nil
+}
+
+func enumDetail(flag string, values []string) string {
+	return fmt.Sprintf("--%s accepts: %s", flag, strings.Join(values, ", "))
 }
 
 func enumContains(values []string, target string) bool {

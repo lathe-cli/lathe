@@ -25,6 +25,8 @@ type Override struct {
 	Notes         []string                 `yaml:"notes"`
 	Prerequisites []string                 `yaml:"prerequisites"`
 	KnownErrors   []KnownError             `yaml:"known_errors"`
+	Mutation      string                   `yaml:"mutation"`
+	SearchTerms   []string                 `yaml:"search_terms"`
 	Body          *BodyOverride            `yaml:"body"`
 	Output        *OutputOverride          `yaml:"output"`
 	Context       *ContextOverride         `yaml:"context"`

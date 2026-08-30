@@ -3,17 +3,38 @@ package runtime
 import "testing"
 
 func TestCatalogMutation_HTTPMethods(t *testing.T) {
-	if got := catalogMutation(CommandSpec{Method: "GET", PathTpl: "/users"}); got != MutationRead {
-		t.Fatalf("GET = %q", got)
+	for _, method := range []string{"GET", "HEAD", "OPTIONS", "TRACE"} {
+		if got := catalogMutation(CommandSpec{Method: method, PathTpl: "/users"}); got != MutationRead {
+			t.Fatalf("%s = %q", method, got)
+		}
 	}
-	if got := catalogMutation(CommandSpec{Method: "HEAD", PathTpl: "/users"}); got != MutationRead {
-		t.Fatalf("HEAD = %q", got)
+	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+		if got := catalogMutation(CommandSpec{Method: method, PathTpl: "/users"}); got != MutationWrite {
+			t.Fatalf("%s = %q", method, got)
+		}
 	}
-	if got := catalogMutation(CommandSpec{Method: "POST", PathTpl: "/users"}); got != MutationUnknown {
-		t.Fatalf("POST without GraphQL = %q", got)
+	if got := catalogMutation(CommandSpec{PathTpl: "/users"}); got != MutationUnknown {
+		t.Fatalf("empty method = %q", got)
 	}
-	if got := catalogMutation(CommandSpec{Method: "DELETE", PathTpl: "/users/{id}"}); got != MutationUnknown {
-		t.Fatalf("DELETE = %q", got)
+}
+
+func TestCatalogMutation_ExplicitOverride(t *testing.T) {
+	if got := catalogMutation(CommandSpec{Method: "POST", PathTpl: "/reports/query", Mutation: MutationRead}); got != MutationRead {
+		t.Fatalf("POST override read = %q", got)
+	}
+	if got := catalogMutation(CommandSpec{Method: "GET", PathTpl: "/trigger", Mutation: MutationWrite}); got != MutationWrite {
+		t.Fatalf("GET override write = %q", got)
+	}
+	overridden := catalogMutation(CommandSpec{
+		Method:  "POST",
+		PathTpl: "/graphql",
+		RequestBody: &RequestBody{
+			Template: `{"query":"mutation CreateApp { createApp { id } }","variables":{}}`,
+		},
+		Mutation: MutationRead,
+	})
+	if overridden != MutationRead {
+		t.Fatalf("override must beat graphql template = %q", overridden)
 	}
 }
 
@@ -63,7 +84,7 @@ func TestCatalogMutation_GraphQLTemplate(t *testing.T) {
 	}
 }
 
-func TestCatalogMutation_NonGraphQLTemplateStaysUnknown(t *testing.T) {
+func TestCatalogMutation_NonGraphQLTemplateFallsBackToMethod(t *testing.T) {
 	got := catalogMutation(CommandSpec{
 		Method:  "POST",
 		PathTpl: "/users",
@@ -71,7 +92,7 @@ func TestCatalogMutation_NonGraphQLTemplateStaysUnknown(t *testing.T) {
 			Template: `{"name":"alice"}`,
 		},
 	})
-	if got != MutationUnknown {
+	if got != MutationWrite {
 		t.Fatalf("rest template = %q", got)
 	}
 }
@@ -85,12 +106,20 @@ func TestCatalogWorkflowMutation_HeaviestStep(t *testing.T) {
 		t.Fatalf("all GET = %q", read)
 	}
 
-	unknown := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{
+	mixed := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{
 		{Operation: CommandSpec{Method: "GET", PathTpl: "/health"}},
 		{Operation: CommandSpec{Method: "POST", PathTpl: "/tenants"}},
 	}})
-	if unknown != MutationUnknown {
-		t.Fatalf("GET+POST = %q", unknown)
+	if mixed != MutationWrite {
+		t.Fatalf("GET+POST = %q", mixed)
+	}
+
+	undecidable := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{
+		{Operation: CommandSpec{Method: "GET", PathTpl: "/health"}},
+		{Operation: CommandSpec{PathTpl: "/tenants"}},
+	}})
+	if undecidable != MutationUnknown {
+		t.Fatalf("GET+empty method = %q", undecidable)
 	}
 
 	write := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{

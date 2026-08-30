@@ -219,6 +219,9 @@ func TestRunMachineErrorContract(t *testing.T) {
 				if env.Error.Code != tc.wantCode || env.Error.Message == "" || env.Error.Hint == "" {
 					t.Fatalf("error = %#v", env.Error)
 				}
+				if env.Error.Detail != "" {
+					t.Fatalf("detail must stay empty for %s errors, got %q", tc.name, env.Error.Detail)
+				}
 				if tc.status != 0 && (env.Error.HTTP == nil || env.Error.HTTP.Status != tc.status) {
 					t.Fatalf("http context = %#v, want status %d", env.Error.HTTP, tc.status)
 				}

@@ -76,6 +76,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			Notes:         []string{"clusterFilter expects a cluster UUID."},
 			Prerequisites: []string{"Find the cluster UUID first."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing start/end"}},
+			SearchTerms:   []string{"member", "invite"},
 			Params:        map[string]overlay.ParamOverride{unsafeParamName: {Argument: "receiver"}},
 		},
 	})
@@ -149,6 +150,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Find the cluster UUID first.",
 		"Known errors:",
 		"HTTP 400: missing start/end",
+		"Search terms: `member`, `invite`",
 		"context `organization` via `ACMECTL_ORG_ID`",
 		"Sets context `organization` from parameter `type` after success.",
 		"Example: `acmectl accounts create-user --set name=alice`",

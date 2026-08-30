@@ -266,7 +266,7 @@ func TestParse_NullableEnumAnyOfBecomesBodyFlagSchema(t *testing.T) {
 	if spec.RequestBody.Schema.Properties["maxBudgetUsd"].Type != "number" || !spec.RequestBody.Schema.Properties["maxBudgetUsd"].Nullable {
 		t.Fatalf("maxBudgetUsd = %#v", spec.RequestBody.Schema.Properties["maxBudgetUsd"])
 	}
-	got, err := normalize.ExpandJSONBodyFlags(spec)
+	got, _, err := normalize.ExpandJSONBodyFlags(spec)
 	if err != nil {
 		t.Fatal(err)
 	}

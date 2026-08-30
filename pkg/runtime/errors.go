@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -35,6 +37,7 @@ type ErrorHTTPContext struct {
 type LatheError struct {
 	Code     string            `json:"code" yaml:"code"`
 	Message  string            `json:"message" yaml:"message"`
+	Detail   string            `json:"detail,omitempty" yaml:"detail,omitempty"`
 	Hint     string            `json:"hint" yaml:"hint"`
 	HTTP     *ErrorHTTPContext `json:"http,omitempty" yaml:"http,omitempty"`
 	ExitCode int               `json:"-" yaml:"-"`
@@ -71,7 +74,47 @@ func UsageError(cmd *cobra.Command, cause error) *LatheError {
 	if cmd != nil && cmd.CommandPath() != "" {
 		hint = fmt.Sprintf("run `%s --help` and correct the arguments", cmd.CommandPath())
 	}
-	return NewError(CodeUsage, ExitUsage, "invalid command usage", hint, cause)
+	le := NewError(CodeUsage, ExitUsage, "invalid command usage", hint, cause)
+	var de *usageDetailError
+	if errors.As(cause, &de) {
+		le.Detail = de.detail
+	}
+	return le
+}
+
+const maxErrorDetailRunes = 240
+
+type usageDetailError struct {
+	cause  error
+	detail string
+}
+
+func (e *usageDetailError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *usageDetailError) Unwrap() error {
+	return e.cause
+}
+
+func WithUsageDetail(cause error, detail string) error {
+	return &usageDetailError{cause: cause, detail: sanitizeErrorDetail(detail)}
+}
+
+func sanitizeErrorDetail(detail string) string {
+	var b strings.Builder
+	for _, r := range detail {
+		if !unicode.IsGraphic(r) {
+			r = ' '
+		}
+		b.WriteRune(r)
+	}
+	out := strings.Join(strings.Fields(b.String()), " ")
+	runes := []rune(out)
+	if len(runes) > maxErrorDetailRunes {
+		out = strings.TrimSpace(string(runes[:maxErrorDetailRunes-1])) + "…"
+	}
+	return out
 }
 
 func UsageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
@@ -98,7 +141,61 @@ func newAPIError(cause error, status int) *LatheError {
 	if status != 0 {
 		err.HTTP = &ErrorHTTPContext{Status: status}
 	}
+	var he *HTTPError
+	if errors.As(cause, &he) {
+		err.Detail = declaredServerMessage(he)
+	}
 	return err
+}
+
+const maxServerErrorBodyBytes = 32 << 10
+
+func declaredServerMessage(he *HTTPError) string {
+	if he == nil || len(he.Body) == 0 || len(he.Body) > maxServerErrorBodyBytes {
+		return ""
+	}
+	if !isJSONErrorMediaType(he.ContentType) {
+		return ""
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(he.Body, &doc); err != nil {
+		return ""
+	}
+	if s := jsonStringField(doc["message"]); s != "" {
+		return sanitizeErrorDetail(s)
+	}
+	if raw, ok := doc["error"]; ok {
+		if s := jsonStringField(raw); s != "" {
+			return sanitizeErrorDetail(s)
+		}
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &nested); err == nil {
+			if s := jsonStringField(nested["message"]); s != "" {
+				return sanitizeErrorDetail(s)
+			}
+		}
+	}
+	if s := jsonStringField(doc["detail"]); s != "" {
+		return sanitizeErrorDetail(s)
+	}
+	return ""
+}
+
+func isJSONErrorMediaType(contentType string) bool {
+	mt, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(contentType)), ";")
+	mt = strings.TrimSpace(mt)
+	return mt == "application/json" || strings.HasSuffix(mt, "+json")
+}
+
+func jsonStringField(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }
 
 func ClassifyError(err error) *LatheError {
@@ -165,6 +262,9 @@ func FormatError(err error, format string, w io.Writer) int {
 		_ = enc.Close()
 	default:
 		fmt.Fprintln(w, "Error:", le.Message)
+		if le.Detail != "" {
+			fmt.Fprintln(w, "Detail:", le.Detail)
+		}
 		fmt.Fprintln(w, "Hint:", le.Hint)
 	}
 	return le.ExitCode

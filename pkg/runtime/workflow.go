@@ -71,14 +71,14 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 		Args:    UsageArgs(cobra.NoArgs),
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.ValidateRequiredFlags(); err != nil {
-				return UsageError(cmd, err)
+				return UsageError(cmd, WithUsageDetail(err, requiredFlagsDetail(cmd)))
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			if _, ok := formatters[format]; !ok {
-				return UsageError(cmd, fmt.Errorf("unsupported output format"))
+				return UsageError(cmd, WithUsageDetail(fmt.Errorf("unsupported output format"), outputFormatDetail()))
 			}
 			if err := resolveSafeInputFlags(cmd, spec.Params, vals); err != nil {
 				return UsageError(cmd, err)

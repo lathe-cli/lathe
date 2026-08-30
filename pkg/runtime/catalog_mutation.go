@@ -6,14 +6,19 @@ import (
 )
 
 func catalogMutation(spec CommandSpec) string {
+	if spec.Mutation == MutationRead || spec.Mutation == MutationWrite {
+		return spec.Mutation
+	}
 	if kind := graphqlTemplateMutation(spec); kind != "" {
 		return kind
 	}
 	switch strings.ToUpper(spec.Method) {
-	case "GET", "HEAD":
+	case "GET", "HEAD", "OPTIONS", "TRACE":
 		return MutationRead
-	default:
+	case "":
 		return MutationUnknown
+	default:
+		return MutationWrite
 	}
 }
 

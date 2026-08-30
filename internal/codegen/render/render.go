@@ -297,6 +297,9 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) ([]runti
 	for i := range merged {
 		applyBulkDefaults(&merged[i], mod.Defaults, matchedLegacyUses[i])
 		if matched[i] {
+			if err := validateMutationOverride(overrides[i]); err != nil {
+				return nil, fmt.Errorf("command %q: %w", merged[i].Use, err)
+			}
 			if err := applyBodyFlags(&merged[i], overrides[i]); err != nil {
 				return nil, fmt.Errorf("command %q body.flags: %w", merged[i].Use, err)
 			}
@@ -387,7 +390,7 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 			}
 		}
 		if override.Body != nil && override.Body.Flags {
-			if _, err := normalize.ExpandJSONBodyFlags(spec); err != nil {
+			if _, _, err := normalize.ExpandJSONBodyFlags(spec); err != nil {
 				return fmt.Errorf("command %q body.flags: %w", spec.Use, err)
 			}
 		}
@@ -792,6 +795,15 @@ func validateStreamingOverride(spec runtime.CommandSpec, stream overlay.Streamin
 	return nil
 }
 
+func validateMutationOverride(override overlay.Override) error {
+	switch override.Mutation {
+	case "", "read", "write":
+		return nil
+	default:
+		return fmt.Errorf("mutation must be %q or %q, got %q", "read", "write", override.Mutation)
+	}
+}
+
 func overrideMatches(spec runtime.CommandSpec, override overlay.Override) bool {
 	if override.Match.Method != "" && !strings.EqualFold(override.Match.Method, spec.Method) {
 		return false
@@ -816,6 +828,7 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	cloned.Notes = append([]string(nil), spec.Notes...)
 	cloned.Prerequisites = append([]string(nil), spec.Prerequisites...)
 	cloned.KnownErrors = append([]runtime.KnownError(nil), spec.KnownErrors...)
+	cloned.SearchTerms = append([]string(nil), spec.SearchTerms...)
 	if spec.SetContext != nil {
 		setContext := *spec.SetContext
 		cloned.SetContext = &setContext
@@ -873,11 +886,12 @@ func applyBodyFlags(spec *runtime.CommandSpec, override overlay.Override) error 
 	if override.Body == nil || !override.Body.Flags {
 		return nil
 	}
-	params, err := normalize.ExpandJSONBodyFlags(*spec)
+	params, setOnly, err := normalize.ExpandJSONBodyFlags(*spec)
 	if err != nil {
 		return err
 	}
 	spec.Params = append(spec.Params, params...)
+	spec.RequestBody.SetOnlyFields = setOnly
 	return nil
 }
 
@@ -911,6 +925,12 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 		for _, ke := range override.KnownErrors {
 			spec.KnownErrors = append(spec.KnownErrors, runtime.KnownError{Status: ke.Status, Cause: ke.Cause})
 		}
+	}
+	if override.Mutation != "" {
+		spec.Mutation = override.Mutation
+	}
+	if len(override.SearchTerms) > 0 {
+		spec.SearchTerms = append([]string(nil), override.SearchTerms...)
 	}
 	if len(override.Aliases) > 0 {
 		spec.Aliases = append(spec.Aliases, override.Aliases...)
@@ -1332,6 +1352,8 @@ func commandSpecLiteral(spec runtime.CommandSpec) string {
 	if spec.SetContext != nil {
 		fmt.Fprintf(&b, "SetContext: &runtime.ContextSetHint{Name: %q, Param: %q},", spec.SetContext.Name, spec.SetContext.Param)
 	}
+	writeStringField(&b, "Mutation", spec.Mutation)
+	writeStringSliceField(&b, "SearchTerms", spec.SearchTerms)
 	b.WriteByte('}')
 	return b.String()
 }
@@ -1473,6 +1495,7 @@ func requestBodyLiteral(body *runtime.RequestBody) string {
 	}
 	writeStringField(&b, "Template", body.Template)
 	writeStringField(&b, "MergePath", body.MergePath)
+	writeStringSliceField(&b, "SetOnlyFields", body.SetOnlyFields)
 	b.WriteByte('}')
 	return b.String()
 }
@@ -1785,6 +1808,14 @@ var Specs = []runtime.CommandSpec{
 		{{- if $op.SetContext}}
 		SetContext: &runtime.ContextSetHint{Name: {{printf "%q" $op.SetContext.Name}}, Param: {{printf "%q" $op.SetContext.Param}}},
 		{{- end}}
+		{{- if $op.Mutation}}
+		Mutation: {{printf "%q" $op.Mutation}},
+		{{- end}}
+		{{- if $op.SearchTerms}}
+		SearchTerms: []string{
+			{{- range $op.SearchTerms}}{{printf "%q" .}},{{end}}
+		},
+		{{- end}}
 		{{- if $op.OperationID}}
 		OperationID: {{printf "%q" $op.OperationID}},
 		{{- end}}
@@ -1820,6 +1851,11 @@ var Specs = []runtime.CommandSpec{
 				{{- end}}
 				{{- if $op.RequestBody.Template}}
 				Template: {{printf "%q" $op.RequestBody.Template}},
+				{{- end}}
+				{{- if $op.RequestBody.SetOnlyFields}}
+				SetOnlyFields: []string{
+					{{- range $op.RequestBody.SetOnlyFields}}{{printf "%q" .}},{{end}}
+				},
 				{{- end}}
 				{{- if $op.RequestBody.MergePath}}
 				MergePath: {{printf "%q" $op.RequestBody.MergePath}},

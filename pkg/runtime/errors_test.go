@@ -144,6 +144,131 @@ func TestClassifyError_Canceled(t *testing.T) {
 	}
 }
 
+func TestUsageErrorLiftsSafeDetail(t *testing.T) {
+	cause := fmt.Errorf("invalid value %q for --range: must be one of 7, 30", "14")
+	le := UsageError(nil, WithUsageDetail(cause, "--range accepts: 7, 30"))
+	if le.Detail != "--range accepts: 7, 30" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+	wrapped := UsageError(nil, fmt.Errorf("outer: %w", WithUsageDetail(cause, "--range accepts: 7, 30")))
+	if wrapped.Detail != "--range accepts: 7, 30" {
+		t.Fatalf("wrapped detail = %q", wrapped.Detail)
+	}
+	if plain := UsageError(nil, cause); plain.Detail != "" {
+		t.Fatalf("plain detail = %q, want empty", plain.Detail)
+	}
+}
+
+func TestWithUsageDetailSanitizesAndBounds(t *testing.T) {
+	le := UsageError(nil, WithUsageDetail(errors.New("x"), "a\nb\tc\x07d  e"))
+	if le.Detail != "a b c d e" {
+		t.Fatalf("sanitized detail = %q", le.Detail)
+	}
+	hostile := UsageError(nil, WithUsageDetail(errors.New("x"), "a\u009b31mb c\u009d0;d e\u202ef"))
+	if hostile.Detail != "a 31mb c 0;d e f" {
+		t.Fatalf("hostile detail = %q, C1/bidi runes must be stripped", hostile.Detail)
+	}
+	long := strings.Repeat("v", 500)
+	bounded := UsageError(nil, WithUsageDetail(errors.New("x"), long))
+	if n := len([]rune(bounded.Detail)); n > 240 {
+		t.Fatalf("detail rune length = %d, want <= 240", n)
+	}
+	if !strings.HasSuffix(bounded.Detail, "…") {
+		t.Fatalf("bounded detail missing truncation marker: %q", bounded.Detail)
+	}
+}
+
+func TestFormatError_PlainIncludesDetail(t *testing.T) {
+	var buf bytes.Buffer
+	le := UsageError(nil, WithUsageDetail(errors.New("boom"), "--range accepts: 7, 30"))
+	if code := FormatError(le, "table", &buf); code != ExitUsage {
+		t.Fatalf("exit = %d, want %d", code, ExitUsage)
+	}
+	want := "Error: invalid command usage\nDetail: --range accepts: 7, 30\nHint: run the command with --help and correct the arguments\n"
+	if buf.String() != want {
+		t.Fatalf("plain output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestFormatError_JSONDetail(t *testing.T) {
+	var buf bytes.Buffer
+	le := UsageError(nil, WithUsageDetail(errors.New("boom"), "missing required: name"))
+	if code := FormatError(le, "json", &buf); code != ExitUsage {
+		t.Fatalf("exit = %d, want %d", code, ExitUsage)
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	if env.Error.Detail != "missing required: name" {
+		t.Fatalf("json detail = %q", env.Error.Detail)
+	}
+
+	buf.Reset()
+	if code := FormatError(errors.New("oops"), "json", &buf); code != ExitGeneral {
+		t.Fatalf("exit = %d, want %d", code, ExitGeneral)
+	}
+	if strings.Contains(buf.String(), "detail") {
+		t.Fatalf("empty detail must be omitted from envelope: %s", buf.String())
+	}
+}
+
+func TestClassifyError_DeclaredServerMessageDetail(t *testing.T) {
+	cases := []struct {
+		name        string
+		contentType string
+		body        string
+		want        string
+	}{
+		{"message field", "application/json", `{"message":"api key revoked"}`, "api key revoked"},
+		{"message wins over error", "application/json", `{"message":"m","error":"e"}`, "m"},
+		{"error string", "application/json", `{"error":"quota exceeded"}`, "quota exceeded"},
+		{"nested error message", "application/json; charset=utf-8", `{"error":{"message":"nested cause"}}`, "nested cause"},
+		{"detail field", "application/problem+json", `{"detail":"missing scope"}`, "missing scope"},
+		{"non-json content type", "text/plain", `{"message":"nope"}`, ""},
+		{"missing content type", "", `{"message":"nope"}`, ""},
+		{"invalid json", "application/json", `{"message":`, ""},
+		{"non-string message", "application/json", `{"message":{"deep":"x"}}`, ""},
+		{"blank message", "application/json", `{"message":"   "}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			he := &HTTPError{Method: "GET", URL: "/private", Status: 403, ContentType: tc.contentType, Body: []byte(tc.body)}
+			le := ClassifyError(he)
+			if le.Message != "API request failed" {
+				t.Fatalf("message = %q", le.Message)
+			}
+			if le.Detail != tc.want {
+				t.Fatalf("detail = %q, want %q", le.Detail, tc.want)
+			}
+		})
+	}
+}
+
+func TestClassifyError_ServerMessageSanitizedAndBounded(t *testing.T) {
+	msg := "line1\nline2\t\x07\u009b31m\u009d0;\u202e" + strings.Repeat("x", 400)
+	body, err := json.Marshal(map[string]string{"message": msg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	he := &HTTPError{Status: 500, ContentType: "application/json", Body: body}
+	le := ClassifyError(he)
+	if strings.ContainsAny(le.Detail, "\n\t\x07\u009b\u009d\u202e") {
+		t.Fatalf("detail not sanitized: %q", le.Detail)
+	}
+	if n := len([]rune(le.Detail)); n > 240 {
+		t.Fatalf("detail rune length = %d, want <= 240", n)
+	}
+}
+
+func TestClassifyError_OversizedErrorBodyIgnored(t *testing.T) {
+	body := []byte(`{"message":"` + strings.Repeat("a", 33*1024) + `"}`)
+	he := &HTTPError{Status: 500, ContentType: "application/json", Body: body}
+	if le := ClassifyError(he); le.Detail != "" {
+		t.Fatalf("oversized body must not produce detail, got %q", le.Detail)
+	}
+}
+
 type testSilentExitError struct{}
 
 func (testSilentExitError) Error() string {

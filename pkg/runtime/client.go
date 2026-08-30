@@ -283,10 +283,11 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 			return nil, newAPIError(fmt.Errorf("read response: %w", err), resp.StatusCode)
 		}
 		return nil, &HTTPError{
-			Method: method,
-			URL:    redactDebugURL(req.URL, opts.sensitiveQueryParams),
-			Status: resp.StatusCode,
-			Body:   data,
+			Method:      method,
+			URL:         redactDebugURL(req.URL, opts.sensitiveQueryParams),
+			Status:      resp.StatusCode,
+			ContentType: resp.Header.Get("Content-Type"),
+			Body:        data,
 		}
 	}
 	if consume != nil {
@@ -330,10 +331,11 @@ func DoRaw(ctx context.Context, hostname, method, path string, body any, opts Cl
 }
 
 type HTTPError struct {
-	Method string
-	URL    string
-	Status int
-	Body   []byte
+	Method      string
+	URL         string
+	Status      int
+	ContentType string
+	Body        []byte
 }
 
 func (e *HTTPError) Error() string {
