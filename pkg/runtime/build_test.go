@@ -1614,3 +1614,79 @@ func TestBuild_UnsupportedOutputFormatDetail(t *testing.T) {
 		t.Fatalf("detail echoed user input: %q", le.Detail)
 	}
 }
+
+func TestBuild_APIErrorKnownErrorFallbackDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	cases := []struct {
+		name        string
+		contentType string
+		body        string
+		known       []KnownError
+		wantDetail  string
+	}{
+		{
+			name:        "declared message wins over known error",
+			contentType: "application/json",
+			body:        `{"message":"key was revoked upstream"}`,
+			known:       []KnownError{{Status: 403, Cause: "the API key is revoked"}},
+			wantDetail:  "key was revoked upstream",
+		},
+		{
+			name:        "known error fallback for non-json body",
+			contentType: "text/plain",
+			body:        "upstream-secret",
+			known:       []KnownError{{Status: 403, Cause: "the API key is revoked"}},
+			wantDetail:  "the API key is revoked",
+		},
+		{
+			name:        "status mismatch keeps detail empty",
+			contentType: "text/plain",
+			body:        "upstream-secret",
+			known:       []KnownError{{Status: 404, Cause: "no such key"}},
+			wantDetail:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			specs := []CommandSpec{{
+				Group:       "Keys",
+				Use:         "reveal",
+				Method:      "GET",
+				PathTpl:     "/keys/reveal",
+				KnownErrors: tc.known,
+				Security:    &SecurityHint{Public: true},
+			}}
+			root := newRootWithModuleGroup()
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "table", "")
+			root.SilenceErrors = true
+			root.SilenceUsage = true
+			mustBuild(t, root, "demo", specs)
+			root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "reveal"})
+
+			err := root.Execute()
+			var le *LatheError
+			if !errors.As(err, &le) {
+				t.Fatalf("expected LatheError, got %v", err)
+			}
+			if le.Code != CodeAPIError || le.Message != "API request failed" {
+				t.Fatalf("error = %#v", le)
+			}
+			if le.Detail != tc.wantDetail {
+				t.Fatalf("detail = %q, want %q", le.Detail, tc.wantDetail)
+			}
+			if strings.Contains(le.Detail, "upstream-secret") {
+				t.Fatalf("detail leaked raw body: %q", le.Detail)
+			}
+		})
+	}
+}

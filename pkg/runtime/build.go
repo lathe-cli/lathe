@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -232,7 +233,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				Wait:        waitPoll,
 			}, output)
 			if err != nil {
-				return err
+				return apiErrorWithKnownDetail(s, err)
 			}
 			if result.DryRun != nil {
 				return writeDryRun(*result.DryRun, cmd.OutOrStdout())
@@ -297,6 +298,23 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+func apiErrorWithKnownDetail(s CommandSpec, err error) error {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return err
+	}
+	le := ClassifyError(err)
+	if le.Detail == "" {
+		for _, ke := range s.KnownErrors {
+			if ke.Status == he.Status && ke.Cause != "" {
+				le.Detail = sanitizeErrorDetail(ke.Cause)
+				break
+			}
+		}
+	}
+	return le
 }
 
 func requiredFlagsDetail(cmd *cobra.Command) string {

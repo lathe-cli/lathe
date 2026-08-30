@@ -140,7 +140,61 @@ func newAPIError(cause error, status int) *LatheError {
 	if status != 0 {
 		err.HTTP = &ErrorHTTPContext{Status: status}
 	}
+	var he *HTTPError
+	if errors.As(cause, &he) {
+		err.Detail = declaredServerMessage(he)
+	}
 	return err
+}
+
+const maxServerErrorBodyBytes = 32 << 10
+
+func declaredServerMessage(he *HTTPError) string {
+	if he == nil || len(he.Body) == 0 || len(he.Body) > maxServerErrorBodyBytes {
+		return ""
+	}
+	if !isJSONErrorMediaType(he.ContentType) {
+		return ""
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(he.Body, &doc); err != nil {
+		return ""
+	}
+	if s := jsonStringField(doc["message"]); s != "" {
+		return sanitizeErrorDetail(s)
+	}
+	if raw, ok := doc["error"]; ok {
+		if s := jsonStringField(raw); s != "" {
+			return sanitizeErrorDetail(s)
+		}
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &nested); err == nil {
+			if s := jsonStringField(nested["message"]); s != "" {
+				return sanitizeErrorDetail(s)
+			}
+		}
+	}
+	if s := jsonStringField(doc["detail"]); s != "" {
+		return sanitizeErrorDetail(s)
+	}
+	return ""
+}
+
+func isJSONErrorMediaType(contentType string) bool {
+	mt, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(contentType)), ";")
+	mt = strings.TrimSpace(mt)
+	return mt == "application/json" || strings.HasSuffix(mt, "+json")
+}
+
+func jsonStringField(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }
 
 func ClassifyError(err error) *LatheError {

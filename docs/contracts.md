@@ -85,6 +85,19 @@ user-provided values. It is a single bounded line. Human-readable output
 prints it as a `Detail:` line between `Error:` and `Hint:`. Cobra unknown
 command and unknown flag errors never carry a detail.
 
+For `api_error`, `message` stays `API request failed` and `detail` is filled
+from the first available layer:
+
+1. The response Content-Type is JSON and a string is extractable from a
+   declared field (`message`; `error` as a string or `error.message`;
+   `detail`; depth <= 2): detail is that message, control characters
+   stripped, bounded to 240 runes. Bodies over 32KB are never parsed.
+2. Otherwise, if the command catalog declares a `known_errors` entry matching
+   the HTTP status, detail is its `cause`. Layers never stack.
+3. Otherwise detail is absent and only the numeric status plus hint remain.
+
+The raw response body is never emitted in any layer.
+
 | Code | Exit |
 | --- | ---: |
 | `general` | 1 |

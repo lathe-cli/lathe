@@ -209,6 +209,62 @@ func TestFormatError_JSONDetail(t *testing.T) {
 	}
 }
 
+func TestClassifyError_DeclaredServerMessageDetail(t *testing.T) {
+	cases := []struct {
+		name        string
+		contentType string
+		body        string
+		want        string
+	}{
+		{"message field", "application/json", `{"message":"api key revoked"}`, "api key revoked"},
+		{"message wins over error", "application/json", `{"message":"m","error":"e"}`, "m"},
+		{"error string", "application/json", `{"error":"quota exceeded"}`, "quota exceeded"},
+		{"nested error message", "application/json; charset=utf-8", `{"error":{"message":"nested cause"}}`, "nested cause"},
+		{"detail field", "application/problem+json", `{"detail":"missing scope"}`, "missing scope"},
+		{"non-json content type", "text/plain", `{"message":"nope"}`, ""},
+		{"missing content type", "", `{"message":"nope"}`, ""},
+		{"invalid json", "application/json", `{"message":`, ""},
+		{"non-string message", "application/json", `{"message":{"deep":"x"}}`, ""},
+		{"blank message", "application/json", `{"message":"   "}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			he := &HTTPError{Method: "GET", URL: "/private", Status: 403, ContentType: tc.contentType, Body: []byte(tc.body)}
+			le := ClassifyError(he)
+			if le.Message != "API request failed" {
+				t.Fatalf("message = %q", le.Message)
+			}
+			if le.Detail != tc.want {
+				t.Fatalf("detail = %q, want %q", le.Detail, tc.want)
+			}
+		})
+	}
+}
+
+func TestClassifyError_ServerMessageSanitizedAndBounded(t *testing.T) {
+	msg := "line1\nline2\t\x07" + strings.Repeat("x", 400)
+	body, err := json.Marshal(map[string]string{"message": msg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	he := &HTTPError{Status: 500, ContentType: "application/json", Body: body}
+	le := ClassifyError(he)
+	if strings.ContainsAny(le.Detail, "\n\t\x07") {
+		t.Fatalf("detail not sanitized: %q", le.Detail)
+	}
+	if n := len([]rune(le.Detail)); n > 240 {
+		t.Fatalf("detail rune length = %d, want <= 240", n)
+	}
+}
+
+func TestClassifyError_OversizedErrorBodyIgnored(t *testing.T) {
+	body := []byte(`{"message":"` + strings.Repeat("a", 33*1024) + `"}`)
+	he := &HTTPError{Status: 500, ContentType: "application/json", Body: body}
+	if le := ClassifyError(he); le.Detail != "" {
+		t.Fatalf("oversized body must not produce detail, got %q", le.Detail)
+	}
+}
+
 type testSilentExitError struct{}
 
 func (testSilentExitError) Error() string {
