@@ -58,6 +58,14 @@ Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
 `catalog.cli.capabilities` reports compiled first-party capabilities such as
 `skill.bundle` and `workflow.dsl`.
 
+Operation entries may carry `search_terms`: overlay-curated synonyms that
+flow from the overlay through the generated `CommandSpec` into the catalog.
+Search indexes them as identifying synonyms weighted like the summary text,
+so a single curated term surfaces the command without outranking exact
+command-name or operation-id matches. Generated Skill module references list
+them per operation. Downstream CLIs must be regenerated to pick up
+`search_terms` (SchemaVersion 15, CatalogSchemaVersion 22).
+
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
 write vs read from the HTTP method, and do not assume a `--dry-run` flag is

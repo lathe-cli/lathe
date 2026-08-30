@@ -828,6 +828,7 @@ func cloneCommandSpec(spec runtime.CommandSpec) runtime.CommandSpec {
 	cloned.Notes = append([]string(nil), spec.Notes...)
 	cloned.Prerequisites = append([]string(nil), spec.Prerequisites...)
 	cloned.KnownErrors = append([]runtime.KnownError(nil), spec.KnownErrors...)
+	cloned.SearchTerms = append([]string(nil), spec.SearchTerms...)
 	if spec.SetContext != nil {
 		setContext := *spec.SetContext
 		cloned.SetContext = &setContext
@@ -926,6 +927,9 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 	}
 	if override.Mutation != "" {
 		spec.Mutation = override.Mutation
+	}
+	if len(override.SearchTerms) > 0 {
+		spec.SearchTerms = append([]string(nil), override.SearchTerms...)
 	}
 	if len(override.Aliases) > 0 {
 		spec.Aliases = append(spec.Aliases, override.Aliases...)
@@ -1348,6 +1352,7 @@ func commandSpecLiteral(spec runtime.CommandSpec) string {
 		fmt.Fprintf(&b, "SetContext: &runtime.ContextSetHint{Name: %q, Param: %q},", spec.SetContext.Name, spec.SetContext.Param)
 	}
 	writeStringField(&b, "Mutation", spec.Mutation)
+	writeStringSliceField(&b, "SearchTerms", spec.SearchTerms)
 	b.WriteByte('}')
 	return b.String()
 }
@@ -1803,6 +1808,11 @@ var Specs = []runtime.CommandSpec{
 		{{- end}}
 		{{- if $op.Mutation}}
 		Mutation: {{printf "%q" $op.Mutation}},
+		{{- end}}
+		{{- if $op.SearchTerms}}
+		SearchTerms: []string{
+			{{- range $op.SearchTerms}}{{printf "%q" .}},{{end}}
+		},
 		{{- end}}
 		{{- if $op.OperationID}}
 		OperationID: {{printf "%q" $op.OperationID}},

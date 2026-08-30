@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 14
+const SchemaVersion = 15
 
 type CommandSpec struct {
 	Group           string
@@ -33,6 +33,7 @@ type CommandSpec struct {
 	KnownErrors     []KnownError    `json:",omitempty"`
 	SetContext      *ContextSetHint `json:",omitempty"`
 	Mutation        string          `json:",omitempty"`
+	SearchTerms     []string        `json:",omitempty"`
 }
 
 type ContextSetHint struct {

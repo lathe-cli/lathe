@@ -100,6 +100,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 			Prerequisites: []string{"List clusters before installing."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
 			Mutation:      "read",
+			SearchTerms:   []string{"spend", "cost"},
 			Params:        map[string]overlay.ParamOverride{"workspace_id": {Context: "workspace"}},
 			Context:       &overlay.ContextOverride{SetOnSuccess: &overlay.ContextSetOnSuccess{Name: "workspace", FromParam: "workspace_id"}},
 			Output: &overlay.OutputOverride{
@@ -137,7 +138,6 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 		`Status: 400`,
 		`Cause: "missing addon name"`,
 		`Context: "workspace"`,
-		`SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}`,
 		`DefaultColumns: []string{"name", "spendMicro"}`,
 		`ColumnLabels: map[string]string{"name": "Addon"}`,
 		`ColumnFormats: map[string]runtime.ColumnFormat{"spendMicro": runtime.ColumnFormat{Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6}}`,
@@ -163,8 +163,15 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	if strings.Contains(got, `"raw short"`) {
 		t.Errorf("overlay did not replace Short; raw value leaked into output")
 	}
-	if flat := strings.Join(strings.Fields(got), " "); !strings.Contains(flat, `Mutation: "read"`) {
+	flat := strings.Join(strings.Fields(got), " ")
+	if !strings.Contains(flat, `Mutation: "read"`) {
 		t.Errorf("output missing mutation override literal")
+	}
+	if !strings.Contains(flat, `SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}`) {
+		t.Errorf("output missing set-context literal")
+	}
+	if !strings.Contains(flat, `SearchTerms: []string{ "spend", "cost", }`) && !strings.Contains(flat, `SearchTerms: []string{"spend", "cost"}`) && !strings.Contains(flat, `SearchTerms: []string{"spend","cost",}`) {
+		t.Errorf("output missing search terms literal:\n%s", flat)
 	}
 }
 

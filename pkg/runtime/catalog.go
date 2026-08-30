@@ -11,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 21
+const CatalogSchemaVersion = 22
 const DefaultSearchLimit = 20
 
 const (
@@ -95,6 +95,7 @@ type CatalogCommand struct {
 	Prerequisites []string           `json:"prerequisites,omitempty"`
 	KnownErrors   []KnownError       `json:"known_errors,omitempty"`
 	SetsContext   *CatalogContextSet `json:"sets_context,omitempty"`
+	SearchTerms   []string           `json:"search_terms,omitempty"`
 }
 
 type CatalogWorkflow struct {
@@ -444,6 +445,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		Notes:         append([]string(nil), spec.Notes...),
 		Prerequisites: append([]string(nil), spec.Prerequisites...),
 		KnownErrors:   append([]KnownError(nil), spec.KnownErrors...),
+		SearchTerms:   append([]string(nil), spec.SearchTerms...),
 	}
 	if spec.SetContext != nil {
 		cmd.SetsContext = &CatalogContextSet{Name: spec.SetContext.Name, FromParam: spec.SetContext.Param}

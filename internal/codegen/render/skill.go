@@ -764,6 +764,13 @@ func commandExample(example, cli, module string, spec runtime.CommandSpec, flat 
 func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
 	writeStringList(b, "Notes", spec.Notes)
 	writeStringList(b, "Prerequisites", spec.Prerequisites)
+	if len(spec.SearchTerms) > 0 {
+		terms := make([]string, 0, len(spec.SearchTerms))
+		for _, term := range spec.SearchTerms {
+			terms = append(terms, "`"+strings.ReplaceAll(oneLine(term), "`", "'")+"`")
+		}
+		fmt.Fprintf(b, "- Search terms: %s\n", strings.Join(terms, ", "))
+	}
 	if spec.SetContext != nil {
 		param := spec.SetContext.Param
 		if index, count := paramByNameOrFlag(spec.Params, param); count == 1 {

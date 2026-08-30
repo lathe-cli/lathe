@@ -68,6 +68,7 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 			Notes:         []string{"Use the canonical user ID."},
 			Prerequisites: []string{"List users before fetching details."},
 			KnownErrors:   []KnownError{{Status: 400, Cause: "missing id"}},
+			SearchTerms:   []string{"account", "profile"},
 		},
 	})
 
@@ -161,6 +162,9 @@ func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cmd.KnownErrors, []KnownError{{Status: 400, Cause: "missing id"}}) {
 		t.Fatalf("known errors = %#v", cmd.KnownErrors)
+	}
+	if !reflect.DeepEqual(cmd.SearchTerms, []string{"account", "profile"}) {
+		t.Fatalf("search terms = %#v", cmd.SearchTerms)
 	}
 
 	raw, err := json.Marshal(catalog)

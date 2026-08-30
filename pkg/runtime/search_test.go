@@ -194,3 +194,40 @@ func TestSearchCatalog_IdentityHitSurvivesStrongerDescriptiveMatch(t *testing.T)
 		t.Errorf("query %q returned %v", "revoking", paths)
 	}
 }
+
+func TestSearchCatalog_SearchTermsSurfaceCommand(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "billing", []CommandSpec{
+		{Group: "Usage", Use: "usage-summary", Short: "Get usage summary", OperationID: "getUsageSummary", Method: "GET", PathTpl: "/usage", SearchTerms: []string{"spend"}},
+		{Group: "Invoices", Use: "list-invoices", Short: "List invoices", OperationID: "listInvoices", Method: "GET", PathTpl: "/invoices"},
+	})
+
+	paths := searchPaths(root, "spend")
+	if len(paths) == 0 || paths[0] != "billing usage usage-summary" {
+		t.Fatalf("query %q = %v, want usage-summary first", "spend", paths)
+	}
+	if slices.Contains(paths, "billing invoices list-invoices") {
+		t.Fatalf("query %q matched unrelated command: %v", "spend", paths)
+	}
+
+	if paths := searchPaths(root, "usage summary"); len(paths) == 0 || paths[0] != "billing usage usage-summary" {
+		t.Fatalf("identity query = %v, want usage-summary first", paths)
+	}
+
+	results := SearchCatalog(root, "usage", SearchOptions{Limit: 10})
+	for _, result := range results {
+		if strings.Join(result.Command.Path, " ") != "billing usage usage-summary" {
+			continue
+		}
+		direct := result.Score
+		synonym := 0
+		for _, r := range SearchCatalog(root, "spend", SearchOptions{Limit: 10}) {
+			if strings.Join(r.Command.Path, " ") == "billing usage usage-summary" {
+				synonym = r.Score
+			}
+		}
+		if synonym <= 0 || synonym >= direct {
+			t.Fatalf("synonym score %d must be positive and below direct identity score %d", synonym, direct)
+		}
+	}
+}
