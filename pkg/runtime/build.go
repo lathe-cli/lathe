@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -147,14 +148,14 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		Args:    UsageArgs(cobra.NoArgs),
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := cmd.ValidateRequiredFlags(); err != nil {
-				return UsageError(cmd, err)
+				return UsageError(cmd, WithUsageDetail(err, requiredFlagsDetail(cmd)))
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			if _, ok := formatters[format]; !ok {
-				return UsageError(cmd, fmt.Errorf("unsupported output format"))
+				return UsageError(cmd, WithUsageDetail(fmt.Errorf("unsupported output format"), outputFormatDetail()))
 			}
 			if liveStream && format != "table" {
 				return UsageError(cmd, fmt.Errorf("live stream output does not support -o %s", format))
@@ -296,6 +297,26 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+func requiredFlagsDetail(cmd *cobra.Command) string {
+	missing := make([]string, 0)
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			return
+		}
+		if slices.Contains(f.Annotations[cobra.BashCompOneRequiredFlag], "true") {
+			missing = append(missing, "--"+f.Name)
+		}
+	})
+	if len(missing) == 0 {
+		return ""
+	}
+	return "missing required: " + strings.Join(missing, ", ")
+}
+
+func outputFormatDetail() string {
+	return "--output accepts: " + strings.Join(FormatterNames(), ", ")
 }
 
 func controlFlagName(cmd *cobra.Command, name string) string {
@@ -543,7 +564,7 @@ func validateRequiredParams(params []ParamSpec, hasRequestBody bool, changed map
 			continue
 		}
 		if !changed[boundParamKey(p)] {
-			return fmt.Errorf("required flag(s) \"%s\" not set", p.Flag)
+			return WithUsageDetail(fmt.Errorf("required flag(s) \"%s\" not set", p.Flag), "missing required: --"+p.Flag)
 		}
 	}
 	return nil
@@ -712,7 +733,7 @@ func validateRequiredVariableParams(s CommandSpec, body any) error {
 	}
 	raw, ok := body.([]byte)
 	if !ok || len(raw) == 0 {
-		return fmt.Errorf("required body field missing: %s", required[0].Name)
+		return missingBodyFieldError(required[0].Name)
 	}
 	var doc any
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -721,7 +742,7 @@ func validateRequiredVariableParams(s CommandSpec, body any) error {
 	for _, p := range required {
 		v, ok := getNestedPath(doc, joinBodyPath(s.RequestBody.MergePath, p.Name))
 		if !ok || v == nil {
-			return fmt.Errorf("required body field missing: %s", p.Name)
+			return missingBodyFieldError(p.Name)
 		}
 	}
 	return nil
@@ -750,10 +771,14 @@ func validateRequiredBodyParams(s CommandSpec, body any) error {
 	}
 	for _, p := range required {
 		if _, ok := doc[p.Name]; !ok {
-			return fmt.Errorf("required body field missing: %s", p.Name)
+			return missingBodyFieldError(p.Name)
 		}
 	}
 	return nil
+}
+
+func missingBodyFieldError(name string) error {
+	return WithUsageDetail(fmt.Errorf("required body field missing: %s", name), "missing required: "+name)
 }
 
 func shortcutName(use string, target string) (string, error) {

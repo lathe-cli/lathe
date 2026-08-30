@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -1476,4 +1477,140 @@ func isRequiredFlag(annotations map[string][]string) bool {
 		}
 	}
 	return false
+}
+
+func TestBuild_EnumUsageErrorSafeDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:   "Usage",
+		Use:     "summary",
+		Method:  "GET",
+		PathTpl: "/usage",
+		Params: []ParamSpec{
+			{Name: "range", Flag: "range", In: InQuery, GoType: "string", Enum: []string{"7", "30"}},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"demo", "usage", "summary", "--range", "14"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Code != CodeUsage {
+		t.Fatalf("code = %q, want %q", le.Code, CodeUsage)
+	}
+	if le.Detail != "--range accepts: 7, 30" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+	if strings.Contains(le.Detail, "14") {
+		t.Fatalf("detail echoed user input: %q", le.Detail)
+	}
+}
+
+func TestBuild_RequiredFlagUsageErrorDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "get",
+		Method:  "GET",
+		PathTpl: "/keys/{id}",
+		Params: []ParamSpec{
+			{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"demo", "keys", "get"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Detail != "missing required: --id" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+}
+
+func TestBuild_MissingBodyFieldUsageErrorDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "create",
+		Method:  "POST",
+		PathTpl: "/keys",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InVariable, GoType: "string", Required: true},
+		},
+		RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+		Security:    &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"demo", "keys", "create", "--set", "other=1"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Detail != "missing required: name" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+}
+
+func TestBuild_UnsupportedOutputFormatDetail(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	specs := []CommandSpec{{
+		Group:    "Usage",
+		Use:      "summary",
+		Method:   "GET",
+		PathTpl:  "/usage",
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "table", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+	root.SetArgs([]string{"-o", "bogus-format", "demo", "usage", "summary"})
+
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	want := "--output accepts: " + strings.Join(FormatterNames(), ", ")
+	if le.Detail != want {
+		t.Fatalf("detail = %q, want %q", le.Detail, want)
+	}
+	if strings.Contains(le.Detail, "bogus-format") {
+		t.Fatalf("detail echoed user input: %q", le.Detail)
+	}
 }

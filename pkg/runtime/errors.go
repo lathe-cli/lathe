@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -35,6 +36,7 @@ type ErrorHTTPContext struct {
 type LatheError struct {
 	Code     string            `json:"code" yaml:"code"`
 	Message  string            `json:"message" yaml:"message"`
+	Detail   string            `json:"detail,omitempty" yaml:"detail,omitempty"`
 	Hint     string            `json:"hint" yaml:"hint"`
 	HTTP     *ErrorHTTPContext `json:"http,omitempty" yaml:"http,omitempty"`
 	ExitCode int               `json:"-" yaml:"-"`
@@ -71,7 +73,47 @@ func UsageError(cmd *cobra.Command, cause error) *LatheError {
 	if cmd != nil && cmd.CommandPath() != "" {
 		hint = fmt.Sprintf("run `%s --help` and correct the arguments", cmd.CommandPath())
 	}
-	return NewError(CodeUsage, ExitUsage, "invalid command usage", hint, cause)
+	le := NewError(CodeUsage, ExitUsage, "invalid command usage", hint, cause)
+	var de *usageDetailError
+	if errors.As(cause, &de) {
+		le.Detail = de.detail
+	}
+	return le
+}
+
+const maxErrorDetailRunes = 240
+
+type usageDetailError struct {
+	cause  error
+	detail string
+}
+
+func (e *usageDetailError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *usageDetailError) Unwrap() error {
+	return e.cause
+}
+
+func WithUsageDetail(cause error, detail string) error {
+	return &usageDetailError{cause: cause, detail: sanitizeErrorDetail(detail)}
+}
+
+func sanitizeErrorDetail(detail string) string {
+	var b strings.Builder
+	for _, r := range detail {
+		if r < 0x20 || r == 0x7f {
+			r = ' '
+		}
+		b.WriteRune(r)
+	}
+	out := strings.Join(strings.Fields(b.String()), " ")
+	runes := []rune(out)
+	if len(runes) > maxErrorDetailRunes {
+		out = strings.TrimSpace(string(runes[:maxErrorDetailRunes-1])) + "…"
+	}
+	return out
 }
 
 func UsageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
@@ -165,6 +207,9 @@ func FormatError(err error, format string, w io.Writer) int {
 		_ = enc.Close()
 	default:
 		fmt.Fprintln(w, "Error:", le.Message)
+		if le.Detail != "" {
+			fmt.Fprintln(w, "Detail:", le.Detail)
+		}
 		fmt.Fprintln(w, "Hint:", le.Hint)
 	}
 	return le.ExitCode

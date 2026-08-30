@@ -144,6 +144,71 @@ func TestClassifyError_Canceled(t *testing.T) {
 	}
 }
 
+func TestUsageErrorLiftsSafeDetail(t *testing.T) {
+	cause := fmt.Errorf("invalid value %q for --range: must be one of 7, 30", "14")
+	le := UsageError(nil, WithUsageDetail(cause, "--range accepts: 7, 30"))
+	if le.Detail != "--range accepts: 7, 30" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+	wrapped := UsageError(nil, fmt.Errorf("outer: %w", WithUsageDetail(cause, "--range accepts: 7, 30")))
+	if wrapped.Detail != "--range accepts: 7, 30" {
+		t.Fatalf("wrapped detail = %q", wrapped.Detail)
+	}
+	if plain := UsageError(nil, cause); plain.Detail != "" {
+		t.Fatalf("plain detail = %q, want empty", plain.Detail)
+	}
+}
+
+func TestWithUsageDetailSanitizesAndBounds(t *testing.T) {
+	le := UsageError(nil, WithUsageDetail(errors.New("x"), "a\nb\tc\x07d  e"))
+	if le.Detail != "a b c d e" {
+		t.Fatalf("sanitized detail = %q", le.Detail)
+	}
+	long := strings.Repeat("v", 500)
+	bounded := UsageError(nil, WithUsageDetail(errors.New("x"), long))
+	if n := len([]rune(bounded.Detail)); n > 240 {
+		t.Fatalf("detail rune length = %d, want <= 240", n)
+	}
+	if !strings.HasSuffix(bounded.Detail, "…") {
+		t.Fatalf("bounded detail missing truncation marker: %q", bounded.Detail)
+	}
+}
+
+func TestFormatError_PlainIncludesDetail(t *testing.T) {
+	var buf bytes.Buffer
+	le := UsageError(nil, WithUsageDetail(errors.New("boom"), "--range accepts: 7, 30"))
+	if code := FormatError(le, "table", &buf); code != ExitUsage {
+		t.Fatalf("exit = %d, want %d", code, ExitUsage)
+	}
+	want := "Error: invalid command usage\nDetail: --range accepts: 7, 30\nHint: run the command with --help and correct the arguments\n"
+	if buf.String() != want {
+		t.Fatalf("plain output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestFormatError_JSONDetail(t *testing.T) {
+	var buf bytes.Buffer
+	le := UsageError(nil, WithUsageDetail(errors.New("boom"), "missing required: name"))
+	if code := FormatError(le, "json", &buf); code != ExitUsage {
+		t.Fatalf("exit = %d, want %d", code, ExitUsage)
+	}
+	var env errorEnvelope
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	if env.Error.Detail != "missing required: name" {
+		t.Fatalf("json detail = %q", env.Error.Detail)
+	}
+
+	buf.Reset()
+	if code := FormatError(errors.New("oops"), "json", &buf); code != ExitGeneral {
+		t.Fatalf("exit = %d, want %d", code, ExitGeneral)
+	}
+	if strings.Contains(buf.String(), "detail") {
+		t.Fatalf("empty detail must be omitted from envelope: %s", buf.String())
+	}
+}
+
 type testSilentExitError struct{}
 
 func (testSilentExitError) Error() string {

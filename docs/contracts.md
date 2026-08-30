@@ -79,6 +79,12 @@ and YAML errors contain `code`, `message`, and `hint`; `error.http` may contain
 only a numeric status. URLs, headers, bodies, credentials, and raw transport
 errors are excluded.
 
+`error.detail` is optional, locally constructed from spec metadata only
+(flag names, declared value sets, required field names); it never echoes
+user-provided values. It is a single bounded line. Human-readable output
+prints it as a `Detail:` line between `Error:` and `Hint:`. Cobra unknown
+command and unknown flag errors never carry a detail.
+
 | Code | Exit |
 | --- | ---: |
 | `general` | 1 |
