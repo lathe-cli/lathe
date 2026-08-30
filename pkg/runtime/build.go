@@ -781,7 +781,8 @@ func validateRequiredBodyParams(s CommandSpec, body any) error {
 			required = append(required, p)
 		}
 	}
-	if len(required) == 0 {
+	setOnlyRequired := requiredSetOnlyFields(s)
+	if len(required) == 0 && len(setOnlyRequired) == 0 {
 		return nil
 	}
 	raw, _, err := encodeRequestBody(body)
@@ -797,7 +798,29 @@ func validateRequiredBodyParams(s CommandSpec, body any) error {
 			return missingBodyFieldError(p.Name)
 		}
 	}
+	for _, name := range setOnlyRequired {
+		if _, ok := doc[name]; !ok {
+			return missingBodyFieldError(name)
+		}
+	}
 	return nil
+}
+
+func requiredSetOnlyFields(s CommandSpec) []string {
+	if s.RequestBody == nil || len(s.RequestBody.SetOnlyFields) == 0 || s.RequestBody.Schema == nil {
+		return nil
+	}
+	setOnly := make(map[string]bool, len(s.RequestBody.SetOnlyFields))
+	for _, name := range s.RequestBody.SetOnlyFields {
+		setOnly[name] = true
+	}
+	out := make([]string, 0)
+	for _, name := range s.RequestBody.Schema.Required {
+		if setOnly[name] {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func missingBodyFieldError(name string) error {

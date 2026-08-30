@@ -1751,3 +1751,52 @@ func TestBuild_SetOnlyBodyFieldsHelpAndCoexistence(t *testing.T) {
 		t.Fatalf("body = %#v, want %#v", got, want)
 	}
 }
+
+func TestBuild_RequiredSetOnlyBodyFieldValidatedLocally(t *testing.T) {
+	bindTestManifest(t, "myctl", "MYCTL_HOST")
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	specs := []CommandSpec{{
+		Group:   "Keys",
+		Use:     "create",
+		Method:  "POST",
+		PathTpl: "/keys",
+		Params: []ParamSpec{
+			{Name: "name", Flag: "name", In: InBody, GoType: "string", Required: true, Help: "name (body, required)"},
+		},
+		RequestBody: &RequestBody{
+			Required:      true,
+			MediaType:     "application/json",
+			Schema:        &SchemaSpec{Type: "object", Required: []string{"name", "limits"}, Properties: map[string]*SchemaSpec{"name": {Type: "string"}, "limits": {Type: "object"}}},
+			SetOnlyFields: []string{"limits"},
+		},
+		Security: &SecurityHint{Public: true},
+	}}
+	root := newRootWithModuleGroup()
+	root.PersistentFlags().String("hostname", "", "")
+	root.PersistentFlags().StringP("output", "o", "raw", "")
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+	mustBuild(t, root, "demo", specs)
+
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "create", "--name", "demo"})
+	err := root.Execute()
+	var le *LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError for missing required set-only field, got %v", err)
+	}
+	if le.Code != CodeUsage || le.Detail != "missing required: limits" {
+		t.Fatalf("error = %#v", le)
+	}
+
+	root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "create", "--name", "demo", "--set", "limits.rpm=3"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute with --set limits: %v", err)
+	}
+}
