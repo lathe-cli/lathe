@@ -112,6 +112,7 @@ commands:
     known_errors:
       - status: 400
         cause: "missing user name"
+    mutation: read
     context:
       set_on_success:
         name: workspace
@@ -186,6 +187,9 @@ commands:
 	}
 	if len(cu.KnownErrors) != 1 || cu.KnownErrors[0].Status != 400 || cu.KnownErrors[0].Cause != "missing user name" {
 		t.Errorf("known errors = %#v", cu.KnownErrors)
+	}
+	if cu.Mutation != "read" {
+		t.Errorf("mutation = %q, want read", cu.Mutation)
 	}
 	if cu.Context == nil || cu.Context.SetOnSuccess == nil || cu.Context.SetOnSuccess.Name != "workspace" || cu.Context.SetOnSuccess.FromParam != "status" {
 		t.Errorf("context = %#v", cu.Context)

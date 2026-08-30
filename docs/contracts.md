@@ -44,10 +44,14 @@ Catalog entries have two kinds:
   is the heaviest step classification. Workflow `dry_run.mode` is
   `unsupported`.
 
-`mutation` is `read`, `write`, or `unknown`. GET and HEAD are `read`. GraphQL
+`mutation` is `read`, `write`, or `unknown`. An explicit overlay
+`mutation: read|write` override wins over every inference. Otherwise GraphQL
 operations are classified from the request template (`query` / `mutation`),
-not from HTTP POST. Other methods stay `unknown` unless the template proves
-otherwise.
+not from HTTP POST. Otherwise RFC 9110 safe methods (GET, HEAD, OPTIONS,
+TRACE) are `read` and every other declared method is `write`; `unknown` is
+reserved for operations whose method cannot be determined. Consumers that
+previously treated `unknown` as dangerous now see `write` for the same
+operations: handle it the same way, the classification is just more precise.
 
 Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
 `__lathe` are discovered through `--help`; they are not operation entries.

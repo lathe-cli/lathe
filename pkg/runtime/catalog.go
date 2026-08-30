@@ -11,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 20
+const CatalogSchemaVersion = 21
 const DefaultSearchLimit = 20
 
 const (

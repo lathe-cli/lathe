@@ -99,6 +99,7 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 			Notes:         []string{"Use the canonical addon ID."},
 			Prerequisites: []string{"List clusters before installing."},
 			KnownErrors:   []overlay.KnownError{{Status: 400, Cause: "missing addon name"}},
+			Mutation:      "read",
 			Params:        map[string]overlay.ParamOverride{"workspace_id": {Context: "workspace"}},
 			Context:       &overlay.ContextOverride{SetOnSuccess: &overlay.ContextSetOnSuccess{Name: "workspace", FromParam: "workspace_id"}},
 			Output: &overlay.OutputOverride{
@@ -161,6 +162,9 @@ func TestRenderModule_AppliesOverlay(t *testing.T) {
 	}
 	if strings.Contains(got, `"raw short"`) {
 		t.Errorf("overlay did not replace Short; raw value leaked into output")
+	}
+	if flat := strings.Join(strings.Fields(got), " "); !strings.Contains(flat, `Mutation: "read"`) {
+		t.Errorf("output missing mutation override literal")
 	}
 }
 
@@ -337,6 +341,20 @@ func TestValidateOverlayModule_RejectsInvalidGroups(t *testing.T) {
 				t.Fatalf("validation error = %v", err)
 			}
 		})
+	}
+}
+
+func TestOverlayModule_RejectsInvalidMutationOverride(t *testing.T) {
+	specs := []runtime.CommandSpec{{Group: "Reports", Use: "query-report", Method: "POST", PathTpl: "/reports/query"}}
+	mod := overlay.Module{Commands: map[string]overlay.Override{
+		"query-report": {Mutation: "maybe"},
+	}}
+	wantMsg := `mutation must be "read" or "write"`
+	if err := ValidateOverlayModule(specs, mod); err == nil || !strings.Contains(err.Error(), wantMsg) {
+		t.Fatalf("validate error = %v", err)
+	}
+	if _, err := MergeOverlayModule(specs, mod); err == nil || !strings.Contains(err.Error(), wantMsg) {
+		t.Fatalf("merge error = %v", err)
 	}
 }
 
