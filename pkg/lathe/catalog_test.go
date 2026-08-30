@@ -3,6 +3,7 @@ package lathe
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -231,6 +232,42 @@ func TestSearchExcludesHiddenCommands(t *testing.T) {
 
 func testManifest() *config.Manifest {
 	return &config.Manifest{CLI: config.CLIInfo{Name: "myctl", Short: "test cli", HostEnv: "MYCTL_HOST"}}
+}
+
+func TestCommandsShowUnknownPathUsageError(t *testing.T) {
+	root := NewApp(testManifest())
+	_, err := execute(root, "commands", "show", "keys", "nope-secret")
+	var le *runtime.LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Code != runtime.CodeUsage {
+		t.Fatalf("code = %q, want %q", le.Code, runtime.CodeUsage)
+	}
+	if !strings.Contains(le.Detail, "no generated command") {
+		t.Fatalf("detail = %q", le.Detail)
+	}
+	if !strings.Contains(le.Detail, "myctl commands") {
+		t.Fatalf("detail missing listing hint: %q", le.Detail)
+	}
+	if strings.Contains(le.Detail, "nope-secret") {
+		t.Fatalf("detail echoed user input: %q", le.Detail)
+	}
+}
+
+func TestSearchEmptyQueryUsageError(t *testing.T) {
+	root := NewApp(testManifest())
+	_, err := execute(root, "search", "  ")
+	var le *runtime.LatheError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LatheError, got %v", err)
+	}
+	if le.Code != runtime.CodeUsage {
+		t.Fatalf("code = %q, want %q", le.Code, runtime.CodeUsage)
+	}
+	if le.Detail != "search query must not be empty" {
+		t.Fatalf("detail = %q", le.Detail)
+	}
 }
 
 func execute(root *cobra.Command, args ...string) (string, error) {

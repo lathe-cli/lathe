@@ -48,7 +48,10 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			entry, ok := runtime.FindCatalogCommand(cmd.Root(), args, catalogOptions(m, includeHidden))
 			if !ok {
-				return fmt.Errorf("generated command not found: %s", strings.Join(args, " "))
+				return runtime.UsageError(cmd, runtime.WithUsageDetail(
+					fmt.Errorf("generated command not found"),
+					fmt.Sprintf("no generated command at that path; run `%s commands` to list paths", cmd.Root().Name()),
+				))
 			}
 			if jsonOut {
 				return writeJSON(cmd, entry)
@@ -105,6 +108,12 @@ func searchCmd(m *config.Manifest) *cobra.Command {
 		Args:  runtime.UsageArgs(cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
+			if strings.TrimSpace(query) == "" {
+				return runtime.UsageError(cmd, runtime.WithUsageDetail(
+					fmt.Errorf("empty search query"),
+					"search query must not be empty",
+				))
+			}
 			results := runtime.SearchCatalog(cmd.Root(), query, runtime.SearchOptions{
 				CatalogOptions: catalogOptions(m, false),
 				Limit:          limit,

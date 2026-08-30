@@ -294,9 +294,9 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 			return nil, fmt.Errorf("request body media type %s requires --file", s.RequestBody.MediaType)
 		}
 		if hasJSONBodyFlags(s.Params) {
-			return nil, fmt.Errorf("request body required: pass --file, --set, --set-str, or a body flag")
+			return nil, WithUsageDetail(fmt.Errorf("request body required"), "request body required: pass --file, --set, --set-str, or a body flag")
 		}
-		return nil, fmt.Errorf("request body required: pass --file, --set, or --set-str")
+		return nil, WithUsageDetail(fmt.Errorf("request body required"), "request body required: pass --file, --set, or --set-str")
 	default:
 		return nil, nil
 	}
