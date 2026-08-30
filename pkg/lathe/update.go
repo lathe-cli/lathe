@@ -31,6 +31,7 @@ var (
 	updateGitHubAPIBaseURL = "https://api.github.com"
 	updateHTTPClient       = &http.Client{Timeout: 30 * time.Second}
 	installUpdate          = replaceExecutable
+	updateVersionInfo      = VersionInfo
 )
 
 type githubRelease struct {
@@ -60,6 +61,7 @@ func updateCmd(m *config.Manifest) *cobra.Command {
 }
 
 func runGitHubUpdate(cmd *cobra.Command, m *config.Manifest, yes bool) error {
+	currentVersion, _, _ := updateVersionInfo()
 	release, err := fetchLatestGitHubRelease(cmd.Context(), *m.Update.GitHub)
 	if err != nil {
 		return err
@@ -67,7 +69,7 @@ func runGitHubUpdate(cmd *cobra.Command, m *config.Manifest, yes bool) error {
 	if release.TagName == "" {
 		return fmt.Errorf("latest release has no tag_name")
 	}
-	cmp, err := compareVersions(Version, release.TagName)
+	cmp, err := compareVersions(currentVersion, release.TagName)
 	if err != nil {
 		return err
 	}
@@ -76,10 +78,10 @@ func runGitHubUpdate(cmd *cobra.Command, m *config.Manifest, yes bool) error {
 		return nil
 	}
 	if cmp > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s is newer than latest release (%s > %s)\n", m.CLI.Name, Version, release.TagName)
+		fmt.Fprintf(cmd.OutOrStdout(), "%s is newer than latest release (%s > %s)\n", m.CLI.Name, currentVersion, release.TagName)
 		return nil
 	}
-	if !yes && !confirmUpdate(cmd, m.CLI.Name, Version, release.TagName) {
+	if !yes && !confirmUpdate(cmd, m.CLI.Name, currentVersion, release.TagName) {
 		fmt.Fprintln(cmd.OutOrStdout(), "Update cancelled.")
 		return nil
 	}

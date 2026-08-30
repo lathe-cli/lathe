@@ -131,7 +131,7 @@ func loadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool) (
 	}
 	e, ok := hosts.Get(res.Hostname)
 	if !ok {
-		return res, ClientOptions{}, notAuthenticatedToHost(res.Hostname)
+		return res, ClientOptions{}, missingHostCredentialsError(res.Hostname, hosts.Names())
 	}
 	insecure := e.Insecure
 	if v, err := cmd.Root().PersistentFlags().GetBool("insecure"); err == nil && v {
@@ -204,4 +204,23 @@ func tryLoadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool
 
 func notAuthenticatedToHost(string) error {
 	return fmt.Errorf("authentication required for selected host: %w", ErrNotAuthenticated)
+}
+
+func missingHostCredentialsError(hostname string, configured []string) error {
+	cli := config.Active().CLI.Name
+	hint := fmt.Sprintf("run `%s auth login --hostname <host>` for that host, or check --hostname", cli)
+	if len(configured) > 0 {
+		names := make([]string, len(configured))
+		for i, name := range configured {
+			names[i] = fmt.Sprintf("%q", name)
+		}
+		hint += "; logged-in hosts: " + strings.Join(names, ", ")
+	}
+	return NewError(
+		CodeNotAuthenticated,
+		ExitNotAuthenticated,
+		fmt.Sprintf("no credentials for host %q", hostname),
+		hint,
+		ErrNotAuthenticated,
+	)
 }
