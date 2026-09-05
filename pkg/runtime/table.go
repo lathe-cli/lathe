@@ -6,7 +6,8 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"text/tabwriter"
+
+	"github.com/rivo/uniseg"
 )
 
 // PreferredColumns is the canonical ordering used both by codegen (to derive
@@ -240,24 +241,39 @@ func stringify(v any) string {
 }
 
 func writeTable(cols []string, rows []map[string]any, labels map[string]string, formats map[string]ColumnFormat, w io.Writer) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for i, c := range cols {
-		if i > 0 {
-			fmt.Fprint(tw, "\t")
-		}
-		fmt.Fprint(tw, columnHeader(c, labels))
+	type cell struct {
+		text  string
+		width int
 	}
-	fmt.Fprintln(tw)
-	for _, r := range rows {
-		for i, c := range cols {
-			if i > 0 {
-				fmt.Fprint(tw, "\t")
+	cells := make([]cell, (len(rows)+1)*len(cols))
+	widths := make([]int, len(cols))
+	for row := range len(rows) + 1 {
+		for col, path := range cols {
+			value := &cells[row*len(cols)+col]
+			if row == 0 {
+				value.text = columnHeader(path, labels)
+			} else {
+				value.text = lookupPath(rows[row-1], path, formats)
 			}
-			fmt.Fprint(tw, lookupPath(r, c, formats))
+			if col < len(cols)-1 {
+				value.width = uniseg.StringWidth(value.text)
+				widths[col] = max(widths[col], value.width)
+			}
 		}
-		fmt.Fprintln(tw)
 	}
-	return tw.Flush()
+	var output strings.Builder
+	for row := range len(rows) + 1 {
+		for col := range cols {
+			value := cells[row*len(cols)+col]
+			output.WriteString(value.text)
+			if col < len(cols)-1 {
+				output.WriteString(strings.Repeat(" ", widths[col]-value.width+2))
+			}
+		}
+		output.WriteByte('\n')
+	}
+	_, err := io.WriteString(w, output.String())
+	return err
 }
 
 func columnHeader(path string, labels map[string]string) string {
