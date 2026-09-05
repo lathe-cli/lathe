@@ -5,6 +5,7 @@ go 1.25.13
 require (
 	github.com/gofrs/flock v0.13.1
 	github.com/lathe-cli/kitup/go v0.1.3
+	github.com/rivo/uniseg v0.4.7
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

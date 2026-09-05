@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -96,6 +98,75 @@ func TestFormatOutput_TableUsesConfiguredColumnLabels(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("table output missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestFormatOutput_TableAlignsDisplayColumns(t *testing.T) {
+	cells := []struct {
+		text  string
+		width int
+	}{
+		{"abcd", 4},
+		{"勿删", 4},
+		{"ＡＢ", 4},
+		{"東京", 4},
+		{"한글", 4},
+		{"e\u0301", 1},
+		{"🇨🇳", 2},
+		{"👩‍💻", 2},
+		{"勿删-测试", 9},
+		{"", 0},
+	}
+	rows := make([]map[string]string, len(cells))
+	for i, cell := range cells {
+		rows[i] = map[string]string{"name": cell.text, "status": "ok"}
+	}
+	rows = append(rows, map[string]string{"status": "ok"})
+	data, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, header := range []struct {
+		text  string
+		width int
+	}{
+		{"NAME", 4},
+		{"资源显示名称", 12},
+	} {
+		for _, format := range []string{"", "table"} {
+			t.Run(header.text+"/"+format, func(t *testing.T) {
+				var buf bytes.Buffer
+				err := FormatOutput(data, format, &buf, OutputHints{
+					DefaultColumns: []string{"name", "status"},
+					ColumnLabels:   map[string]string{"name": header.text},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				columnWidth := max(9, header.width)
+				want := header.text + strings.Repeat(" ", columnWidth-header.width+2) + "STATUS\n"
+				for _, cell := range cells {
+					want += cell.text + strings.Repeat(" ", columnWidth-cell.width+2) + "ok\n"
+				}
+				want += strings.Repeat(" ", columnWidth+2) + "ok\n"
+				if buf.String() != want {
+					t.Fatalf("table columns are misaligned:\ngot  %q\nwant %q", buf.String(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestFormatOutput_TableWriterError(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer func() { _ = writer.Close() }()
+	want := errors.New("output unavailable")
+	if err := reader.CloseWithError(want); err != nil {
+		t.Fatal(err)
+	}
+	err := FormatOutput([]byte(`[{"name":"勿删"}]`), "table", writer, OutputHints{})
+	if !errors.Is(err, want) {
+		t.Fatalf("FormatOutput error = %v, want %v", err, want)
 	}
 }
 
