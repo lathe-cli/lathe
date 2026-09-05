@@ -1,98 +1,45 @@
-# CLAUDE.md
+# Lathe agent guide
 
-## Project intent
+`AGENTS.md` links to this file. Read `CLAUDE.local.md` if present.
 
-Lathe generates agent-friendly Cobra CLIs from Swagger 2.0, OpenAPI 3, `google.api.http` protobuf APIs, and policy-curated GraphQL schemas. Declared API specs and project configuration are the source of truth. Pinned Git sources are reproducible; `local_path` sources intentionally follow the referenced working tree.
+## Product and sources
 
-## Product positioning
+Lathe generates inspectable Cobra CLIs and Agent Skills from Swagger 2.0, OpenAPI 3, `google.api.http` protobuf APIs, and policy-curated GraphQL. `lathe init` and `lathe skill install` support this workflow. Keep generic scaffolding, plugin loaders, GUI/TUI, API gateways, and hand-written SDK replacement out of scope.
 
-Lathe is a spec-to-agent-toolchain generator. It turns declared API specs, from pinned Git sources or explicit local working trees, plus repo-local configuration into one inspectable Cobra CLI that both humans and AI agents can run safely.
+- Durable inputs are `specs/sources.yaml`, `cli.yaml`, declared specs, and optional overlays and Skill includes. Pinned Git sources are reproducible; `local_path` follows the referenced working tree, and sync state must record and validate its resolved path.
+- Change inputs or the generator, never hand-edit generated files. Do not commit `internal/generated/`, `.cache/`, example build artifacts, or ad-hoc generated `skills/<cli-name>/` in this repository. Starter repositories have their own generated-output policy.
+- Follow [CONTRIBUTING.md](CONTRIBUTING.md) for contribution scope, Go conventions, Conventional Commits, and DCO sign-off. Use live code and Makefile targets to check documentation claims.
 
-The core product promise is: agents should not guess command names, flags, auth state, request body shape, HTTP path, or output format. Generated CLIs must expose machine-readable contracts (`search`, `commands --json`, `commands show`, `commands schema`) and generated Skill guidance so agents can discover, inspect, verify auth, and then execute.
+## Architecture boundaries
 
-Lathe also owns `lathe init` for CLI-first application repositories and `lathe skill install` for its bundled Agent Skill. These distribution surfaces must serve the spec-to-agent workflow; Lathe is not a generic scaffolder, CLI framework, plugin loader, GUI/TUI, API gateway, or hand-written SDK replacement. Product work should strengthen spec fidelity, reproducibility, generated command correctness, runtime catalog inspectability, auth/body/output behavior, application initialization, and generated Skill quality. Challenge features that move product weight into manually authored commands, runtime plugins, or unrelated scaffolding.
+See [docs/architecture.md](docs/architecture.md) for package ownership and request flow.
 
-## Source of truth
+- `cmd/lathe` and `internal/lathecmd` orchestrate generation; `internal/sourceconfig`, `internal/specsync`, `internal/codegen/**`, and `internal/overlay` own its pipeline. `internal/projectinit` owns initialization; `internal/latheskill` owns the bundled Lathe Skill.
+- Generated `runtime.CommandSpec` declarations cross into the runtime through `generated.Mount`, alongside compiled workflows and bundled capabilities. `pkg/runtime` must not depend on `internal/codegen/**` or read raw specs, overlays, or sync caches.
+- Overlays are codegen-time inputs that can alter command semantics; compile them into runtime declarations without introducing overlay concepts at runtime.
+- `pkg/config`, `pkg/runtime`, and `pkg/lathe` are downstream-facing, compatibility-sensitive packages. `internal/**` is implementation-only.
 
-- Follow this file for repository structure, commands, style, tests, commits, PR rules, and release workflow entry points.
-- Follow `CONTRIBUTING.md` for contributor workflow and public contribution scope.
-- Trust code and current Makefile targets over stale documentation when they disagree.
-- In this repository, do not commit generated output under `internal/generated/`, upstream clones under `.cache/`, example build artifacts, or ad-hoc generated `skills/<cli-name>/` directories. Downstream repositories created by `lathe init` have their own generated-output policy.
+## Agent contract
 
-## Project structure
+See [docs/contracts.md](docs/contracts.md) for machine contracts and [docs/cli-usage.md](docs/cli-usage.md) for generation and execution.
 
-- `cmd/lathe` contains the executable entry point for init, Skill installation, spec syncing, code generation, bootstrap, and version reporting.
-- `internal/lathecmd` orchestrates CLI commands; `internal/projectinit` and `internal/latheskill` own application initialization and the bundled Lathe Skill.
-- `internal/sourceconfig`, `internal/specsync`, `internal/codegen/{app,backends,normalize,rawir,render}`, and `internal/overlay` own the generation pipeline.
-- `internal/auth` holds implementation-only runtime authentication support.
-- `pkg/runtime`, `pkg/config`, and `pkg/lathe` are downstream-facing runtime/library surfaces for generated CLIs.
-- Tests live beside implementation as `*_test.go`; golden fixtures live under package-local `testdata/`.
-- `examples/` contains example generation paths, and `docs/` contains architecture and usage guides.
+- The running CLI catalog is execution authority; generated Skills provide guidance. Discover with `search "<intent>" --json`, then inspect `commands show <path...> --json` before execution. Never execute directly from search results.
+- When `auth.required=true`, use `auth status -o json` and read `hostname` and `source`; pass the same explicit `--hostname` for status and execution when overriding the host. Read `mutation` and `dry_run` from command detail: for anything other than `read`, preview when supported; otherwise obtain explicit user confirmation. Prefer `-o json` for machine output unless another format was requested.
+- Changes to command shape, catalog, auth, body, output, retry/debug, or Skill rendering must preserve agent inspectability. Check generated-code compatibility (`runtime.SchemaVersion`) separately from catalog compatibility (`runtime.CatalogSchemaVersion`); keep generated Skill guidance aligned.
 
-## Architecture invariants
+## Commands and verification
 
-- The generation pipeline has two phases: codegen-time (`cmd/lathe`, `internal/lathecmd`, `internal/sourceconfig`, `internal/specsync`, `internal/codegen/**`, `internal/overlay`) and runtime (`pkg/config`, `pkg/runtime`, `pkg/lathe`, `internal/auth`, plus generated modules).
-- API operations cross the seam as generated `[]runtime.CommandSpec` literals in `internal/generated/<module>/<module>_gen.go`; `internal/generated/modules_gen.go` composes those modules with generated workflows and bundled capabilities through `generated.Mount`.
-- `pkg/runtime` must remain independent of `internal/codegen/**`; runtime behavior cannot depend on raw specs, overlays, or sync cache state.
-- Overlays are codegen-time polish only. They are merged into `CommandSpec`; the runtime must not learn overlay concepts.
-- `specs/sources.yaml`, `cli.yaml`, pinned upstream refs or explicit `local_path` sources, and optional overlays are the durable inputs. A local source is not pinned; sync state must record and validate its resolved path. Generated files are outputs, not hand-edited source.
+Use `make help` for targets and `go.mod` for the Go version.
 
-## Development workflow
+- `make build` produces `bin/lathe`; `make install` copies it to `BINDIR`.
+- Run generation with `go run ./cmd/lathe specsync`, `codegen`, or `bootstrap`; use `--help` for flags.
+- Prove the changed behavior with focused package tests or an example run. Add tests when they protect a behavior boundary; use golden fixtures only when serialized output is the contract.
+- Run `make check` before commit or PR: format check, vet, lint, and tests. Documentation-only changes may skip it only with user agreement. CI also builds and runs `go test -race ./...`; for runtime-sensitive changes, run the relevant example script or race tests.
+- For codegen changes, regenerate and exercise the generated CLI. Run `<cli> __lathe verify --json` before broader acceptance checks. Do not commit scratch outputs.
+- For init or bundled Skill changes, run focused package tests and a scratch init. Skill installation smoke must combine a user-scope dry-run with a project-scope install in scratch; never override `HOME` or write to the real user Skill directory.
+- Report missing dependencies and unrun checks explicitly.
 
-- Keep changes small and focused; avoid speculative abstractions.
-- Prefer configuration or overlays (`cli.yaml`, `specs/sources.yaml`, overlay config) over hard-coded generated behavior.
-- Preserve package boundaries: `internal/**` is implementation-only, `pkg/**` is downstream-facing API.
-- Use standard Go formatting through `gofmt` / `go fmt`.
-- Wrap errors with context using `fmt.Errorf("...: %w", err)`.
-- For codegen, normalization, or runtime behavior changes, use focused package-local tests. Use golden fixtures only when serialized generated output or IR is the contract.
-- For CLI-visible behavior changes, update docs or examples only when the user-facing output or workflow actually changes.
-- If a change alters generated command shape, catalog JSON, auth flow, body building, output formatting, retry/debug behavior, or Skill rendering, treat it as product behavior and prove it with focused tests or an example run.
+## Sensitive paths and releases
 
-## Commands
-
-- `make help` is the source of truth for available Make targets.
-- `make build` builds `./bin/lathe`; `make install` copies it into `BINDIR`.
-- `make check` is the full local quality gate: format check, `go vet`, `golangci-lint`, and tests.
-- `make test` runs `go test ./...`.
-- `make fmt`, `make fmt-check`, `make vet`, `make lint`, and `make tidy` run focused maintenance tasks.
-- Generation workflows use an installed `lathe` or `go run ./cmd/lathe`: `specsync`, `codegen`, and `bootstrap`. There are no Make wrappers for these commands.
-- `docs/cli-usage.md` documents the end-to-end generated CLI workflow.
-- Prefer the narrowest Make target that proves the changed surface.
-- Use `make check` before commit or PR unless the change is documentation-only and the user agrees to skip it.
-
-## Verification rules
-
-- Before claiming completion, run the narrowest command that proves the changed surface.
-- For runtime-sensitive changes, also run the relevant example script or `go test -race ./...`.
-- For codegen changes, verify regenerated output behavior, but do not commit generated output under `internal/generated/`.
-- For `lathe init` or bundled Skill changes, run the focused package tests and a scratch init. For shell-level Skill smoke, combine a user-scope dry-run with a project-scope install in scratch; never override `HOME` or write to the real user Skill directory.
-- CI runs `go build ./...`, `go vet ./...`, `golangci-lint`, and `go test -race ./...`; local proof should explain any narrower substitute.
-- If a command cannot be run because a dependency is missing, report that directly instead of claiming success.
-
-## Agent-facing contract
-
-- The runtime catalog is the source of truth for generated CLI operation details. Generated Skill files are guidance and indexes, not execution authority.
-- Use `<cli> __lathe verify --json` to validate the generated CLI contract before broader acceptance checks.
-- Preserve the agent loop: `search "<intent>" --json` for candidates, `commands show <path...> --json` for exact command detail, `auth status --hostname <host>` when `auth.required=true`, then execute with known flags/body/output.
-- Search results are discovery only. Agents must not execute directly from search output.
-- Prefer `-o json` for machine-readable command output unless the user asked for table, yaml, or raw output.
-- Changes touching `pkg/runtime/catalog.go`, `pkg/lathe/catalog.go`, `pkg/runtime/build.go`, `internal/codegen/app/**`, or `internal/codegen/render/skill.go` must consider catalog schema compatibility, generated Skill instructions, and agent inspectability.
-
-## Security-sensitive surfaces
-
-- HTTP runtime changes must account for SSRF, unsafe TLS, retry/debug logging, header handling, token leakage, and response error leakage.
-- Host config and auth changes must protect persisted credentials and avoid printing secrets in normal, debug, or error output.
-- Spec sync and codegen path handling must reject traversal, unsafe output roots, and accidental deletion of non-owned directories.
-- Code templates must not emit shell-sensitive or injection-prone behavior from untrusted spec text.
-- Treat upstream specs as trusted product inputs but still escape or validate anything that becomes Go code, CLI flags, help text, file paths, or generated Skill markdown.
-
-## Git and release hygiene
-
-- Commit messages use Conventional Commits.
-- Use `git commit -s` for every commit.
-- Keep PRs focused and include the exact verification commands run.
-- Use `.agents/skills/lathe-release/SKILL.md` for versioned release validation and publishing. It starts read-only; tagging and publishing still require explicit authorization.
-
-## Local instructions
-
-- If `CLAUDE.local.md` exists, read it before starting non-trivial work; some non-Claude-Code agents will not load it automatically, but its instructions are still required.
+- HTTP and auth changes must protect credentials and account for SSRF, TLS, redirects, retries, headers, and debug/error leakage. Spec sync and generation must reject traversal, unsafe output roots, and deletion of non-owned directories; escape spec text emitted as code, flags, paths, or Skill Markdown.
+- Use [.agents/skills/lathe-release/SKILL.md](.agents/skills/lathe-release/SKILL.md) for versioned release validation. Tagging and publishing require explicit authorization.
