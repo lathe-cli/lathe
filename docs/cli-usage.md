@@ -378,7 +378,7 @@ columns do not surface the operator-facing identity or status fields:
 commands:
   list-resources:
     output:
-      default_columns: [resourceId, displayName, status, spendMicro]
+      default_columns: [resourceId, displayName, status, spendMicro, cpuMillis]
       column_labels:
         resourceId: Resource ID
         displayName: Name
@@ -390,6 +390,8 @@ commands:
           grouping: true
           min_fraction_digits: 2
           max_fraction_digits: 6
+      column_alignments:
+        cpuMillis: right
 ```
 
 The paths are ordered, dot-separated JSON fields. The override is compiled
@@ -401,7 +403,10 @@ the source as a fixed-point integer, move the decimal point left by
 `source_scale`, and retain every non-zero fractional digit through
 `max_fraction_digits`. The maximum must be at least the source scale, so
 configured output never rounds away source precision. USD uses `$`; other
-three-letter currency codes remain explicit.
+three-letter currency codes remain explicit. `column_alignments` sets
+per-column table alignment to `left` or `right`. Omitted columns stay left.
+Currency-formatted columns default to right alignment; an explicit
+`column_alignments` entry overrides that default.
 
 ### Stream Collection
 

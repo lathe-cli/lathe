@@ -11,7 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/pkg/config"
 )
 
-const CatalogSchemaVersion = 23
+const CatalogSchemaVersion = 24
 const DefaultSearchLimit = 20
 
 const (
@@ -211,6 +211,7 @@ type CatalogOutput struct {
 	DefaultColumns    []string                `json:"default_columns,omitempty"`
 	ColumnLabels      map[string]string       `json:"column_labels,omitempty"`
 	ColumnFormats     map[string]ColumnFormat `json:"column_formats,omitempty"`
+	ColumnAlignments  map[string]string       `json:"column_alignments,omitempty"`
 	ResponseMediaType string                  `json:"response_media_type,omitempty"`
 	Pagination        *CatalogPagination      `json:"pagination,omitempty"`
 	Streaming         *CatalogStreaming       `json:"streaming,omitempty"`
@@ -437,6 +438,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 			DefaultColumns:    append([]string(nil), spec.Output.DefaultColumns...),
 			ColumnLabels:      copyStringMap(spec.Output.ColumnLabels),
 			ColumnFormats:     copyColumnFormats(spec.Output.ColumnFormats),
+			ColumnAlignments:  copyStringMap(spec.Output.ColumnAlignments),
 			ResponseMediaType: spec.Output.ResponseMediaType,
 			Pagination:        catalogPagination(spec.Output.Pagination),
 			Streaming:         catalogStreaming(spec.Output.Streaming),
@@ -544,6 +546,7 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 			DefaultColumns:    append([]string(nil), spec.Output.DefaultColumns...),
 			ColumnLabels:      copyStringMap(spec.Output.ColumnLabels),
 			ColumnFormats:     copyColumnFormats(spec.Output.ColumnFormats),
+			ColumnAlignments:  copyStringMap(spec.Output.ColumnAlignments),
 			ResponseMediaType: spec.Output.ResponseMediaType,
 			Pagination:        catalogPagination(spec.Output.Pagination),
 			Streaming:         catalogStreaming(spec.Output.Streaming),

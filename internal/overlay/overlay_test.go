@@ -137,6 +137,8 @@ commands:
           grouping: true
           min_fraction_digits: 2
           max_fraction_digits: 6
+      column_alignments:
+        spendMicro: right
     params:
       status:
         flag: user-status
@@ -210,6 +212,9 @@ commands:
 	format := cu.Output.ColumnFormats["spendMicro"]
 	if format.Kind != "currency" || format.Currency != "USD" || format.SourceScale != 6 || !format.Grouping || format.MinFractionDigits != 2 || format.MaxFractionDigits != 6 {
 		t.Errorf("column format = %#v", format)
+	}
+	if cu.Output.ColumnAlignments["spendMicro"] != "right" {
+		t.Errorf("column alignments = %#v", cu.Output.ColumnAlignments)
 	}
 	sp := cu.Params["status"]
 	if sp.Flag != "user-status" {

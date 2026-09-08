@@ -32,6 +32,8 @@ commands:
           grouping: true
           min_fraction_digits: 2
           max_fraction_digits: 6
+      column_alignments:
+        spendMicro: right
 # Example:
 # defaults:
 #   pagination:

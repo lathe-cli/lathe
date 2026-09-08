@@ -53,10 +53,11 @@ type RuntimeSchemaOverride struct {
 }
 
 type OutputOverride struct {
-	DefaultColumns []string                        `yaml:"default_columns"`
-	ColumnLabels   map[string]string               `yaml:"column_labels"`
-	ColumnFormats  map[string]ColumnFormatOverride `yaml:"column_formats"`
-	Streaming      *StreamingOverride              `yaml:"streaming"`
+	DefaultColumns   []string                        `yaml:"default_columns"`
+	ColumnLabels     map[string]string               `yaml:"column_labels"`
+	ColumnFormats    map[string]ColumnFormatOverride `yaml:"column_formats"`
+	ColumnAlignments map[string]string               `yaml:"column_alignments"`
+	Streaming        *StreamingOverride              `yaml:"streaming"`
 }
 
 type ColumnFormatOverride struct {

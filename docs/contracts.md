@@ -71,6 +71,10 @@ that received no typed flag (nested object properties); they remain settable
 through `--set`, `--set-str`, or `--file` (SchemaVersion 16,
 CatalogSchemaVersion 23).
 
+Table output may declare per-column `column_alignments` (`left` or `right`).
+Currency `column_formats` default to right alignment unless overridden
+(SchemaVersion 17, CatalogSchemaVersion 24).
+
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
 write vs read from the HTTP method, and do not assume a `--dry-run` flag is

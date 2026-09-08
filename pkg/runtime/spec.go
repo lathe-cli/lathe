@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 16
+const SchemaVersion = 17
 
 type CommandSpec struct {
 	Group           string
@@ -154,6 +154,7 @@ type OutputHints struct {
 	DefaultColumns    []string
 	ColumnLabels      map[string]string       `json:",omitempty"`
 	ColumnFormats     map[string]ColumnFormat `json:",omitempty"`
+	ColumnAlignments  map[string]string       `json:",omitempty"`
 	ResponseMediaType string
 	Pagination        *PaginationHint
 	Streaming         *StreamingHint

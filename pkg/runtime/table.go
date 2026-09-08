@@ -47,7 +47,7 @@ func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	if len(cols) == 0 {
 		return renderJSON(data, w)
 	}
-	return writeTable(cols, rows, hints.ColumnLabels, hints.ColumnFormats, w)
+	return writeTable(cols, rows, hints, w)
 }
 
 // chooseColumns prefers codegen-supplied DefaultColumns when available,
@@ -240,10 +240,14 @@ func stringify(v any) string {
 	}
 }
 
-func writeTable(cols []string, rows []map[string]any, labels map[string]string, formats map[string]ColumnFormat, w io.Writer) error {
+func writeTable(cols []string, rows []map[string]any, hints OutputHints, w io.Writer) error {
 	type cell struct {
 		text  string
 		width int
+	}
+	alignments := make([]string, len(cols))
+	for i, path := range cols {
+		alignments[i] = columnAlignment(path, hints.ColumnAlignments, hints.ColumnFormats)
 	}
 	cells := make([]cell, (len(rows)+1)*len(cols))
 	widths := make([]int, len(cols))
@@ -251,29 +255,47 @@ func writeTable(cols []string, rows []map[string]any, labels map[string]string, 
 		for col, path := range cols {
 			value := &cells[row*len(cols)+col]
 			if row == 0 {
-				value.text = columnHeader(path, labels)
+				value.text = columnHeader(path, hints.ColumnLabels)
 			} else {
-				value.text = lookupPath(rows[row-1], path, formats)
+				value.text = lookupPath(rows[row-1], path, hints.ColumnFormats)
 			}
-			if col < len(cols)-1 {
-				value.width = uniseg.StringWidth(value.text)
-				widths[col] = max(widths[col], value.width)
-			}
+			value.width = uniseg.StringWidth(value.text)
+			widths[col] = max(widths[col], value.width)
 		}
 	}
 	var output strings.Builder
 	for row := range len(rows) + 1 {
 		for col := range cols {
 			value := cells[row*len(cols)+col]
-			output.WriteString(value.text)
+			pad := widths[col] - value.width
+			if alignments[col] == "right" {
+				output.WriteString(strings.Repeat(" ", pad))
+				output.WriteString(value.text)
+			} else {
+				output.WriteString(value.text)
+				if col < len(cols)-1 {
+					output.WriteString(strings.Repeat(" ", pad))
+				}
+			}
 			if col < len(cols)-1 {
-				output.WriteString(strings.Repeat(" ", widths[col]-value.width+2))
+				output.WriteString("  ")
 			}
 		}
 		output.WriteByte('\n')
 	}
 	_, err := io.WriteString(w, output.String())
 	return err
+}
+
+func columnAlignment(path string, alignments map[string]string, formats map[string]ColumnFormat) string {
+	switch alignments[path] {
+	case "left", "right":
+		return alignments[path]
+	}
+	if format, ok := formats[path]; ok && format.Kind == "currency" {
+		return "right"
+	}
+	return "left"
 }
 
 func columnHeader(path string, labels map[string]string) string {

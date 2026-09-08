@@ -190,7 +190,53 @@ func TestFormatOutput_TableUsesExactCurrencyFormats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "AMOUNT\n$1.00\n$1.234567\n$0.000001\n-$5.00\n$9,007,199,254.740993\n$2.50\n1.25\n"
+	want := "               AMOUNT\n" +
+		"                $1.00\n" +
+		"            $1.234567\n" +
+		"            $0.000001\n" +
+		"               -$5.00\n" +
+		"$9,007,199,254.740993\n" +
+		"                $2.50\n" +
+		"                 1.25\n"
+	if buf.String() != want {
+		t.Fatalf("table output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestFormatOutput_TableRightAlignsConfiguredColumns(t *testing.T) {
+	var buf bytes.Buffer
+	data := []byte(`{"items":[{"name":"alpha","count":9},{"name":"beta","count":120}]}`)
+	err := FormatOutput(data, "table", &buf, OutputHints{
+		ListPath:       "items",
+		DefaultColumns: []string{"name", "count"},
+		ColumnAlignments: map[string]string{
+			"count": "right",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "NAME   COUNT\nalpha      9\nbeta     120\n"
+	if buf.String() != want {
+		t.Fatalf("table output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestFormatOutput_CurrencyAlignmentOverride(t *testing.T) {
+	data := []byte(`{"items":[{"amount":1000000},{"amount":1234567}]}`)
+	hints := OutputHints{
+		ListPath:       "items",
+		DefaultColumns: []string{"amount"},
+		ColumnFormats: map[string]ColumnFormat{
+			"amount": {Kind: "currency", Currency: "USD", SourceScale: 6, Grouping: true, MinFractionDigits: 2, MaxFractionDigits: 6},
+		},
+		ColumnAlignments: map[string]string{"amount": "left"},
+	}
+	var buf bytes.Buffer
+	if err := FormatOutput(data, "table", &buf, hints); err != nil {
+		t.Fatal(err)
+	}
+	want := "AMOUNT\n$1.00\n$1.234567\n"
 	if buf.String() != want {
 		t.Fatalf("table output = %q, want %q", buf.String(), want)
 	}

@@ -383,6 +383,9 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 			if err := validateColumnFormatsOverride(columns, override.Output.ColumnFormats); err != nil {
 				return fmt.Errorf("command %q output: %w", spec.Use, err)
 			}
+			if err := validateColumnAlignmentsOverride(columns, override.Output.ColumnAlignments); err != nil {
+				return fmt.Errorf("command %q output: %w", spec.Use, err)
+			}
 		}
 		if override.Output != nil && override.Output.Streaming != nil {
 			if err := validateStreamingOverride(spec, *override.Output.Streaming); err != nil {
@@ -731,6 +734,28 @@ func validateColumnFormatsOverride(columns []string, formats map[string]overlay.
 	return nil
 }
 
+func validateColumnAlignmentsOverride(columns []string, alignments map[string]string) error {
+	known := make(map[string]bool, len(columns))
+	for _, column := range columns {
+		known[column] = true
+	}
+	paths := make([]string, 0, len(alignments))
+	for path := range alignments {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		align := alignments[path]
+		if !known[path] {
+			return fmt.Errorf("column alignment %q does not match a default column", path)
+		}
+		if align != "left" && align != "right" {
+			return fmt.Errorf("column alignment %q must be left or right", path)
+		}
+	}
+	return nil
+}
+
 func validCurrencyCode(value string) bool {
 	if len(value) != 3 {
 		return false
@@ -998,6 +1023,9 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 				MaxFractionDigits: format.MaxFractionDigits,
 			}
 		}
+	}
+	if override.Output != nil && len(override.Output.ColumnAlignments) > 0 {
+		spec.Output.ColumnAlignments = copyStringMap(override.Output.ColumnAlignments)
 	}
 	if override.Output != nil && override.Output.Streaming != nil {
 		stream := override.Output.Streaming
@@ -1523,6 +1551,9 @@ func outputHintsLiteral(hints runtime.OutputHints) string {
 	if len(hints.ColumnFormats) > 0 {
 		fmt.Fprintf(&b, "ColumnFormats: %s,", columnFormatMapLiteral(hints.ColumnFormats))
 	}
+	if len(hints.ColumnAlignments) > 0 {
+		fmt.Fprintf(&b, "ColumnAlignments: %s,", stringMapLiteral(hints.ColumnAlignments))
+	}
 	writeStringField(&b, "ResponseMediaType", hints.ResponseMediaType)
 	if hints.Pagination != nil {
 		fmt.Fprintf(&b, "Pagination: %s,", paginationHintLiteral(hints.Pagination))
@@ -1617,7 +1648,7 @@ func knownErrorsLiteral(errors []runtime.KnownError) string {
 }
 
 func outputHintsSet(hints runtime.OutputHints) bool {
-	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || len(hints.ColumnLabels) > 0 || len(hints.ColumnFormats) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
+	return hints.ListPath != "" || len(hints.DefaultColumns) > 0 || len(hints.ColumnLabels) > 0 || len(hints.ColumnFormats) > 0 || len(hints.ColumnAlignments) > 0 || hints.ResponseMediaType != "" || hints.Pagination != nil || hints.Streaming != nil
 }
 
 func writeStringField(b *strings.Builder, name, value string) {
@@ -1862,7 +1893,7 @@ var Specs = []runtime.CommandSpec{
 				{{- end}}
 			},
 			{{- end}}
-		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ColumnLabels $op.Output.ColumnFormats $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
+		{{- if or $op.Output.ListPath $op.Output.DefaultColumns $op.Output.ColumnLabels $op.Output.ColumnFormats $op.Output.ColumnAlignments $op.Output.ResponseMediaType $op.Output.Pagination $op.Output.Streaming}}
 		Output: {{outputHintsLiteral $op.Output}},
 		{{- end}}
 		{{- if $op.Security}}
