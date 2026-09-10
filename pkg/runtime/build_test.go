@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -1065,6 +1067,88 @@ func TestBuild_SensitiveVariableSafeInputModes(t *testing.T) {
 	input, _ := vars["input"].(map[string]any)
 	if input["apiKey"] != "sk-env" {
 		t.Fatalf("apiKey = %#v, want sk-env", input["apiKey"])
+	}
+}
+
+func TestBuild_StdinInputsObserveCommandCancellation(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "body file from stdin", args: []string{"--file", "-"}},
+		{name: "sensitive flag from stdin", args: []string{"--value-stdin"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bindTestManifest(t, "myctl", "MYCTL_HOST")
+			t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+			useBlockedStdin(t)
+
+			root := newRootWithModuleGroup()
+			root.SetOut(io.Discard)
+			root.SetErr(io.Discard)
+			root.PersistentFlags().String("hostname", "", "")
+			root.PersistentFlags().StringP("output", "o", "json", "")
+			mustBuild(t, root, "demo", []CommandSpec{{
+				Group:   "Users",
+				Use:     "create-user",
+				Method:  "POST",
+				PathTpl: "/users",
+				Params: []ParamSpec{
+					{Name: "value", Flag: "value", In: InBody, GoType: "string", Format: "password"},
+				},
+				RequestBody: &RequestBody{Required: true, MediaType: "application/json"},
+			}})
+			root.SetArgs(append([]string{"demo", "users", "create-user", "--hostname", "x.invalid", "--dry-run"}, tc.args...))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			root.SetContext(ctx)
+			time.AfterFunc(50*time.Millisecond, cancel)
+
+			errs := make(chan error, 1)
+			go func() { errs <- root.Execute() }()
+			select {
+			case err := <-errs:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("Execute err = %v, want context.Canceled", err)
+				}
+				if got := ClassifyError(err); got.Code != CodeCanceled || got.ExitCode != ExitCanceled {
+					t.Fatalf("classified as %s/%d, want %s/%d", got.Code, got.ExitCode, CodeCanceled, ExitCanceled)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Execute kept blocking on stdin after the command context was canceled")
+			}
+		})
+	}
+}
+
+// useBlockedStdin replaces os.Stdin with the read end of a pipe that never
+// receives data or EOF for the duration of the test.
+func useBlockedStdin(t *testing.T) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = orig
+		_ = w.Close()
+		_ = r.Close()
+	})
+}
+
+func TestInputError(t *testing.T) {
+	cmd := &cobra.Command{Use: "demo"}
+	canceled := fmt.Errorf("read stdin: %w", context.Canceled)
+	if got := inputError(cmd, canceled); got != canceled {
+		t.Fatalf("inputError(canceled) = %v, want the cancellation unchanged", got)
+	}
+	got := ClassifyError(inputError(cmd, errors.New("bad input")))
+	if got.Code != CodeUsage || got.ExitCode != ExitUsage {
+		t.Fatalf("inputError(other) classified as %s/%d, want %s/%d", got.Code, got.ExitCode, CodeUsage, ExitUsage)
 	}
 }
 
