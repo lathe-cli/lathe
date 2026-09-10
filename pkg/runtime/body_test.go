@@ -1,10 +1,17 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"testing/iotest"
+	"time"
 )
 
 func TestJSONBodyFromFlags(t *testing.T) {
@@ -348,5 +355,113 @@ func TestBuildBodyFromSet_Errors(t *testing.T) {
 				t.Errorf("expected error for %v", tc.in)
 			}
 		})
+	}
+}
+
+func TestReadStdin(t *testing.T) {
+	errRead := errors.New("read failed")
+	cases := []struct {
+		name     string
+		reader   func(t *testing.T) io.Reader
+		ctx      func(t *testing.T) context.Context
+		wantData string
+		wantErr  error
+	}{
+		{
+			name:     "reads until EOF",
+			reader:   func(*testing.T) io.Reader { return strings.NewReader(`{"name":"demo"}`) },
+			ctx:      func(*testing.T) context.Context { return context.Background() },
+			wantData: `{"name":"demo"}`,
+		},
+		{
+			name:    "propagates read errors",
+			reader:  func(*testing.T) io.Reader { return iotest.ErrReader(errRead) },
+			ctx:     func(*testing.T) context.Context { return context.Background() },
+			wantErr: errRead,
+		},
+		{
+			name:   "already canceled context skips the read",
+			reader: func(*testing.T) io.Reader { return iotest.ErrReader(errRead) },
+			ctx: func(*testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			wantErr: context.Canceled,
+		},
+		{
+			name:   "cancellation interrupts a blocked read",
+			reader: func(t *testing.T) io.Reader { return blockedReader(t) },
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				time.AfterFunc(50*time.Millisecond, cancel)
+				return ctx
+			},
+			wantErr: context.Canceled,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := readStdinWithin(t, tc.ctx(t), tc.reader(t), 5*time.Second)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if string(data) != tc.wantData {
+				t.Fatalf("data = %q, want %q", data, tc.wantData)
+			}
+		})
+	}
+}
+
+func TestReadBodyContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "body.json")
+	if err := os.WriteFile(path, []byte(`{"id":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := ReadBodyContext(context.Background(), path)
+	if err != nil || string(data) != `{"id":1}` {
+		t.Fatalf("ReadBodyContext(file) = %q, %v", data, err)
+	}
+	data, err = ReadBody(path)
+	if err != nil || string(data) != `{"id":1}` {
+		t.Fatalf("ReadBody(file) = %q, %v", data, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := ReadBodyContext(ctx, "-"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ReadBodyContext(canceled, \"-\") err = %v, want context.Canceled", err)
+	}
+}
+
+// blockedReader returns the read end of a pipe that never receives data, so
+// reads block until the test finishes and the write end is closed.
+func blockedReader(t *testing.T) io.Reader {
+	t.Helper()
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	return pr
+}
+
+// readStdinWithin runs readStdin and fails the test if it does not return
+// within timeout, so a regression to a blocking read cannot hang the suite.
+func readStdinWithin(t *testing.T, ctx context.Context, r io.Reader, timeout time.Duration) ([]byte, error) {
+	t.Helper()
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		data, err := readStdin(ctx, r)
+		done <- result{data: data, err: err}
+	}()
+	select {
+	case res := <-done:
+		return res.data, res.err
+	case <-time.After(timeout):
+		t.Fatalf("readStdin did not return within %s", timeout)
+		return nil, nil
 	}
 }

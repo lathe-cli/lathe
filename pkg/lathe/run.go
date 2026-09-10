@@ -36,6 +36,7 @@ func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 	format := errorOutputFormat(args)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	releaseInterruptOnCancel(ctx, stop)
 	m, err := config.Load(opts.Manifest)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -67,6 +68,17 @@ func run(opts RunOptions, args []string, stdout, stderr io.Writer) int {
 	}
 
 	return runtime.Execute(root)
+}
+
+// releaseInterruptOnCancel calls stop as soon as ctx is done. The first
+// interrupt only cancels ctx; releasing the signal handler right away restores
+// the default interrupt behavior, so a second Ctrl-C terminates the process
+// even when a blocking operation does not observe the cancellation.
+func releaseInterruptOnCancel(ctx context.Context, stop context.CancelFunc) {
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 }
 
 func errorOutputFormat(args []string) string {

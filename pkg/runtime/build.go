@@ -1,10 +1,10 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"slices"
 	"strconv"
@@ -169,7 +169,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return UsageError(cmd, err)
 			}
 			if err := resolveSafeInputFlags(cmd, s.Params, vals); err != nil {
-				return UsageError(cmd, err)
+				return inputError(cmd, err)
 			}
 			input := OperationInput{Values: vals, Changed: changed}
 			if err := resolveCommandContexts(cmd, s, &input); err != nil {
@@ -183,9 +183,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			var fileBody []byte
 			var err error
 			if hasFile {
-				fileBody, err = ReadBody(bodyFile)
+				fileBody, err = ReadBodyContext(cmd.Context(), bodyFile)
 				if err != nil {
-					return UsageError(cmd, err)
+					return inputError(cmd, err)
 				}
 			}
 			input.FileBody = fileBody
@@ -303,6 +303,15 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+// inputError reports a failed input read as a usage error unless the read was
+// cut short by command cancellation, which must stay classified as canceled.
+func inputError(cmd *cobra.Command, err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	return UsageError(cmd, err)
 }
 
 func apiErrorWithKnownDetail(s CommandSpec, err error) error {
@@ -560,7 +569,7 @@ func resolveSafeInputFlags(cmd *cobra.Command, params []ParamSpec, vals map[stri
 			}
 			value = string(data)
 		case cmd.Flags().Changed(p.Flag + "-stdin"):
-			data, err := io.ReadAll(os.Stdin)
+			data, err := readStdin(cmd.Context(), os.Stdin)
 			if err != nil {
 				return err
 			}

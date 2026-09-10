@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +11,44 @@ import (
 )
 
 // ReadBody reads a request body from a file path. If path is "-", reads from stdin.
+// It is equivalent to ReadBodyContext with a background context.
 func ReadBody(path string) ([]byte, error) {
+	return ReadBodyContext(context.Background(), path)
+}
+
+// ReadBodyContext reads a request body from a file path. If path is "-", it
+// reads stdin until EOF or until ctx is done, whichever comes first, and
+// returns ctx.Err() in the latter case.
+func ReadBodyContext(ctx context.Context, path string) ([]byte, error) {
 	if path == "-" {
-		return io.ReadAll(os.Stdin)
+		return readStdin(ctx, os.Stdin)
 	}
 	return os.ReadFile(path)
+}
+
+// readStdin reads r until EOF unless ctx is done first, in which case it
+// returns ctx.Err(). A read blocked on an open stdin cannot be interrupted, so
+// the reading goroutine may outlive this call; that is acceptable because a
+// canceled command is about to exit the process.
+func readStdin(ctx context.Context, r io.Reader) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	results := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		results <- readResult{data: data, err: err}
+	}()
+	select {
+	case res := <-results:
+		return res.data, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // BuildBodyFromSet turns repeated --set key.path=value flags into a JSON

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -155,6 +156,26 @@ func TestRunReportsMountError(t *testing.T) {
 	}
 	if got := stderr.String(); got != "Error: generated CLI failed to start\nHint: re-run code generation and rebuild the CLI\n" {
 		t.Fatalf("stderr = %q", got)
+	}
+}
+
+func TestReleaseInterruptOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan struct{})
+	releaseInterruptOnCancel(ctx, func() { close(stopped) })
+
+	select {
+	case <-stopped:
+		t.Fatal("stop called before the context was canceled")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop not called after the context was canceled")
 	}
 }
 
