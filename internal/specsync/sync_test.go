@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestSyncRejectsMovedTagWithExistingCheckout(t *testing.T) {
 	upstream := filepath.Join(t.TempDir(), "upstream")
-	if err := os.MkdirAll(upstream, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(upstream, 0o755))
 	runGit := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
@@ -30,9 +30,7 @@ func TestSyncRejectsMovedTagWithExistingCheckout(t *testing.T) {
 	writeSpec := func(version int) {
 		t.Helper()
 		body := []byte(fmt.Sprintf("{\"version\":%d}\n", version))
-		if err := os.WriteFile(filepath.Join(upstream, "swagger.json"), body, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		testutil.NoError(t, os.WriteFile(filepath.Join(upstream, "swagger.json"), body, 0o644))
 		runGit("add", "swagger.json")
 		runGit("-c", "user.name=Lathe Test", "-c", "user.email=lathe@example.com", "commit", "--quiet", "-m", "fixture")
 	}
@@ -50,25 +48,15 @@ func TestSyncRejectsMovedTagWithExistingCheckout(t *testing.T) {
 		},
 	}}
 	cache := t.TempDir()
-	if err := Sync(cfg, Options{CacheRoot: cache}); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, Sync(cfg, Options{CacheRoot: cache}))
 	synced, err := os.ReadFile(filepath.Join(cache, SyncSubdir, "demo", "swagger.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(synced) != "{\"version\":1}\n" {
-		t.Fatalf("synced spec = %q, want configured tag contents", synced)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, string(synced) == "{\"version\":1}\n", "synced spec = %q, want configured tag contents", synced)
 	runGit("tag", "-f", "v1.0.0")
 
 	err = Sync(cfg, Options{CacheRoot: cache})
-	if err == nil {
-		t.Fatal("Sync accepted a cached checkout after its configured tag moved upstream")
-	}
-	if !strings.Contains(err.Error(), "changed upstream") {
-		t.Fatalf("Sync error = %v, want moved-ref diagnostic", err)
-	}
+	testutil.Require(t, err != nil, "Sync accepted a cached checkout after its configured tag moved upstream")
+	testutil.Require(t, strings.Contains(err.Error(), "changed upstream"), "Sync error = %v, want moved-ref diagnostic", err)
 }
 
 func TestSyncConcurrentProcessesShareCheckout(t *testing.T) {
@@ -82,16 +70,12 @@ func TestSyncConcurrentProcessesShareCheckout(t *testing.T) {
 				Swagger:   &sourceconfig.SwaggerConfig{Files: []string{"swagger.json"}},
 			},
 		}}
-		if err := Sync(cfg, Options{CacheRoot: os.Getenv("LATHE_SPECSYNC_CACHE")}); err != nil {
-			t.Fatal(err)
-		}
+		testutil.NoError(t, Sync(cfg, Options{CacheRoot: os.Getenv("LATHE_SPECSYNC_CACHE")}))
 		return
 	}
 
 	upstream := filepath.Join(t.TempDir(), "upstream")
-	if err := os.MkdirAll(upstream, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(upstream, 0o755))
 	runGit := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
@@ -101,17 +85,13 @@ func TestSyncConcurrentProcessesShareCheckout(t *testing.T) {
 		}
 	}
 	runGit("init", "--quiet")
-	if err := os.WriteFile(filepath.Join(upstream, "swagger.json"), []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(filepath.Join(upstream, "swagger.json"), []byte("{}\n"), 0o644))
 	runGit("add", "swagger.json")
 	runGit("-c", "user.name=Lathe Test", "-c", "user.email=lathe@example.com", "commit", "--quiet", "-m", "fixture")
 	runGit("tag", "v1.0.0")
 
 	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	wrapperDir := t.TempDir()
 	barrierDir := t.TempDir()
 	wrapper := filepath.Join(wrapperDir, "git")
@@ -129,9 +109,7 @@ if [ "$1" = "clone" ]; then
 fi
 exec "$LATHE_SPECSYNC_REAL_GIT" "$@"
 `
-	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(wrapper, []byte(script), 0o755))
 
 	cache := t.TempDir()
 	command := func(name string, output *bytes.Buffer) *exec.Cmd {
@@ -151,9 +129,7 @@ exec "$LATHE_SPECSYNC_REAL_GIT" "$@"
 	var outputA, outputB bytes.Buffer
 	cmdA := command("qdrant-a", &outputA)
 	cmdB := command("qdrant-b", &outputB)
-	if err := cmdA.Start(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, cmdA.Start())
 	if err := cmdB.Start(); err != nil {
 		_ = cmdA.Process.Kill()
 		_ = cmdA.Wait()
@@ -165,30 +141,20 @@ exec "$LATHE_SPECSYNC_REAL_GIT" "$@"
 		t.Fatalf("concurrent sync failed: a=%v\n%s\nb=%v\n%s", errA, outputA.Bytes(), errB, outputB.Bytes())
 	}
 	checkouts, err := os.ReadDir(filepath.Join(cache, WorkSubdir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(checkouts) != 1 {
-		t.Fatalf("checkout count = %d, want 1", len(checkouts))
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, len(checkouts) == 1, "checkout count = %d, want 1", len(checkouts))
 }
 
 func TestSyncProtoStagesGitDependency(t *testing.T) {
 	dependency := filepath.Join(t.TempDir(), "dependency")
-	if err := os.MkdirAll(filepath.Join(dependency, "types"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dependency, "types", "types.proto"), []byte("syntax = \"proto3\"; package types; message Value {}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(filepath.Join(dependency, "types"), 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(dependency, "types", "types.proto"), []byte("syntax = \"proto3\"; package types; message Value {}\n"), 0o644))
 	runGit := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dependency
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+		testutil.Require(t, err == nil, "git %v: %v\n%s", args, err, out)
 		return strings.TrimSpace(string(out))
 	}
 	runGit("init", "--quiet")
@@ -197,13 +163,9 @@ func TestSyncProtoStagesGitDependency(t *testing.T) {
 	sha := runGit("rev-parse", "HEAD")
 
 	source := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(source, "api"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(filepath.Join(source, "api"), 0o755))
 	service := "syntax = \"proto3\"; package api; import \"example.com/dependency/types/types.proto\"; service Demo {}\n"
-	if err := os.WriteFile(filepath.Join(source, "api", "service.proto"), []byte(service), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(filepath.Join(source, "api", "service.proto"), []byte(service), 0o644))
 
 	binDir := t.TempDir()
 	protoc := filepath.Join(binDir, "protoc")
@@ -217,9 +179,7 @@ done
 [ -n "$out" ]
 : > "$out"
 `
-	if err := os.WriteFile(protoc, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(protoc, []byte(script), 0o755))
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	cfg := &sourceconfig.Config{Sources: map[string]*sourceconfig.Source{
@@ -239,30 +199,20 @@ done
 			},
 		},
 	}}
-	if err := Sync(cfg, Options{CacheRoot: t.TempDir()}); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, Sync(cfg, Options{CacheRoot: t.TempDir()}))
 }
 
 func TestCopyProtoTreeRejectsConflictingStaging(t *testing.T) {
 	first, second, dst := t.TempDir(), t.TempDir(), t.TempDir()
 	stage := func(dir, body string) {
 		t.Helper()
-		if err := os.MkdirAll(filepath.Join(dir, "google", "api"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "google", "api", "annotations.proto"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		testutil.NoError(t, os.MkdirAll(filepath.Join(dir, "google", "api"), 0o755))
+		testutil.NoError(t, os.WriteFile(filepath.Join(dir, "google", "api", "annotations.proto"), []byte(body), 0o644))
 	}
 	stage(first, "syntax = \"proto3\";\n")
 	stage(second, "syntax = \"proto3\";\n")
-	if err := copyProtoTree(first, dst); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyProtoTree(second, dst); err != nil {
-		t.Fatalf("identical staged content must not collide: %v", err)
-	}
+	testutil.NoError(t, copyProtoTree(first, dst))
+	testutil.NoError(t, copyProtoTree(second, dst))
 	stage(second, "syntax = \"proto3\";\npackage other;\n")
 	if err := copyProtoTree(second, dst); err == nil || !strings.Contains(err.Error(), "collision") {
 		t.Fatalf("conflicting staged content error = %v", err)
@@ -277,21 +227,15 @@ func TestMaterializeProtoDependencyGoModuleVerifiesSum(t *testing.T) {
 set -eu
 printf '{"Dir":"%s","Sum":"h1:fixture"}\n' "$LATHE_FAKE_GO_MODULE"
 `
-	if err := os.WriteFile(goBin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(goBin, []byte(script), 0o755))
 	t.Setenv("LATHE_FAKE_GO_MODULE", moduleDir)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dep := sourceconfig.ProtoDependency{
 		Kind: sourceconfig.ProtoDependencyGoModule, Module: "example.com/dependency", Version: "v1.2.3", Sum: "h1:fixture",
 	}
 	got, err := materializeProtoDependency(dep, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != moduleDir {
-		t.Fatalf("module dir = %q, want %q", got, moduleDir)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, got == moduleDir, "module dir = %q, want %q", got, moduleDir)
 	dep.Sum = "h1:wrong"
 	if _, err := materializeProtoDependency(dep, t.TempDir()); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatalf("checksum mismatch error = %v", err)
@@ -319,9 +263,7 @@ mkdir -p "$out/google/api"
 printf 'syntax = "proto3";\n' > "$out/google/api/annotations.proto"
 printf 'x\n' >> "$LATHE_FAKE_BUF_LOG"
 `
-	if err := os.WriteFile(bufBin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(bufBin, []byte(script), 0o755))
 	t.Setenv("LATHE_FAKE_BUF_LOG", logPath)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dep := sourceconfig.ProtoDependency{
@@ -330,23 +272,13 @@ printf 'x\n' >> "$LATHE_FAKE_BUF_LOG"
 	}
 	workRoot := t.TempDir()
 	first, err := materializeProtoDependency(dep, workRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	second, err := materializeProtoDependency(dep, workRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("cached roots differ: %q != %q", first, second)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, first == second, "cached roots differ: %q != %q", first, second)
 	calls, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(calls) != "x\n" {
-		t.Fatalf("buf calls = %q, want one export", calls)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, string(calls) == "x\n", "buf calls = %q, want one export", calls)
 	dep.Digest = "b5:wrong"
 	if _, err := materializeProtoDependency(dep, t.TempDir()); err == nil || !strings.Contains(err.Error(), "digest") {
 		t.Fatalf("digest mismatch error = %v", err)

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func newSearchFixture(t *testing.T) *cobra.Command {
@@ -121,15 +123,9 @@ func TestSearchCatalog_RelevanceBenchmark(t *testing.T) {
 	mrr := reciprocal / total
 	t.Logf("relevance: cases=%d top1=%.3f top3=%.3f mrr=%.3f", len(relevanceCases), top1Rate, top3Rate, mrr)
 
-	if top1Rate < 1 {
-		t.Errorf("top-1 = %.3f, want 1.000", top1Rate)
-	}
-	if top3Rate < 1 {
-		t.Errorf("top-3 = %.3f, want 1.000", top3Rate)
-	}
-	if mrr < 1 {
-		t.Errorf("MRR = %.3f, want 1.000", mrr)
-	}
+	testutil.Check(t, top1Rate >= 1, "top-1 = %.3f, want 1.000", top1Rate)
+	testutil.Check(t, top3Rate >= 1, "top-3 = %.3f, want 1.000", top3Rate)
+	testutil.Check(t, mrr >= 1, "MRR = %.3f, want 1.000", mrr)
 
 	for _, query := range relevanceNoMatch {
 		if paths := searchPaths(root, query); len(paths) != 0 {
@@ -143,15 +139,11 @@ func TestSearchCatalog_RejectsInfixSubstringNoise(t *testing.T) {
 
 	paths := searchPaths(root, "get")
 	for _, path := range paths {
-		if strings.Contains(path, "widgets") && !strings.Contains(path, "get-widget") {
-			t.Errorf("query %q matched %q on an infix substring", "get", path)
-		}
+		testutil.Check(t, !strings.Contains(path, "widgets") || strings.Contains(path, "get-widget"), "query %q matched %q on an infix substring", "get", path)
 	}
 	want := []string{"core users get-user", "core widgets get-widget", "jobs jobs get-job-status"}
 	for _, expected := range want {
-		if !slices.Contains(paths, expected) {
-			t.Errorf("query %q lost %q; got %v", "get", expected, paths)
-		}
+		testutil.Check(t, slices.Contains(paths, expected), "query %q lost %q; got %v", "get", expected, paths)
 	}
 }
 
@@ -203,12 +195,8 @@ func TestSearchCatalog_SearchTermsSurfaceCommand(t *testing.T) {
 	})
 
 	paths := searchPaths(root, "spend")
-	if len(paths) == 0 || paths[0] != "billing usage usage-summary" {
-		t.Fatalf("query %q = %v, want usage-summary first", "spend", paths)
-	}
-	if slices.Contains(paths, "billing invoices list-invoices") {
-		t.Fatalf("query %q matched unrelated command: %v", "spend", paths)
-	}
+	testutil.Require(t, len(paths) != 0 && paths[0] == "billing usage usage-summary", "query %q = %v, want usage-summary first", "spend", paths)
+	testutil.Require(t, !slices.Contains(paths, "billing invoices list-invoices"), "query %q matched unrelated command: %v", "spend", paths)
 
 	if paths := searchPaths(root, "usage summary"); len(paths) == 0 || paths[0] != "billing usage usage-summary" {
 		t.Fatalf("identity query = %v, want usage-summary first", paths)
@@ -226,8 +214,6 @@ func TestSearchCatalog_SearchTermsSurfaceCommand(t *testing.T) {
 				synonym = r.Score
 			}
 		}
-		if synonym <= 0 || synonym >= direct {
-			t.Fatalf("synonym score %d must be positive and below direct identity score %d", synonym, direct)
-		}
+		testutil.Require(t, synonym > 0 && synonym < direct, "synonym score %d must be positive and below direct identity score %d", synonym, direct)
 	}
 }

@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestBearerAuth_Apply(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (BearerAuth{Token: "abc"}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (BearerAuth{Token: "abc"}).Apply(req))
 	if got := req.Header.Get("Authorization"); got != "Bearer abc" {
 		t.Errorf("want Bearer abc, got %q", got)
 	}
@@ -19,9 +19,7 @@ func TestBearerAuth_Apply(t *testing.T) {
 
 func TestBearerAuth_Empty(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (BearerAuth{}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (BearerAuth{}).Apply(req))
 	if got := req.Header.Get("Authorization"); got != "" {
 		t.Errorf("want empty, got %q", got)
 	}
@@ -29,9 +27,7 @@ func TestBearerAuth_Empty(t *testing.T) {
 
 func TestAPIKeyAuth_DefaultHeader(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (APIKeyAuth{Key: "k1"}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (APIKeyAuth{Key: "k1"}).Apply(req))
 	if got := req.Header.Get("X-API-Key"); got != "k1" {
 		t.Errorf("want k1, got %q", got)
 	}
@@ -39,9 +35,7 @@ func TestAPIKeyAuth_DefaultHeader(t *testing.T) {
 
 func TestAPIKeyAuth_CustomHeader(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (APIKeyAuth{Key: "k2", Header: "Authorization"}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (APIKeyAuth{Key: "k2", Header: "Authorization"}).Apply(req))
 	if got := req.Header.Get("Authorization"); got != "k2" {
 		t.Errorf("want k2, got %q", got)
 	}
@@ -49,9 +43,7 @@ func TestAPIKeyAuth_CustomHeader(t *testing.T) {
 
 func TestAPIKeyAuth_CustomLowercaseHeader(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (APIKeyAuth{Key: "k3", Header: "x-api-key"}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (APIKeyAuth{Key: "k3", Header: "x-api-key"}).Apply(req))
 	if got := req.Header.Get("x-api-key"); got != "k3" {
 		t.Errorf("want k3, got %q", got)
 	}
@@ -59,9 +51,7 @@ func TestAPIKeyAuth_CustomLowercaseHeader(t *testing.T) {
 
 func TestAPIKeyAuth_Empty(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (APIKeyAuth{}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (APIKeyAuth{}).Apply(req))
 	if got := req.Header.Get("X-API-Key"); got != "" {
 		t.Errorf("want empty, got %q", got)
 	}
@@ -69,23 +59,15 @@ func TestAPIKeyAuth_Empty(t *testing.T) {
 
 func TestBasicAuth_Apply(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (BasicAuth{Username: "alice", Password: "s3cret"}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (BasicAuth{Username: "alice", Password: "s3cret"}).Apply(req))
 	u, p, ok := req.BasicAuth()
-	if !ok {
-		t.Fatal("BasicAuth not set")
-	}
-	if u != "alice" || p != "s3cret" {
-		t.Errorf("want alice:s3cret, got %s:%s", u, p)
-	}
+	testutil.Require(t, ok, "BasicAuth not set")
+	testutil.Check(t, u == "alice" && p == "s3cret", "want alice:s3cret, got %s:%s", u, p)
 }
 
 func TestBasicAuth_Empty(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (BasicAuth{}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (BasicAuth{}).Apply(req))
 	if got := req.Header.Get("Authorization"); got != "" {
 		t.Errorf("want empty, got %q", got)
 	}
@@ -93,9 +75,7 @@ func TestBasicAuth_Empty(t *testing.T) {
 
 func TestNoAuth_Apply(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://x", nil)
-	if err := (NoAuth{}).Apply(req); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, (NoAuth{}).Apply(req))
 	if got := req.Header.Get("Authorization"); got != "" {
 		t.Errorf("want empty, got %q", got)
 	}
@@ -131,12 +111,8 @@ func TestNewAuthFromHost(t *testing.T) {
 			entry: config.HostEntry{AuthType: "apikey", APIKey: "k1", APIKeyHeader: "X-Custom"},
 			check: func(t *testing.T, a Authenticator) {
 				ak, ok := a.(APIKeyAuth)
-				if !ok {
-					t.Fatalf("want APIKeyAuth, got %T", a)
-				}
-				if ak.Header != "X-Custom" {
-					t.Errorf("want X-Custom, got %q", ak.Header)
-				}
+				testutil.Require(t, ok, "want APIKeyAuth, got %T", a)
+				testutil.Check(t, ak.Header == "X-Custom", "want X-Custom, got %q", ak.Header)
 			},
 		},
 		{
@@ -144,12 +120,8 @@ func TestNewAuthFromHost(t *testing.T) {
 			entry: config.HostEntry{AuthType: "apikey", APIKey: "k2", APIKeyHeader: "x-api-key"},
 			check: func(t *testing.T, a Authenticator) {
 				ak, ok := a.(APIKeyAuth)
-				if !ok {
-					t.Fatalf("want APIKeyAuth, got %T", a)
-				}
-				if ak.Header != "x-api-key" {
-					t.Errorf("want x-api-key, got %q", ak.Header)
-				}
+				testutil.Require(t, ok, "want APIKeyAuth, got %T", a)
+				testutil.Check(t, ak.Header == "x-api-key", "want x-api-key, got %q", ak.Header)
 			},
 		},
 		{
@@ -171,14 +143,10 @@ func TestNewAuthFromHost(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a, err := NewAuthFromHost(tc.entry)
 			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				testutil.Require(t, err != nil, "expected error")
 				return
 			}
-			if err != nil {
-				t.Fatal(err)
-			}
+			testutil.Require(t, err == nil, "%v", err)
 			tc.check(t, a)
 		})
 	}

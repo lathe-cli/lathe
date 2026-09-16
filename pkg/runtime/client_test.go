@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestDoRaw_SendsMethodPathAndQuery(t *testing.T) {
@@ -25,24 +27,12 @@ func TestDoRaw_SendsMethodPathAndQuery(t *testing.T) {
 	defer srv.Close()
 
 	data, err := DoRaw(context.Background(), srv.URL, "GET", "/users?limit=5", nil, ClientOptions{Timeout: 5 * time.Second})
-	if err != nil {
-		t.Fatalf("DoRaw: %v", err)
-	}
-	if gotMethod != "GET" {
-		t.Errorf("method = %q, want GET", gotMethod)
-	}
-	if gotPath != "/users" {
-		t.Errorf("path = %q, want /users", gotPath)
-	}
-	if gotQuery != "limit=5" {
-		t.Errorf("query = %q, want limit=5", gotQuery)
-	}
-	if gotAccept != "application/json" {
-		t.Errorf("Accept = %q, want application/json", gotAccept)
-	}
-	if string(data) != `{"ok":true}` {
-		t.Errorf("body = %s, want {\"ok\":true}", data)
-	}
+	testutil.Require(t, err == nil, "DoRaw: %v", err)
+	testutil.Check(t, gotMethod == "GET", "method = %q, want GET", gotMethod)
+	testutil.Check(t, gotPath == "/users", "path = %q, want /users", gotPath)
+	testutil.Check(t, gotQuery == "limit=5", "query = %q, want limit=5", gotQuery)
+	testutil.Check(t, gotAccept == "application/json", "Accept = %q, want application/json", gotAccept)
+	testutil.Check(t, string(data) == `{"ok":true}`, "body = %s, want {\"ok\":true}", data)
 }
 
 func TestDoRaw_PreservesHostnameBasePath(t *testing.T) {
@@ -68,9 +58,7 @@ func TestDoRaw_PreservesHostnameBasePath(t *testing.T) {
 			if _, err := DoRaw(context.Background(), srv.URL+tc.base, http.MethodGet, tc.path, nil, ClientOptions{Timeout: 5 * time.Second}); err != nil {
 				t.Fatalf("DoRaw: %v", err)
 			}
-			if got != tc.want {
-				t.Fatalf("request path = %q, want %q", got, tc.want)
-			}
+			testutil.Require(t, got == tc.want, "request path = %q, want %q", got, tc.want)
 		})
 	}
 }
@@ -86,9 +74,7 @@ func TestDoRaw_SendsAuthorizationWhenTokenProvided(t *testing.T) {
 	if _, err := DoRaw(context.Background(), srv.URL, "GET", "/x", nil, ClientOptions{Auth: BearerAuth{Token: "sekret"}, Timeout: 5 * time.Second}); err != nil {
 		t.Fatalf("DoRaw: %v", err)
 	}
-	if gotAuth != "Bearer sekret" {
-		t.Errorf("Authorization = %q, want Bearer sekret", gotAuth)
-	}
+	testutil.Check(t, gotAuth == "Bearer sekret", "Authorization = %q, want Bearer sekret", gotAuth)
 }
 
 func TestDoRaw_4xxReturnsHTTPError(t *testing.T) {
@@ -100,15 +86,9 @@ func TestDoRaw_4xxReturnsHTTPError(t *testing.T) {
 
 	_, err := DoRaw(context.Background(), srv.URL, "GET", "/missing", nil, ClientOptions{Timeout: 5 * time.Second})
 	var he *HTTPError
-	if !errors.As(err, &he) {
-		t.Fatalf("want *HTTPError, got %T: %v", err, err)
-	}
-	if he.Status != http.StatusNotFound {
-		t.Errorf("HTTPError.Status = %d, want 404", he.Status)
-	}
-	if string(he.Body) != `{"error":"not found"}` {
-		t.Errorf("HTTPError.Body = %s", he.Body)
-	}
+	testutil.Require(t, errors.As(err, &he), "want *HTTPError, got %T: %v", err, err)
+	testutil.Check(t, he.Status == http.StatusNotFound, "HTTPError.Status = %d, want 404", he.Status)
+	testutil.Check(t, string(he.Body) == `{"error":"not found"}`, "HTTPError.Body = %s", he.Body)
 }
 
 func TestInvokeOperation_RedactsQueryCredentialFromHTTPError(t *testing.T) {
@@ -130,15 +110,9 @@ func TestInvokeOperation_RedactsQueryCredentialFromHTTPError(t *testing.T) {
 		Values:  map[string]any{"key": secret},
 		Changed: map[string]bool{"key": true},
 	}, OperationOptions{Hostname: srv.URL, Client: ClientOptions{MaxRetries: -1}})
-	if err == nil {
-		t.Fatal("InvokeOperation returned nil error")
-	}
-	if gotSecret != secret {
-		t.Fatalf("server query credential = %q", gotSecret)
-	}
-	if strings.Contains(err.Error(), secret) {
-		t.Fatalf("HTTP error leaked query credential: %v", err)
-	}
+	testutil.Require(t, err != nil, "InvokeOperation returned nil error")
+	testutil.Require(t, gotSecret == secret, "server query credential = %q", gotSecret)
+	testutil.Require(t, !strings.Contains(err.Error(), secret), "HTTP error leaked query credential: %v", err)
 }
 
 func TestInvokeOperation_RedactsQueryCredentialFromTransportError(t *testing.T) {
@@ -161,12 +135,8 @@ func TestInvokeOperation_RedactsQueryCredentialFromTransportError(t *testing.T) 
 			}),
 		},
 	})
-	if err == nil {
-		t.Fatal("InvokeOperation returned nil error")
-	}
-	if strings.Contains(err.Error(), secret) {
-		t.Fatalf("transport error leaked query credential: %v", err)
-	}
+	testutil.Require(t, err != nil, "InvokeOperation returned nil error")
+	testutil.Require(t, !strings.Contains(err.Error(), secret), "transport error leaked query credential: %v", err)
 }
 
 func TestDoRaw_RedactsMalformedRedirectLocation(t *testing.T) {
@@ -179,12 +149,8 @@ func TestDoRaw_RedactsMalformedRedirectLocation(t *testing.T) {
 	defer srv.Close()
 
 	_, err := DoRaw(context.Background(), srv.URL, http.MethodGet, "/", nil, ClientOptions{MaxRetries: -1})
-	if err == nil {
-		t.Fatal("DoRaw returned nil error")
-	}
-	if strings.Contains(err.Error(), password) || strings.Contains(err.Error(), signature) {
-		t.Fatalf("redirect error leaked Location credential: %v", err)
-	}
+	testutil.Require(t, err != nil, "DoRaw returned nil error")
+	testutil.Require(t, !strings.Contains(err.Error(), password) && !strings.Contains(err.Error(), signature), "redirect error leaked Location credential: %v", err)
 }
 
 // HTTP 401 comes from the server and must surface as *HTTPError. It is NOT the
@@ -197,13 +163,9 @@ func TestDoRaw_401IsNotErrNotAuthenticated(t *testing.T) {
 	defer srv.Close()
 
 	_, err := DoRaw(context.Background(), srv.URL, "GET", "/x", nil, ClientOptions{Timeout: 5 * time.Second})
-	if errors.Is(err, ErrNotAuthenticated) {
-		t.Errorf("HTTP 401 must not wrap ErrNotAuthenticated: %v", err)
-	}
+	testutil.Check(t, !errors.Is(err, ErrNotAuthenticated), "HTTP 401 must not wrap ErrNotAuthenticated: %v", err)
 	var he *HTTPError
-	if !errors.As(err, &he) || he.Status != http.StatusUnauthorized {
-		t.Errorf("want *HTTPError with Status=401, got: %v", err)
-	}
+	testutil.Check(t, errors.As(err, &he) && he.Status == http.StatusUnauthorized, "want *HTTPError with Status=401, got: %v", err)
 }
 
 func TestDoRaw_EncodesJSONBody(t *testing.T) {
@@ -220,12 +182,8 @@ func TestDoRaw_EncodesJSONBody(t *testing.T) {
 	if _, err := DoRaw(context.Background(), srv.URL, "POST", "/users", body, ClientOptions{Timeout: 5 * time.Second}); err != nil {
 		t.Fatalf("DoRaw: %v", err)
 	}
-	if gotContentType != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", gotContentType)
-	}
-	if string(gotBody) != `{"name":"alice"}` {
-		t.Errorf("body = %s", gotBody)
-	}
+	testutil.Check(t, gotContentType == "application/json", "Content-Type = %q, want application/json", gotContentType)
+	testutil.Check(t, string(gotBody) == `{"name":"alice"}`, "body = %s", gotBody)
 }
 
 func TestDoRaw_EncodesFormBody(t *testing.T) {
@@ -242,9 +200,7 @@ func TestDoRaw_EncodesFormBody(t *testing.T) {
 	if _, err := DoRaw(context.Background(), srv.URL, "POST", "/upload", form, ClientOptions{Timeout: 5 * time.Second}); err != nil {
 		t.Fatalf("DoRaw: %v", err)
 	}
-	if gotContentType != "application/x-www-form-urlencoded" {
-		t.Errorf("Content-Type = %q, want application/x-www-form-urlencoded", gotContentType)
-	}
+	testutil.Check(t, gotContentType == "application/x-www-form-urlencoded", "Content-Type = %q, want application/x-www-form-urlencoded", gotContentType)
 	if string(gotBody) != form.Encode() {
 		t.Errorf("body = %q, want %q", gotBody, form.Encode())
 	}
@@ -270,15 +226,9 @@ func TestDoRaw_RefreshesAuthAndRetriesOnceOn401(t *testing.T) {
 		},
 		Timeout: 5 * time.Second,
 	})
-	if err != nil {
-		t.Fatalf("DoRaw: %v", err)
-	}
-	if string(data) != `{"ok":true}` {
-		t.Fatalf("data = %s", data)
-	}
-	if len(seen) != 2 || seen[0] != "Bearer old" || seen[1] != "Bearer new" {
-		t.Fatalf("authorization sequence = %#v", seen)
-	}
+	testutil.Require(t, err == nil, "DoRaw: %v", err)
+	testutil.Require(t, string(data) == `{"ok":true}`, "data = %s", data)
+	testutil.Require(t, len(seen) == 2 && seen[0] == "Bearer old" && seen[1] == "Bearer new", "authorization sequence = %#v", seen)
 }
 
 func TestDoRawFull_StreamCancellationClosesResponse(t *testing.T) {
@@ -313,9 +263,7 @@ func TestDoRawFull_StreamCancellationClosesResponse(t *testing.T) {
 	}
 	select {
 	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("stream error = %v, want context canceled", err)
-		}
+		testutil.Require(t, errors.Is(err, context.Canceled), "stream error = %v, want context canceled", err)
 	case <-time.After(time.Second):
 		t.Fatal("stream call did not return after cancellation")
 	}

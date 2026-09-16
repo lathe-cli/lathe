@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestPollUntilDone_ImmediateSuccess(t *testing.T) {
@@ -19,16 +21,10 @@ func TestPollUntilDone_ImmediateSuccess(t *testing.T) {
 	defer srv.Close()
 
 	data, err := PollUntilDone(context.Background(), srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 10*time.Second)
-	if err != nil {
-		t.Fatalf("PollUntilDone: %v", err)
-	}
+	testutil.Require(t, err == nil, "PollUntilDone: %v", err)
 	var result map[string]string
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if result["status"] != "done" {
-		t.Errorf("got status %q, want done", result["status"])
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
+	testutil.Check(t, result["status"] == "done", "got status %q, want done", result["status"])
 }
 
 func TestPollUntilDone_EventualSuccess(t *testing.T) {
@@ -47,16 +43,10 @@ func TestPollUntilDone_EventualSuccess(t *testing.T) {
 	defer srv.Close()
 
 	data, err := PollUntilDone(context.Background(), srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second)
-	if err != nil {
-		t.Fatalf("PollUntilDone: %v", err)
-	}
+	testutil.Require(t, err == nil, "PollUntilDone: %v", err)
 	var result map[string]string
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if result["status"] != "done" {
-		t.Errorf("got status %q, want done", result["status"])
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
+	testutil.Check(t, result["status"] == "done", "got status %q, want done", result["status"])
 	if atomic.LoadInt32(&call) != 3 {
 		t.Errorf("made %d requests, want 3", atomic.LoadInt32(&call))
 	}
@@ -73,9 +63,7 @@ func TestPollUntilDone_AcceptsSameHostAbsoluteLocation(t *testing.T) {
 	if _, err := PollUntilDone(context.Background(), srv.URL, srv.URL+"/status?job=1", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second); err != nil {
 		t.Fatalf("PollUntilDone: %v", err)
 	}
-	if gotPath != "/status?job=1" {
-		t.Errorf("poll path = %q, want /status?job=1", gotPath)
-	}
+	testutil.Check(t, gotPath == "/status?job=1", "poll path = %q, want /status?job=1", gotPath)
 }
 
 func TestPollUntilDone_AcceptsDefaultPortAbsoluteLocation(t *testing.T) {
@@ -88,9 +76,7 @@ func TestPollUntilDone_AcceptsDefaultPortAbsoluteLocation(t *testing.T) {
 	if _, err := PollUntilDone(context.Background(), "api.example.com", "https://api.example.com:443/status", opts, 30*time.Second); err != nil {
 		t.Fatalf("PollUntilDone: %v", err)
 	}
-	if gotHost != "api.example.com" {
-		t.Errorf("host = %q, want api.example.com", gotHost)
-	}
+	testutil.Check(t, gotHost == "api.example.com", "host = %q, want api.example.com", gotHost)
 }
 
 func TestPollUntilDone_RejectsCrossHostAbsoluteLocation(t *testing.T) {
@@ -104,18 +90,12 @@ func TestPollUntilDone_RejectsCrossHostAbsoluteLocation(t *testing.T) {
 
 	opts := ClientOptions{Timeout: 5 * time.Second}
 	_, err := PollUntilDone(context.Background(), srv.URL, "/status", opts, 30*time.Second)
-	if err == nil || !strings.Contains(err.Error(), "cross-host polling location") {
-		t.Fatalf("PollUntilDone error = %v, want cross-host polling location", err)
-	}
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "cross-host polling location"), "PollUntilDone error = %v, want cross-host polling location", err)
 	if got := ClassifyError(err).Code; got != CodeAPIError {
 		t.Fatalf("error code = %q, want %q", got, CodeAPIError)
 	}
-	if strings.Contains(err.Error(), querySecret) || strings.Contains(err.Error(), password) {
-		t.Fatalf("PollUntilDone error leaked Location credential: %v", err)
-	}
-	if !strings.Contains(err.Error(), "user:xxxxx@example.com") {
-		t.Fatalf("PollUntilDone error did not redact userinfo password: %v", err)
-	}
+	testutil.Require(t, !strings.Contains(err.Error(), querySecret) && !strings.Contains(err.Error(), password), "PollUntilDone error leaked Location credential: %v", err)
+	testutil.Require(t, strings.Contains(err.Error(), "user:xxxxx@example.com"), "PollUntilDone error did not redact userinfo password: %v", err)
 }
 
 func TestPollUntilDone_RejectsCrossHostRedirect(t *testing.T) {
@@ -135,9 +115,7 @@ func TestPollUntilDone_RejectsCrossHostRedirect(t *testing.T) {
 		Auth:    APIKeyAuth{Key: "secret"},
 		Timeout: 5 * time.Second,
 	}, 30*time.Second)
-	if err == nil {
-		t.Error("PollUntilDone followed a cross-host redirect")
-	}
+	testutil.Check(t, err != nil, "PollUntilDone followed a cross-host redirect")
 	select {
 	case key := <-reached:
 		t.Errorf("cross-host redirect received X-API-Key %q", key)
@@ -160,12 +138,8 @@ func TestPollUntilDone_RelativeLocationCannotChangeAuthority(t *testing.T) {
 	if _, err := PollUntilDone(context.Background(), "trusted.example", "@attacker.example/status", opts, 30*time.Second); err != nil {
 		t.Fatalf("PollUntilDone: %v", err)
 	}
-	if gotHost != "trusted.example" || gotPath != "/@attacker.example/status" {
-		t.Fatalf("poll target = %q%s, want trusted.example/@attacker.example/status", gotHost, gotPath)
-	}
-	if gotAuth != "Bearer secret" {
-		t.Fatalf("same-origin authorization = %q", gotAuth)
-	}
+	testutil.Require(t, gotHost == "trusted.example" && gotPath == "/@attacker.example/status", "poll target = %q%s, want trusted.example/@attacker.example/status", gotHost, gotPath)
+	testutil.Require(t, gotAuth == "Bearer secret", "same-origin authorization = %q", gotAuth)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -181,9 +155,7 @@ func TestPollUntilDone_Timeout(t *testing.T) {
 	defer srv.Close()
 
 	_, err := PollUntilDone(context.Background(), srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 2*time.Second)
-	if err == nil {
-		t.Fatal("expected timeout error")
-	}
+	testutil.Require(t, err != nil, "expected timeout error")
 	if got := ClassifyError(err).Code; got != CodeAPIError {
 		t.Fatalf("error code = %q, want %q", got, CodeAPIError)
 	}
@@ -201,7 +173,5 @@ func TestPollUntilDone_ContextCancel(t *testing.T) {
 	defer cancel()
 
 	_, err := PollUntilDone(ctx, srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second)
-	if err == nil {
-		t.Fatal("expected context error")
-	}
+	testutil.Require(t, err != nil, "expected context error")
 }

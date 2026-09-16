@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
@@ -74,13 +76,9 @@ func TestInvokeOperation_CollectsAndProjectsSSE(t *testing.T) {
 		t.Fatalf("outcome = %q, live = %q", result.Outcome, out.String())
 	}
 	got, err := decodeNumberPreserving(result.Data)
-	if err != nil {
-		t.Fatalf("decode result: %v", err)
-	}
+	testutil.Require(t, err == nil, "decode result: %v", err)
 	want := map[string]any{"answer": "hello", "message_id": "msg-1", "mode": "chat", "usage": json.Number("9007199254740993")}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("result = %#v, want %#v", got, want)
-	}
+	testutil.Require(t, reflect.DeepEqual(got, want), "result = %#v, want %#v", got, want)
 }
 
 func TestReadSSE_AcceptsStandardLineEndings(t *testing.T) {
@@ -99,12 +97,8 @@ func TestReadSSE_AcceptsStandardLineEndings(t *testing.T) {
 				event, data = gotEvent, string(gotData)
 				return nil
 			})
-			if err != nil {
-				t.Fatalf("readSSE: %v", err)
-			}
-			if event != "chunk" || data != "hello" {
-				t.Fatalf("event = %q, data = %q", event, data)
-			}
+			testutil.Require(t, err == nil, "readSSE: %v", err)
+			testutil.Require(t, event == "chunk" && data == "hello", "event = %q, data = %q", event, data)
 		})
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestRunVerifyGeneratedJSON(t *testing.T) {
@@ -77,15 +79,9 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	var report verifyReport
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
-	}
-	if !report.OK {
-		t.Fatalf("report = %+v", report)
-	}
-	if report.Version != verifyReportVersion {
-		t.Fatalf("version = %d, want %d", report.Version, verifyReportVersion)
-	}
+	testutil.NoError(t, json.Unmarshal(stdout.Bytes(), &report))
+	testutil.Require(t, report.OK, "report = %+v", report)
+	testutil.Require(t, report.Version == verifyReportVersion, "version = %d, want %d", report.Version, verifyReportVersion)
 	for _, want := range []string{
 		"root_help",
 		"commands_schema",
@@ -96,22 +92,18 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 		"commands_show:skills package",
 		"auth_status_unauthenticated",
 	} {
-		if !verifyReportHasCheck(report, want) {
-			t.Fatalf("report missing %q: %+v", want, report.Checks)
-		}
+		testutil.Require(t, verifyReportHasCheck(report, want), "report missing %q: %+v", want, report.Checks)
 	}
 }
 
 func TestVerifyGeneratedSkillInstall(t *testing.T) {
 	root := NewApp(testManifest())
-	if err := runtime.Build(root, "demo", []runtime.CommandSpec{{
+	testutil.NoError(t, runtime.Build(root, "demo", []runtime.CommandSpec{{
 		Group:   "Users",
 		Use:     "get-user",
 		Method:  "GET",
 		PathTpl: "/users/{id}",
-	}}); err != nil {
-		t.Fatal(err)
-	}
+	}}))
 	runtime.AttachCapability(root, runtime.CapabilitySkillBundle)
 	skill := &cobra.Command{Use: "skill"}
 	hookRan := false
@@ -142,25 +134,19 @@ func TestVerifyGeneratedSkillInstall(t *testing.T) {
 	root.AddCommand(skill)
 
 	report := verifyGenerated(root, testManifest())
-	if !verifyReportHasCheck(report, "skill_install") {
-		t.Fatalf("report missing skill_install: %+v", report.Checks)
-	}
-	if !hookRan {
-		t.Fatal("skill install hook did not run")
-	}
+	testutil.Require(t, verifyReportHasCheck(report, "skill_install"), "report missing skill_install: %+v", report.Checks)
+	testutil.Require(t, hookRan, "skill install hook did not run")
 }
 
 func TestVerifyGeneratedHiddenWorkflowContract(t *testing.T) {
 	root := NewApp(testManifest())
-	if err := runtime.Build(root, "demo", []runtime.CommandSpec{{
+	testutil.NoError(t, runtime.Build(root, "demo", []runtime.CommandSpec{{
 		Group:   "Users",
 		Use:     "get-user",
 		Method:  "GET",
 		PathTpl: "/users/{id}",
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.BuildWorkflows(root, []runtime.WorkflowSpec{{
+	}}))
+	testutil.NoError(t, runtime.BuildWorkflows(root, []runtime.WorkflowSpec{{
 		Use:    "doctor",
 		Hidden: true,
 		Steps: []runtime.WorkflowStepSpec{{
@@ -172,17 +158,11 @@ func TestVerifyGeneratedHiddenWorkflowContract(t *testing.T) {
 				Security:    &runtime.SecurityHint{Public: true},
 			},
 		}},
-	}}); err != nil {
-		t.Fatal(err)
-	}
+	}}))
 
 	report := verifyGenerated(root, testManifest())
-	if !report.OK {
-		t.Fatalf("report = %+v", report)
-	}
-	if !verifyReportHasCheck(report, "workflow_contract") {
-		t.Fatalf("report missing workflow_contract: %+v", report.Checks)
-	}
+	testutil.Require(t, report.OK, "report = %+v", report)
+	testutil.Require(t, verifyReportHasCheck(report, "workflow_contract"), "report missing workflow_contract: %+v", report.Checks)
 }
 
 func TestRunVerifyGeneratedFailureReturnsJSONOnly(t *testing.T) {
@@ -205,19 +185,13 @@ func TestRunVerifyGeneratedFailureReturnsJSONOnly(t *testing.T) {
 			return nil
 		},
 	}, []string{"__lathe", "verify", "--json"}, &stdout, &stderr)
-	if code != runtime.ExitGeneral {
-		t.Fatalf("exit = %d, want %d", code, runtime.ExitGeneral)
-	}
+	testutil.Require(t, code == runtime.ExitGeneral, "exit = %d, want %d", code, runtime.ExitGeneral)
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	var report verifyReport
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
-	}
-	if report.OK {
-		t.Fatalf("report unexpectedly passed: %+v", report)
-	}
+	testutil.NoError(t, json.Unmarshal(stdout.Bytes(), &report))
+	testutil.Require(t, !report.OK, "report unexpectedly passed: %+v", report)
 	if !strings.Contains(stdout.String(), "missing --id") {
 		t.Fatalf("report missing flag failure:\n%s", stdout.String())
 	}

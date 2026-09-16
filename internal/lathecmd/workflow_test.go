@@ -7,6 +7,8 @@ import (
 	"github.com/lathe-cli/lathe/internal/codegen/app"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestBuildWorkflowSpecs_CarriesConditions(t *testing.T) {
@@ -19,16 +21,10 @@ func TestBuildWorkflowSpecs_CarriesConditions(t *testing.T) {
 			Values:   config.WorkflowConditionValues{"gpu"},
 		}},
 	}}), conditionTestModules(), nil)
-	if err != nil {
-		t.Fatalf("buildWorkflowSpecs: %v", err)
-	}
+	testutil.Require(t, err == nil, "buildWorkflowSpecs: %v", err)
 	got := specs[0].Steps[0].When
-	if len(got) != 1 || got[0].Value != "${input.kind}" || got[0].Operator != "in" {
-		t.Fatalf("conditions = %#v", got)
-	}
-	if len(got[0].Values) != 1 || got[0].Values[0] != "gpu" {
-		t.Fatalf("values = %#v", got[0].Values)
-	}
+	testutil.Require(t, len(got) == 1 && got[0].Value == "${input.kind}" && got[0].Operator == "in", "conditions = %#v", got)
+	testutil.Require(t, len(got[0].Values) == 1 && got[0].Values[0] == "gpu", "values = %#v", got[0].Values)
 }
 
 func TestBuildWorkflowSpecs_RejectsBadConditionReferences(t *testing.T) {
@@ -67,9 +63,7 @@ func TestBuildWorkflowSpecs_RejectsBadConditionReferences(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := buildWorkflowSpecs(workflowManifestWithSteps(tc.steps), conditionTestModules(), nil)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("error = %v, want it to contain %q", err, tc.want)
-			}
+			testutil.Require(t, err != nil && strings.Contains(err.Error(), tc.want), "error = %v, want it to contain %q", err, tc.want)
 		})
 	}
 }

@@ -1,6 +1,10 @@
 package runtime
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
+)
 
 func TestCatalogMutation_HTTPMethods(t *testing.T) {
 	for _, method := range []string{"GET", "HEAD", "OPTIONS", "TRACE"} {
@@ -33,9 +37,7 @@ func TestCatalogMutation_ExplicitOverride(t *testing.T) {
 		},
 		Mutation: MutationRead,
 	})
-	if overridden != MutationRead {
-		t.Fatalf("override must beat graphql template = %q", overridden)
-	}
+	testutil.Require(t, overridden == MutationRead, "override must beat graphql template = %q", overridden)
 }
 
 func TestCatalogMutation_GraphQLTemplate(t *testing.T) {
@@ -46,9 +48,7 @@ func TestCatalogMutation_GraphQLTemplate(t *testing.T) {
 			Template: `{"query":"mutation CreateApp($name:String!){createApp(name:$name){id}}","variables":{}}`,
 		},
 	})
-	if mutation != MutationWrite {
-		t.Fatalf("graphql mutation = %q", mutation)
-	}
+	testutil.Require(t, mutation == MutationWrite, "graphql mutation = %q", mutation)
 
 	query := catalogMutation(CommandSpec{
 		Method:  "POST",
@@ -57,9 +57,7 @@ func TestCatalogMutation_GraphQLTemplate(t *testing.T) {
 			Template: `{"query":"query ListApps { listApps { id } }","variables":{}}`,
 		},
 	})
-	if query != MutationRead {
-		t.Fatalf("graphql query = %q", query)
-	}
+	testutil.Require(t, query == MutationRead, "graphql query = %q", query)
 
 	anon := catalogMutation(CommandSpec{
 		Method:  "POST",
@@ -68,9 +66,7 @@ func TestCatalogMutation_GraphQLTemplate(t *testing.T) {
 			Template: `{"query":"{ listApps { id } }","variables":{}}`,
 		},
 	})
-	if anon != MutationRead {
-		t.Fatalf("anonymous graphql query = %q", anon)
-	}
+	testutil.Require(t, anon == MutationRead, "anonymous graphql query = %q", anon)
 
 	commented := catalogMutation(CommandSpec{
 		Method:  "POST",
@@ -79,9 +75,7 @@ func TestCatalogMutation_GraphQLTemplate(t *testing.T) {
 			Template: "{\"query\":\"# inspect\\nquery GetApp { app { id } }\",\"variables\":{}}",
 		},
 	})
-	if commented != MutationRead {
-		t.Fatalf("commented graphql query = %q", commented)
-	}
+	testutil.Require(t, commented == MutationRead, "commented graphql query = %q", commented)
 }
 
 func TestCatalogMutation_NonGraphQLTemplateFallsBackToMethod(t *testing.T) {
@@ -92,9 +86,7 @@ func TestCatalogMutation_NonGraphQLTemplateFallsBackToMethod(t *testing.T) {
 			Template: `{"name":"alice"}`,
 		},
 	})
-	if got != MutationWrite {
-		t.Fatalf("rest template = %q", got)
-	}
+	testutil.Require(t, got == MutationWrite, "rest template = %q", got)
 }
 
 func TestCatalogWorkflowMutation_HeaviestStep(t *testing.T) {
@@ -102,25 +94,19 @@ func TestCatalogWorkflowMutation_HeaviestStep(t *testing.T) {
 		{Operation: CommandSpec{Method: "GET", PathTpl: "/health"}},
 		{Operation: CommandSpec{Method: "GET", PathTpl: "/tenants/{id}"}},
 	}})
-	if read != MutationRead {
-		t.Fatalf("all GET = %q", read)
-	}
+	testutil.Require(t, read == MutationRead, "all GET = %q", read)
 
 	mixed := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{
 		{Operation: CommandSpec{Method: "GET", PathTpl: "/health"}},
 		{Operation: CommandSpec{Method: "POST", PathTpl: "/tenants"}},
 	}})
-	if mixed != MutationWrite {
-		t.Fatalf("GET+POST = %q", mixed)
-	}
+	testutil.Require(t, mixed == MutationWrite, "GET+POST = %q", mixed)
 
 	undecidable := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{
 		{Operation: CommandSpec{Method: "GET", PathTpl: "/health"}},
 		{Operation: CommandSpec{PathTpl: "/tenants"}},
 	}})
-	if undecidable != MutationUnknown {
-		t.Fatalf("GET+empty method = %q", undecidable)
-	}
+	testutil.Require(t, undecidable == MutationUnknown, "GET+empty method = %q", undecidable)
 
 	write := catalogWorkflowMutation(WorkflowSpec{Steps: []WorkflowStepSpec{
 		{Operation: CommandSpec{Method: "GET", PathTpl: "/health"}},
@@ -132,9 +118,7 @@ func TestCatalogWorkflowMutation_HeaviestStep(t *testing.T) {
 			},
 		}},
 	}})
-	if write != MutationWrite {
-		t.Fatalf("GET+graphql mutation = %q", write)
-	}
+	testutil.Require(t, write == MutationWrite, "GET+graphql mutation = %q", write)
 
 	if got := catalogWorkflowMutation(WorkflowSpec{}); got != MutationUnknown {
 		t.Fatalf("empty workflow = %q", got)
@@ -143,19 +127,11 @@ func TestCatalogWorkflowMutation_HeaviestStep(t *testing.T) {
 
 func TestCatalogSchemaDocument(t *testing.T) {
 	schema := CatalogSchemaDocument()
-	if schema.CatalogSchemaVersion != CatalogSchemaVersion {
-		t.Fatalf("version = %d", schema.CatalogSchemaVersion)
-	}
-	if schema.DryRun.Result != DryRunHTTPPreview {
-		t.Fatalf("dry-run result = %q", schema.DryRun.Result)
-	}
+	testutil.Require(t, schema.CatalogSchemaVersion == CatalogSchemaVersion, "version = %d", schema.CatalogSchemaVersion)
+	testutil.Require(t, schema.DryRun.Result == DryRunHTTPPreview, "dry-run result = %q", schema.DryRun.Result)
 	want := []string{CatalogSurfaceCommands, CatalogSurfaceCommandsShow, CatalogSurfaceCommandsSchema, CatalogSurfaceSearch}
-	if len(schema.Surfaces) != len(want) {
-		t.Fatalf("surfaces = %#v", schema.Surfaces)
-	}
+	testutil.Require(t, len(schema.Surfaces) == len(want), "surfaces = %#v", schema.Surfaces)
 	for i, surface := range want {
-		if schema.Surfaces[i] != surface {
-			t.Fatalf("surfaces = %#v", schema.Surfaces)
-		}
+		testutil.Require(t, schema.Surfaces[i] == surface, "surfaces = %#v", schema.Surfaces)
 	}
 }

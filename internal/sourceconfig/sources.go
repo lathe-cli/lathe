@@ -2,11 +2,10 @@ package sourceconfig
 
 import (
 	"fmt"
-	"net/url"
+	"maps"
 	"os"
-	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	latheconfig "github.com/lathe-cli/lathe/pkg/config"
@@ -74,35 +73,6 @@ type OpenAPIExpose struct {
 	OperationIDs []string `yaml:"operation_ids"`
 }
 
-type GraphQLConfig struct {
-	Schema    string                  `yaml:"schema"`
-	Expose    *GraphQLExpose          `yaml:"expose,omitempty"`
-	Groups    []GraphQLGroupPolicy    `yaml:"groups,omitempty"`
-	Output    []GraphQLOutputPolicy   `yaml:"output,omitempty"`
-	Selection *GraphQLSelectionPolicy `yaml:"selection,omitempty"`
-}
-
-type GraphQLExpose struct {
-	Queries   []string `yaml:"queries,omitempty"`
-	Mutations []string `yaml:"mutations,omitempty"`
-}
-
-type GraphQLGroupPolicy struct {
-	Match []string `yaml:"match"`
-	Group string   `yaml:"group"`
-}
-
-type GraphQLOutputPolicy struct {
-	Match          []string `yaml:"match"`
-	ListPath       string   `yaml:"list_path,omitempty"`
-	DefaultColumns []string `yaml:"default_columns,omitempty"`
-}
-
-type GraphQLSelectionPolicy struct {
-	MaxDepth *int     `yaml:"max_depth,omitempty"`
-	Prune    []string `yaml:"prune,omitempty"`
-}
-
 type StagingEntry struct {
 	From string `yaml:"from"`
 	To   string `yaml:"to"`
@@ -134,11 +104,7 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) Ordered() []*Source {
-	names := make([]string, 0, len(c.Sources))
-	for n := range c.Sources {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(c.Sources))
 	out := make([]*Source, 0, len(names))
 	for _, n := range names {
 		out = append(out, c.Sources[n])
@@ -192,13 +158,8 @@ func validate(s *Source, baseDir string) error {
 		if len(s.Proto.Staging) == 0 {
 			return fmt.Errorf("backend=proto requires non-empty proto.staging")
 		}
-		for _, st := range s.Proto.Staging {
-			if err := ValidateRelPath("proto.staging.from", st.From); err != nil {
-				return err
-			}
-			if err := ValidateRelPath("proto.staging.to", st.To); err != nil {
-				return err
-			}
+		if err := validateStaging("proto.staging", s.Proto.Staging); err != nil {
+			return err
 		}
 		if err := validateRelPathList("proto.entries", s.Proto.Entries); err != nil {
 			return err
@@ -257,29 +218,14 @@ func validate(s *Source, baseDir string) error {
 	return rejectForeignBlocks(s)
 }
 
-func validateSourceID(name string) error {
-	if err := ValidateRelPath("source ID", name); err != nil {
-		return err
-	}
-	if name == "." || strings.ContainsAny(name, `/\`) {
-		return fmt.Errorf("unsafe path source ID: %q", name)
-	}
-	return nil
-}
-
 func validateProtoDependencies(deps []ProtoDependency) error {
 	for i, dep := range deps {
 		field := fmt.Sprintf("proto.dependencies[%d]", i)
 		if len(dep.Staging) == 0 {
 			return fmt.Errorf("%s requires non-empty staging", field)
 		}
-		for _, st := range dep.Staging {
-			if err := ValidateRelPath(field+".staging.from", st.From); err != nil {
-				return err
-			}
-			if err := ValidateRelPath(field+".staging.to", st.To); err != nil {
-				return err
-			}
+		if err := validateStaging(field+".staging", dep.Staging); err != nil {
+			return err
 		}
 		switch dep.Kind {
 		case ProtoDependencyBuf:
@@ -324,61 +270,6 @@ func validateProtoDependencies(deps []ProtoDependency) error {
 	return nil
 }
 
-func validateRelPathList(field string, paths []string) error {
-	for _, p := range paths {
-		if err := ValidateRelPath(field, p); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func ValidateRelPath(field, value string) error {
-	if value == "" {
-		return fmt.Errorf("unsafe path %s: empty path", field)
-	}
-	if filepath.IsAbs(value) || !filepath.IsLocal(value) {
-		return fmt.Errorf("unsafe path %s: %q", field, value)
-	}
-	for _, part := range strings.Split(strings.ReplaceAll(value, "\\", "/"), "/") {
-		if part == "" || part == ".." {
-			return fmt.Errorf("unsafe path %s: %q", field, value)
-		}
-	}
-	return nil
-}
-
-func resolveLocalPath(baseDir, raw string) (string, error) {
-	if raw == "" {
-		return "", fmt.Errorf("local_path must not be empty")
-	}
-	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
-		if u.Scheme != "file" {
-			return "", fmt.Errorf("local_path must be a filesystem path or file:// URL")
-		}
-		if u.Host != "" && u.Host != "localhost" {
-			return "", fmt.Errorf("local_path file:// URL must not include a remote host")
-		}
-		raw = filepath.FromSlash(u.Path)
-		if raw == "" {
-			return "", fmt.Errorf("local_path file:// URL must include a path")
-		}
-	} else if strings.Contains(raw, "://") {
-		return "", fmt.Errorf("local_path must be a filesystem path or file:// URL")
-	}
-	if colon := strings.IndexByte(raw, ':'); colon > 0 && strings.Contains(raw[:colon], "@") && !strings.ContainsAny(raw[:colon], `/\`) {
-		return "", fmt.Errorf("local_path must be a filesystem path or file:// URL")
-	}
-	if !filepath.IsAbs(raw) {
-		raw = filepath.Join(baseDir, raw)
-	}
-	abs, err := filepath.Abs(raw)
-	if err != nil {
-		return "", fmt.Errorf("resolve local_path: %w", err)
-	}
-	return abs, nil
-}
-
 func rejectForeignBlocks(s *Source) error {
 	blocks := []struct {
 		backend string
@@ -395,135 +286,4 @@ func rejectForeignBlocks(s *Source) error {
 		}
 	}
 	return nil
-}
-
-func validateGraphQLPolicy(g *GraphQLConfig) error {
-	if err := validateGraphQLPatterns("graphql.expose.queries", g.Expose.Queries); err != nil {
-		return err
-	}
-	if err := validateGraphQLPatterns("graphql.expose.mutations", g.Expose.Mutations); err != nil {
-		return err
-	}
-	for i, rule := range g.Groups {
-		if strings.TrimSpace(rule.Group) == "" {
-			return fmt.Errorf("graphql.groups[%d] requires group", i)
-		}
-		if len(rule.Match) == 0 {
-			return fmt.Errorf("graphql.groups[%d] requires non-empty match", i)
-		}
-		if err := validateGraphQLPatterns(fmt.Sprintf("graphql.groups[%d].match", i), rule.Match); err != nil {
-			return err
-		}
-	}
-	for i, rule := range g.Output {
-		if len(rule.Match) == 0 {
-			return fmt.Errorf("graphql.output[%d] requires non-empty match", i)
-		}
-		if rule.ListPath == "" && len(rule.DefaultColumns) == 0 {
-			return fmt.Errorf("graphql.output[%d] requires list_path or default_columns", i)
-		}
-		if err := validateGraphQLDottedPath(fmt.Sprintf("graphql.output[%d].list_path", i), rule.ListPath); err != nil {
-			return err
-		}
-		for j, column := range rule.DefaultColumns {
-			if strings.TrimSpace(column) == "" {
-				return fmt.Errorf("graphql.output[%d].default_columns[%d] contains an empty path segment", i, j)
-			}
-			if err := validateGraphQLDottedPath(fmt.Sprintf("graphql.output[%d].default_columns[%d]", i, j), column); err != nil {
-				return err
-			}
-		}
-		if err := validateGraphQLPatterns(fmt.Sprintf("graphql.output[%d].match", i), rule.Match); err != nil {
-			return err
-		}
-	}
-	if g.Selection != nil {
-		if g.Selection.MaxDepth != nil && *g.Selection.MaxDepth <= 0 {
-			return fmt.Errorf("graphql.selection.max_depth must be > 0")
-		}
-		for _, p := range g.Selection.Prune {
-			if _, err := path.Match(p, "Type.field"); err != nil {
-				return fmt.Errorf("invalid graphql.selection.prune pattern %q: %w", p, err)
-			}
-			if !strings.Contains(p, ".") {
-				return fmt.Errorf("graphql.selection.prune pattern %q must be Type.field", p)
-			}
-		}
-	}
-	return nil
-}
-
-func validateGraphQLPatterns(label string, patterns []string) error {
-	for _, p := range patterns {
-		if strings.TrimSpace(p) == "" {
-			return fmt.Errorf("%s contains an empty pattern", label)
-		}
-		if _, err := path.Match(p, "sample"); err != nil {
-			return fmt.Errorf("invalid %s pattern %q: %w", label, p, err)
-		}
-	}
-	return nil
-}
-
-func validateGraphQLDottedPath(label string, p string) error {
-	if p == "" {
-		return nil
-	}
-	for _, part := range strings.Split(p, ".") {
-		if strings.TrimSpace(part) == "" {
-			return fmt.Errorf("%s contains an empty path segment", label)
-		}
-	}
-	return nil
-}
-
-// validateRef rejects pinned_tag values that are obviously floating refs.
-// The repo's README promises that every upstream spec is pinned at an
-// immutable tag; accepting "HEAD" / "main" / "refs/heads/*" would silently
-// break that promise. A 40-char hex string is treated as an explicit SHA.
-// Anything else is checked for a small set of Git-illegal characters so
-// typos fail fast here rather than during checkout.
-func validateRef(ref string) error {
-	if isFloating40Hex := len(ref) == 40 && allHex(ref); isFloating40Hex {
-		return nil
-	}
-	switch ref {
-	case "HEAD", "main", "master":
-		return floatingRefError(ref)
-	}
-	if strings.HasPrefix(ref, "refs/heads/") || strings.HasPrefix(ref, "refs/remotes/") {
-		return floatingRefError(ref)
-	}
-	if strings.HasPrefix(ref, "-") {
-		return floatingRefError(ref)
-	}
-	if strings.ContainsAny(ref, " \t\r\n") {
-		return floatingRefError(ref)
-	}
-	if strings.Contains(ref, "..") {
-		return floatingRefError(ref)
-	}
-	for _, bad := range []string{"~", "^", ":", "?", "*", "[", "\\"} {
-		if strings.Contains(ref, bad) {
-			return floatingRefError(ref)
-		}
-	}
-	return nil
-}
-
-func floatingRefError(ref string) error {
-	return fmt.Errorf("pinned_tag %q looks like a floating ref; only immutable tags or 40-char SHAs are accepted", ref)
-}
-
-func allHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c >= '0' && c <= '9':
-		case c >= 'a' && c <= 'f':
-		default:
-			return false
-		}
-	}
-	return true
 }

@@ -7,14 +7,14 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestFormatOutput_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	err := FormatOutput([]byte(`{"name":"alice"}`), "json", &buf, OutputHints{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	want := "{\n  \"name\": \"alice\"\n}\n"
 	if buf.String() != want {
 		t.Errorf("got %q, want %q", buf.String(), want)
@@ -24,9 +24,7 @@ func TestFormatOutput_JSON(t *testing.T) {
 func TestFormatOutput_YAML(t *testing.T) {
 	var buf bytes.Buffer
 	err := FormatOutput([]byte(`{"name":"alice"}`), "yaml", &buf, OutputHints{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	want := "name: alice\n"
 	if buf.String() != want {
 		t.Errorf("got %q, want %q", buf.String(), want)
@@ -36,9 +34,7 @@ func TestFormatOutput_YAML(t *testing.T) {
 func TestFormatOutput_Raw(t *testing.T) {
 	var buf bytes.Buffer
 	err := FormatOutput([]byte("hello"), "raw", &buf, OutputHints{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	if buf.String() != "hello" {
 		t.Errorf("got %q, want hello", buf.String())
 	}
@@ -46,16 +42,12 @@ func TestFormatOutput_Raw(t *testing.T) {
 
 func TestFormatOutput_EmptyData(t *testing.T) {
 	err := FormatOutput(nil, "json", io.Discard, OutputHints{})
-	if err != nil {
-		t.Fatalf("empty data should not error: %v", err)
-	}
+	testutil.Require(t, err == nil, "empty data should not error: %v", err)
 }
 
 func TestFormatOutput_UnknownFormat(t *testing.T) {
 	err := FormatOutput([]byte("x"), "csv", io.Discard, OutputHints{})
-	if err == nil {
-		t.Fatal("expected error for unknown format")
-	}
+	testutil.Require(t, err != nil, "expected error for unknown format")
 }
 
 func TestFormatOutput_TableUsesNestedListPath(t *testing.T) {
@@ -65,14 +57,10 @@ func TestFormatOutput_TableUsesNestedListPath(t *testing.T) {
 		ListPath:       "data.sessionList.nodes",
 		DefaultColumns: []string{"id", "name"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	got := buf.String()
 	for _, want := range []string{"ID", "NAME", "s1", "alpha", "s2", "beta"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("table output missing %q:\n%s", want, got)
-		}
+		testutil.Require(t, strings.Contains(got, want), "table output missing %q:\n%s", want, got)
 	}
 }
 
@@ -90,14 +78,10 @@ func TestFormatOutput_TableUsesConfiguredColumnLabels(t *testing.T) {
 			"details.owner.profile.contact.user-name":    "User",
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	got := buf.String()
 	for _, want := range []string{"Resource ID", "Created at", "Status", "Display name", "User", "r1", "2026-08-28", "active", "Alice Smith", "alice"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("table output missing %q:\n%s", want, got)
-		}
+		testutil.Require(t, strings.Contains(got, want), "table output missing %q:\n%s", want, got)
 	}
 }
 
@@ -123,9 +107,7 @@ func TestFormatOutput_TableAlignsDisplayColumns(t *testing.T) {
 	}
 	rows = append(rows, map[string]string{"status": "ok"})
 	data, err := json.Marshal(rows)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	for _, header := range []struct {
 		text  string
 		width int
@@ -140,9 +122,7 @@ func TestFormatOutput_TableAlignsDisplayColumns(t *testing.T) {
 					DefaultColumns: []string{"name", "status"},
 					ColumnLabels:   map[string]string{"name": header.text},
 				})
-				if err != nil {
-					t.Fatal(err)
-				}
+				testutil.Require(t, err == nil, "%v", err)
 				columnWidth := max(9, header.width)
 				want := header.text + strings.Repeat(" ", columnWidth-header.width+2) + "STATUS\n"
 				for _, cell := range cells {
@@ -161,13 +141,9 @@ func TestFormatOutput_TableWriterError(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer func() { _ = writer.Close() }()
 	want := errors.New("output unavailable")
-	if err := reader.CloseWithError(want); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, reader.CloseWithError(want))
 	err := FormatOutput([]byte(`[{"name":"勿删"}]`), "table", writer, OutputHints{})
-	if !errors.Is(err, want) {
-		t.Fatalf("FormatOutput error = %v, want %v", err, want)
-	}
+	testutil.Require(t, errors.Is(err, want), "FormatOutput error = %v, want %v", err, want)
 }
 
 func TestFormatOutput_TableUsesExactCurrencyFormats(t *testing.T) {
@@ -187,9 +163,7 @@ func TestFormatOutput_TableUsesExactCurrencyFormats(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	want := "               AMOUNT\n" +
 		"                $1.00\n" +
 		"            $1.234567\n" +
@@ -213,9 +187,7 @@ func TestFormatOutput_TableRightAlignsConfiguredColumns(t *testing.T) {
 			"count": "right",
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	want := "NAME   COUNT\nalpha      9\nbeta     120\n"
 	if buf.String() != want {
 		t.Fatalf("table output = %q, want %q", buf.String(), want)
@@ -233,9 +205,7 @@ func TestFormatOutput_CurrencyAlignmentOverride(t *testing.T) {
 		ColumnAlignments: map[string]string{"amount": "left"},
 	}
 	var buf bytes.Buffer
-	if err := FormatOutput(data, "table", &buf, hints); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, FormatOutput(data, "table", &buf, hints))
 	want := "AMOUNT\n$1.00\n$1.234567\n"
 	if buf.String() != want {
 		t.Fatalf("table output = %q, want %q", buf.String(), want)
@@ -252,9 +222,7 @@ func TestFormatOutput_TableWithFormatsDumpsRawOnTrailingData(t *testing.T) {
 			"amount": {Kind: "currency", Currency: "USD", SourceScale: 6, MinFractionDigits: 2, MaxFractionDigits: 6},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	if buf.String() != string(data) {
 		t.Fatalf("table output = %q, want raw payload", buf.String())
 	}
@@ -270,9 +238,7 @@ func TestFormatOutput_CurrencyFormatIsTableOnly(t *testing.T) {
 	}
 	for _, format := range []string{"json", "raw"} {
 		var buf bytes.Buffer
-		if err := FormatOutput(data, format, &buf, hints); err != nil {
-			t.Fatalf("%s: %v", format, err)
-		}
+		testutil.NoError(t, FormatOutput(data, format, &buf, hints))
 		if !strings.Contains(buf.String(), "1000000") || strings.Contains(buf.String(), "$1.00") {
 			t.Fatalf("%s output changed: %q", format, buf.String())
 		}
@@ -284,9 +250,7 @@ func TestRegisterFormatter(t *testing.T) {
 	defer delete(formatters, "custom")
 
 	var buf bytes.Buffer
-	if err := FormatOutput([]byte("test"), "custom", &buf, OutputHints{}); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, FormatOutput([]byte("test"), "custom", &buf, OutputHints{}))
 	if buf.String() != "test" {
 		t.Errorf("got %q, want test", buf.String())
 	}
@@ -298,12 +262,8 @@ func TestFormatterNames(t *testing.T) {
 
 	got := FormatterNames()
 	want := []string{"table", "json", "yaml", "raw", "custom"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
+	testutil.Require(t, len(got) == len(want), "got %v, want %v", got, want)
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
+		testutil.Require(t, got[i] == want[i], "got %v, want %v", got, want)
 	}
 }

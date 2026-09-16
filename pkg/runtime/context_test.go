@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
@@ -35,13 +37,9 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
 	t.Setenv("MYCTL_WORKSPACE_ID", "")
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	hosts.Set(srv.URL, config.HostEntry{AuthType: "bearer", OAuthToken: "token", Contexts: map[string]string{"workspace": "stored"}})
-	if err := hosts.Save(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, hosts.Save())
 
 	list := CommandSpec{Group: "Apps", Use: "list", Method: "GET", PathTpl: "/apps", Security: &SecurityHint{Public: true}, Shortcuts: []CommandShortcut{{Use: "list-selected", Params: map[string]string{"workspace_id": "preset"}}}, Params: []ParamSpec{
 		{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Required: true, Default: "spec-default", Context: "workspace"},
@@ -60,36 +58,20 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 		return root.Execute()
 	}
 
-	if err := run("demo", "apps", "list"); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, run("demo", "apps", "list"))
 	t.Setenv("MYCTL_WORKSPACE_ID", "environment")
-	if err := run("demo", "apps", "list"); err != nil {
-		t.Fatal(err)
-	}
-	if err := run("demo", "apps", "list", "--workspace-id", "explicit"); err != nil {
-		t.Fatal(err)
-	}
-	if err := run("list-selected"); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(requested[:4], "|") != "/apps?workspace_id=stored|/apps?workspace_id=environment|/apps?workspace_id=explicit|/apps?workspace_id=preset" {
-		t.Fatalf("requests = %#v", requested)
-	}
-	if err := run("demo", "apps", "use", "--workspace-id", "selected"); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, run("demo", "apps", "list"))
+	testutil.NoError(t, run("demo", "apps", "list", "--workspace-id", "explicit"))
+	testutil.NoError(t, run("list-selected"))
+	testutil.Require(t, strings.Join(requested[:4], "|") == "/apps?workspace_id=stored|/apps?workspace_id=environment|/apps?workspace_id=explicit|/apps?workspace_id=preset", "requests = %#v", requested)
+	testutil.NoError(t, run("demo", "apps", "use", "--workspace-id", "selected"))
 	if err := run("demo", "apps", "use", "--workspace-id", "bad"); err == nil {
 		t.Fatal("failed selector succeeded")
 	}
 	reloaded, err := config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	entry, _ := reloaded.Get(srv.URL)
-	if entry.Contexts["workspace"] != "selected" || entry.OAuthToken != "token" {
-		t.Fatalf("entry = %+v", entry)
-	}
+	testutil.Require(t, entry.Contexts["workspace"] == "selected" && entry.OAuthToken == "token", "entry = %+v", entry)
 	pause := CommandSpec{
 		Method: "POST", PathTpl: "/pause",
 		Params:     []ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string"}},
@@ -99,23 +81,17 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 		}}},
 	}
 	result, err := InvokeOperation(t.Context(), pause, OperationInput{Values: map[string]any{"workspace_id": "paused"}}, OperationOptions{Hostname: srv.URL, Client: ClientOptions{MaxRetries: -1}})
-	if err != nil || result.Outcome != OperationOutcomePaused {
-		t.Fatalf("pause result = %+v, err = %v", result, err)
-	}
+	testutil.Require(t, err == nil && result.Outcome == OperationOutcomePaused, "pause result = %+v, err = %v", result, err)
 	reloaded, _ = config.LoadHosts()
 	entry, _ = reloaded.Get(srv.URL)
-	if entry.Contexts["workspace"] != "selected" {
-		t.Fatalf("paused operation persisted context: %+v", entry.Contexts)
-	}
+	testutil.Require(t, entry.Contexts["workspace"] == "selected", "paused operation persisted context: %+v", entry.Contexts)
 	t.Setenv("MYCTL_WORKSPACE_ID", "")
-	if err := config.MutateHosts(t.Context(), func(hosts *config.Hosts) error {
+	testutil.NoError(t, config.MutateHosts(t.Context(), func(hosts *config.Hosts) error {
 		entry, _ := hosts.Get(srv.URL)
 		delete(entry.Contexts, "workspace")
 		hosts.Set(srv.URL, entry)
 		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	if err := run("demo", "apps", "list"); err == nil || ClassifyError(err).Code != CodeUsage {
 		t.Fatalf("missing context error = %v", err)
 	}
@@ -135,22 +111,14 @@ func TestWorkflowStepUsesStoredContext(t *testing.T) {
 	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
 	hosts, _ := config.LoadHosts()
 	hosts.Set(srv.URL, config.HostEntry{AuthType: "bearer", OAuthToken: "token", Contexts: map[string]string{"workspace": "ws-1"}})
-	if err := hosts.Save(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, hosts.Save())
 	root := newWorkflowRoot(io.Discard)
-	if err := BuildWorkflows(root, []WorkflowSpec{{Use: "check", Steps: []WorkflowStepSpec{{ID: "workspace", Operation: CommandSpec{
+	testutil.NoError(t, BuildWorkflows(root, []WorkflowSpec{{Use: "check", Steps: []WorkflowStepSpec{{ID: "workspace", Operation: CommandSpec{
 		Use: "get", Method: "GET", PathTpl: "/workspaces/{workspace_id}", Security: &SecurityHint{Public: true}, Params: []ParamSpec{
 			{Name: "workspace_id", Flag: "workspace-id", In: InPath, GoType: "string", Required: true, Context: "workspace"},
 		},
-	}}}}}); err != nil {
-		t.Fatal(err)
-	}
+	}}}}}))
 	root.SetArgs([]string{"--hostname", srv.URL, "check"})
-	if err := root.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if path != "/workspaces/ws-1" {
-		t.Fatalf("path = %q", path)
-	}
+	testutil.NoError(t, root.Execute())
+	testutil.Require(t, path == "/workspaces/ws-1", "path = %q", path)
 }

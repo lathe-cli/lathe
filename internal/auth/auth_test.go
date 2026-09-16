@@ -14,6 +14,8 @@ import (
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
@@ -27,12 +29,8 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode start body: %v", err)
 			}
-			if body["provider"] != "github" {
-				t.Errorf("provider = %q, want github", body["provider"])
-			}
-			if body["hostname"] == "" {
-				t.Error("hostname missing")
-			}
+			testutil.Check(t, body["provider"] == "github", "provider = %q, want github", body["provider"])
+			testutil.Check(t, body["hostname"] != "", "hostname missing")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":               "device-1",
 				"user_code":                 "ABCD",
@@ -45,9 +43,7 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode token body: %v", err)
 			}
-			if body["device_code"] != "device-1" {
-				t.Errorf("device_code = %q, want device-1", body["device_code"])
-			}
+			testutil.Check(t, body["device_code"] == "device-1", "device_code = %q, want device-1", body["device_code"])
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token":  "access-1",
 				"refresh_token": "refresh-1",
@@ -75,29 +71,16 @@ func TestOAuthDeviceLoginSavesBearerHost(t *testing.T) {
 	config.Bind(m)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 
-	root := &cobra.Command{Use: "demo"}
-	root.PersistentFlags().String("hostname", srv.URL, "")
-	root.PersistentFlags().Bool("insecure", false, "")
-	root.AddCommand(NewCommand(m))
+	root := newAuthRoot(m, srv.URL)
 	root.SetArgs([]string{"auth", "login", "--auth-type", "oauth", "--provider", "github"})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if !startCalled || !tokenCalled {
-		t.Fatalf("startCalled=%v tokenCalled=%v", startCalled, tokenCalled)
-	}
+	testutil.NoError(t, root.Execute())
+	testutil.Require(t, startCalled && tokenCalled, "startCalled=%v tokenCalled=%v", startCalled, tokenCalled)
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatalf("LoadHosts: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadHosts: %v", err)
 	entry, ok := hosts.Get(srv.URL)
-	if !ok {
-		t.Fatal("host not saved")
-	}
-	if entry.AuthType != "bearer" || entry.LoginType != config.AuthLoginOAuthDevice || entry.LoginProvider != "github" || entry.OAuthToken != "access-1" || entry.OAuthRefreshToken != "refresh-1" || entry.User != "octo@example.com" || entry.OAuthExpiresAt == 0 {
-		t.Fatalf("entry = %+v", entry)
-	}
+	testutil.Require(t, ok, "host not saved")
+	testutil.Require(t, entry.AuthType == "bearer" && entry.LoginType == config.AuthLoginOAuthDevice && entry.LoginProvider == "github" && entry.OAuthToken == "access-1" && entry.OAuthRefreshToken == "refresh-1" && entry.User == "octo@example.com" && entry.OAuthExpiresAt != 0, "entry = %+v", entry)
 }
 
 func TestOAuthDeviceLoginRequiresAuthLoginConfig(t *testing.T) {
@@ -107,20 +90,13 @@ func TestOAuthDeviceLoginRequiresAuthLoginConfig(t *testing.T) {
 	config.Bind(m)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 
-	root := &cobra.Command{Use: "demo"}
-	root.PersistentFlags().String("hostname", "api.example.com", "")
-	root.PersistentFlags().Bool("insecure", false, "")
-	root.AddCommand(NewCommand(m))
+	root := newAuthRoot(m, "api.example.com")
 	root.SetArgs([]string{"auth", "login", "--auth-type", "oauth"})
 
 	err := root.Execute()
 	var le *runtime.LatheError
-	if !errors.As(err, &le) {
-		t.Fatalf("error = %T %v, want *runtime.LatheError", err, err)
-	}
-	if le.Code != runtime.CodeUsage || le.ExitCode != runtime.ExitUsage {
-		t.Fatalf("code = %q exit = %d, want %q/%d", le.Code, le.ExitCode, runtime.CodeUsage, runtime.ExitUsage)
-	}
+	testutil.Require(t, errors.As(err, &le), "error = %T %v, want *runtime.LatheError", err, err)
+	testutil.Require(t, le.Code == runtime.CodeUsage && le.ExitCode == runtime.ExitUsage, "code = %q exit = %d, want %q/%d", le.Code, le.ExitCode, runtime.CodeUsage, runtime.ExitUsage)
 	var buf strings.Builder
 	runtime.FormatError(err, "", &buf)
 	if !strings.Contains(buf.String(), "oauth login is not configured for this CLI") || !strings.Contains(buf.String(), "auth.login") {
@@ -180,36 +156,19 @@ func TestOAuthDeviceLoginUsesManifestWireMapping(t *testing.T) {
 	config.Bind(m)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	hosts.Set(srv.URL, config.HostEntry{AuthType: "bearer", OAuthToken: "old", Contexts: map[string]string{"organization": "org-old", "workspace": "ws-old"}})
-	if err := hosts.Save(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, hosts.Save())
 
-	root := &cobra.Command{Use: "demo"}
-	root.PersistentFlags().String("hostname", srv.URL, "")
-	root.PersistentFlags().Bool("insecure", false, "")
-	root.AddCommand(NewCommand(m))
+	root := newAuthRoot(m, srv.URL)
 	root.SetArgs([]string{"auth", "login", "--device-auth", "--no-browser", "--skip-validate"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if startBody["client_id"] != "demo-cli" || !strings.HasPrefix(startBody["device_label"], "demo on ") || len(startBody) != 2 {
-		t.Fatalf("start body = %#v", startBody)
-	}
-	if pollBody["client_id"] != "demo-cli" || pollBody["device_code"] != "device-1" || len(pollBody) != 2 {
-		t.Fatalf("poll body = %#v", pollBody)
-	}
+	testutil.NoError(t, root.Execute())
+	testutil.Require(t, startBody["client_id"] == "demo-cli" && strings.HasPrefix(startBody["device_label"], "demo on ") && len(startBody) == 2, "start body = %#v", startBody)
+	testutil.Require(t, pollBody["client_id"] == "demo-cli" && pollBody["device_code"] == "device-1" && len(pollBody) == 2, "poll body = %#v", pollBody)
 	hosts, err = config.LoadHosts()
-	if err != nil {
-		t.Fatalf("LoadHosts: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadHosts: %v", err)
 	entry, ok := hosts.Get(srv.URL)
-	if !ok || entry.OAuthToken != "access-1" || entry.Contexts["workspace"] != "ws-1" || entry.Contexts["organization"] != "org-concurrent" {
-		t.Fatalf("entry = %+v, found = %v", entry, ok)
-	}
+	testutil.Require(t, ok && entry.OAuthToken == "access-1" && entry.Contexts["workspace"] == "ws-1" && entry.Contexts["organization"] == "org-concurrent", "entry = %+v, found = %v", entry, ok)
 }
 
 func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T) {
@@ -222,21 +181,15 @@ func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T)
 	}
 	managedOnly := newContextCommand(&config.Manifest{Contexts: map[string]config.ContextInfo{"workspace": {}}})
 	for _, command := range managedOnly.Commands() {
-		if command.Name() == "set" {
-			t.Fatal("server-managed contexts exposed auth context set")
-		}
+		testutil.Require(t, command.Name() != "set", "server-managed contexts exposed auth context set")
 	}
 	config.Bind(m)
 	configDir := t.TempDir()
 	t.Setenv("DEMO_CONFIG_DIR", configDir)
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	hosts.Set("api.example.com", config.HostEntry{AuthType: "bearer", OAuthToken: "token", Contexts: map[string]string{"organization": "org-1"}})
-	if err := hosts.Save(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, hosts.Save())
 
 	run := func(args ...string) (string, error) {
 		t.Helper()
@@ -260,20 +213,12 @@ func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T)
 	}
 	t.Setenv("DEMO_ORG_ID", "org-env")
 	out, err := run("auth", "context", "status")
-	if err != nil {
-		t.Fatalf("status: %v", err)
-	}
-	if !strings.Contains(out, `"value": "org-env"`) || !strings.Contains(out, `"source": "env"`) {
-		t.Fatalf("status = %s", out)
-	}
+	testutil.Require(t, err == nil, "status: %v", err)
+	testutil.Require(t, strings.Contains(out, `"value": "org-env"`) && strings.Contains(out, `"source": "env"`), "status = %s", out)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 	out, err = run("auth", "context", "status")
-	if err != nil {
-		t.Fatalf("environment-only status: %v", err)
-	}
-	if !strings.Contains(out, `"value": "org-env"`) || !strings.Contains(out, `"source": "env"`) {
-		t.Fatalf("environment-only status = %s", out)
-	}
+	testutil.Require(t, err == nil, "environment-only status: %v", err)
+	testutil.Require(t, strings.Contains(out, `"value": "org-env"`) && strings.Contains(out, `"source": "env"`), "environment-only status = %s", out)
 	if _, err := run("auth", "context", "unset", "organization"); err == nil || runtime.ClassifyError(err).Code != runtime.CodeNotAuthenticated {
 		t.Fatalf("environment-only unset error = %v", err)
 	}
@@ -282,32 +227,22 @@ func TestContextCommandsRespectLocalPolicyAndEnvironmentPrecedence(t *testing.T)
 		t.Fatalf("server-managed set error = %v", err)
 	}
 	reloaded, err := config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	entry, _ := reloaded.Get("api.example.com")
-	if entry.Contexts["organization"] != "org-2" || entry.OAuthToken != "token" {
-		t.Fatalf("entry = %+v", entry)
-	}
+	testutil.Require(t, entry.Contexts["organization"] == "org-2" && entry.OAuthToken == "token", "entry = %+v", entry)
 }
 
 func TestOAuthDeviceRequestDistinguishesOmittedAndEmpty(t *testing.T) {
 	fallback := map[string]string{"device_code": "device-1"}
 	omitted, err := oauthDeviceRequest(nil, fallback, nil)
-	if err != nil || omitted["device_code"] != "device-1" {
-		t.Fatalf("omitted request = %#v, error = %v", omitted, err)
-	}
+	testutil.Require(t, err == nil && omitted["device_code"] == "device-1", "omitted request = %#v, error = %v", omitted, err)
 	empty, err := oauthDeviceRequest(map[string]string{}, fallback, nil)
-	if err != nil || len(empty) != 0 {
-		t.Fatalf("explicit empty request = %#v, error = %v", empty, err)
-	}
+	testutil.Require(t, err == nil && len(empty) == 0, "explicit empty request = %#v, error = %v", empty, err)
 }
 
 func TestStartBrowserCommandDoesNotWait(t *testing.T) {
 	started := time.Now()
-	if err := startBrowserCommand(os.Args[0], "-test.run=^TestBrowserOpenerHelperProcess$", "--", "browser-opener-helper"); err != nil {
-		t.Fatalf("startBrowserCommand: %v", err)
-	}
+	testutil.NoError(t, startBrowserCommand(os.Args[0], "-test.run=^TestBrowserOpenerHelperProcess$", "--", "browser-opener-helper"))
 	if elapsed := time.Since(started); elapsed >= time.Second {
 		t.Fatalf("startBrowserCommand waited %s", elapsed)
 	}
@@ -341,15 +276,11 @@ func TestAPIKeyLoginUsesManifestDefaults(t *testing.T) {
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 
 	stdin, input, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	if _, err := input.WriteString("secret\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := input.Close(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, input.Close())
 	oldStdin := os.Stdin
 	os.Stdin = stdin
 	defer func() {
@@ -357,25 +288,14 @@ func TestAPIKeyLoginUsesManifestDefaults(t *testing.T) {
 		os.Stdin = oldStdin
 	}()
 
-	root := &cobra.Command{Use: "demo"}
-	root.PersistentFlags().String("hostname", srv.URL, "")
-	root.PersistentFlags().Bool("insecure", false, "")
-	root.AddCommand(NewCommand(m))
+	root := newAuthRoot(m, srv.URL)
 	root.SetArgs([]string{"auth", "login", "--with-token"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
+	testutil.NoError(t, root.Execute())
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatalf("LoadHosts: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadHosts: %v", err)
 	entry, ok := hosts.Get(srv.URL)
-	if !ok {
-		t.Fatal("host not saved")
-	}
-	if entry.AuthType != "apikey" || entry.APIKey != "secret" || entry.APIKeyHeader != "X-Auth-Token" {
-		t.Fatalf("entry = %+v", entry)
-	}
+	testutil.Require(t, ok, "host not saved")
+	testutil.Require(t, entry.AuthType == "apikey" && entry.APIKey == "secret" && entry.APIKeyHeader == "X-Auth-Token", "entry = %+v", entry)
 }
 
 func TestOAuthDeviceLoginAcceptsAuthorizationPendingError(t *testing.T) {
@@ -414,27 +334,14 @@ func TestOAuthDeviceLoginAcceptsAuthorizationPendingError(t *testing.T) {
 	config.Bind(m)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 
-	root := &cobra.Command{Use: "demo"}
-	root.PersistentFlags().String("hostname", srv.URL, "")
-	root.PersistentFlags().Bool("insecure", false, "")
-	root.AddCommand(NewCommand(m))
+	root := newAuthRoot(m, srv.URL)
 	root.SetArgs([]string{"auth", "login", "--device-auth"})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if tokenCalls != 2 {
-		t.Fatalf("tokenCalls = %d, want 2", tokenCalls)
-	}
+	testutil.NoError(t, root.Execute())
+	testutil.Require(t, tokenCalls == 2, "tokenCalls = %d, want 2", tokenCalls)
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatalf("LoadHosts: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadHosts: %v", err)
 	entry, ok := hosts.Get(srv.URL)
-	if !ok {
-		t.Fatal("host not saved")
-	}
-	if entry.AuthType != "bearer" || entry.OAuthToken != "access-1" {
-		t.Fatalf("entry = %+v", entry)
-	}
+	testutil.Require(t, ok, "host not saved")
+	testutil.Require(t, entry.AuthType == "bearer" && entry.OAuthToken == "access-1", "entry = %+v", entry)
 }

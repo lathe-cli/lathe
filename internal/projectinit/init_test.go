@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestInitCreatesUncommittedRepositoryFromTemplateRef(t *testing.T) {
@@ -73,12 +75,8 @@ check_profile: pnpm
 			return os.MkdirAll(filepath.Join(root, "internal", "generated"), 0o755)
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Template.Ref != "v1.0.0" || result.Template.Commit != wantCommit {
-		t.Fatalf("template result = %#v", result.Template)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, result.Template.Ref == "v1.0.0" && result.Template.Commit == wantCommit, "template result = %#v", result.Template)
 	if got := mustRead(t, filepath.Join(target, "README.md")); got != "# Acme\n" {
 		t.Fatalf("README = %q", got)
 	}
@@ -112,13 +110,9 @@ check_profile: pnpm
 
 func TestWriteMITLicense(t *testing.T) {
 	root := t.TempDir()
-	if err := writeLicense(root, "mit", "Acme, Inc."); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, writeLicense(root, "mit", "Acme, Inc."))
 	license := mustRead(t, filepath.Join(root, "LICENSE"))
-	if !strings.Contains(license, "MIT License") || !strings.Contains(license, "Acme, Inc.") {
-		t.Fatalf("LICENSE = %q", license)
-	}
+	testutil.Require(t, strings.Contains(license, "MIT License") && strings.Contains(license, "Acme, Inc."), "LICENSE = %q", license)
 }
 
 func TestManifestRejectsUnknownFields(t *testing.T) {
@@ -131,24 +125,18 @@ func TestManifestRejectsUnknownFields(t *testing.T) {
 
 func mustMkdirAll(t *testing.T, path string) {
 	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(path, 0o755))
 }
 
 func mustWrite(t *testing.T, path, contents string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(path, []byte(contents), 0o644))
 }
 
 func mustRead(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	return string(data)
 }
 
@@ -157,8 +145,6 @@ func runTestCommand(t *testing.T, dir, name string, args ...string) string {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
-	}
+	testutil.Require(t, err == nil, "%s %v: %v\n%s", name, args, err, out)
 	return string(out)
 }

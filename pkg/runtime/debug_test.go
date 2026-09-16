@@ -10,15 +10,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func captureStderr(t *testing.T) *os.File {
 	t.Helper()
 	original := os.Stderr
 	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
+	testutil.Require(t, err == nil, "os.Pipe: %v", err)
 	os.Stderr = w
 	t.Cleanup(func() {
 		os.Stderr = original
@@ -50,19 +50,13 @@ func TestDebugTransport_LogsOnlySafeMetadata(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL+"/private-path?token=query-secret", strings.NewReader(`{"value":"request-body-secret"}`))
 	req.Header.Set("Authorization", "Bearer request-header-secret")
 	resp, err := dt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip: %v", err)
-	}
+	testutil.Require(t, err == nil, "RoundTrip: %v", err)
 	resp.Body.Close()
 
 	out := readStderr(t, r)
-	if !strings.Contains(out, "> POST request") || !strings.Contains(out, "< HTTP 400") {
-		t.Fatalf("debug output missing safe metadata:\n%s", out)
-	}
+	testutil.Require(t, strings.Contains(out, "> POST request") && strings.Contains(out, "< HTTP 400"), "debug output missing safe metadata:\n%s", out)
 	for _, leaked := range []string{"private-path", "query-secret", "request-header-secret", "request-body-secret", "response-header-secret", "response-body-secret"} {
-		if strings.Contains(out, leaked) {
-			t.Fatalf("debug output leaked %q:\n%s", leaked, out)
-		}
+		testutil.Require(t, !strings.Contains(out, leaked), "debug output leaked %q:\n%s", leaked, out)
 	}
 }
 
@@ -78,18 +72,14 @@ func TestDebugTransport_PreservesResponseBody(t *testing.T) {
 	dt := &debugTransport{inner: http.DefaultTransport}
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 	resp, err := dt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip: %v", err)
-	}
+	testutil.Require(t, err == nil, "RoundTrip: %v", err)
 
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 
 	readStderr(t, r)
 
-	if string(body) != `{"data":1}` {
-		t.Errorf("response body = %q, want %q", string(body), `{"data":1}`)
-	}
+	testutil.Check(t, string(body) == `{"data":1}`, "response body = %q, want %q", string(body), `{"data":1}`)
 }
 
 func TestDebugTransport_DoesNotPeekStreamingResponse(t *testing.T) {
@@ -139,15 +129,9 @@ func TestDebugTransport_DoesNotPeekStreamingResponse(t *testing.T) {
 	}
 	close(release)
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response: %v", err)
-	}
+	testutil.Require(t, err == nil, "read response: %v", err)
 	_ = resp.Body.Close()
 	out := readStderr(t, stderr)
-	if string(body) != "data: first\n\ndata: second\n\n" {
-		t.Fatalf("response body = %q", body)
-	}
-	if strings.Contains(out, "[body") {
-		t.Fatalf("debug output unexpectedly dumped streaming body:\n%s", out)
-	}
+	testutil.Require(t, string(body) == "data: first\n\ndata: second\n\n", "response body = %q", body)
+	testutil.Require(t, !strings.Contains(out, "[body"), "debug output unexpectedly dumped streaming body:\n%s", out)
 }

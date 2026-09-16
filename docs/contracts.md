@@ -18,7 +18,7 @@ requires regeneration.
 ## Capability contract
 
 The runtime catalog is the agent-facing capability contract. Its version is
-`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog.go`. Agents must read
+`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog_schema.go`. Agents must read
 the contract from the running CLI:
 
 ```sh

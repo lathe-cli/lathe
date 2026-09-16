@@ -8,28 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lathe-cli/lathe/internal/codegen/backends/document"
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"gopkg.in/yaml.v3"
 )
-
-func anyToString(v any) string {
-	if v == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-func anySliceToStrings(vs []any) []string {
-	if len(vs) == 0 {
-		return nil
-	}
-	out := make([]string, len(vs))
-	for i, v := range vs {
-		out[i] = fmt.Sprintf("%v", v)
-	}
-	return out
-}
 
 type swaggerDoc struct {
 	Produces    []string                        `json:"produces"`
@@ -133,10 +116,6 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 }
 
 func applyEffectiveSecurity(doc *swaggerDoc) {
-	// A document with no security block says nothing about authentication. It
-	// must not be turned into an empty requirement list, which in OpenAPI means
-	// "explicitly public" and would mark every operation as needing no auth.
-	// Leaving the operation unset keeps the conservative default downstream.
 	if doc.Security == nil {
 		return
 	}
@@ -154,7 +133,7 @@ func applyEffectiveSecurity(doc *swaggerDoc) {
 func mergeDoc(dst, add *swaggerDoc, module, origin string) {
 	for k, v := range add.Definitions {
 		if existing, exists := dst.Definitions[k]; exists {
-			if !sameJSON(existing, v) {
+			if !document.EqualJSON(existing, v) {
 				fmt.Fprintf(os.Stderr, "warn: %s: diverging definition %q in %s (kept first)\n", module, k, origin)
 			}
 			continue
@@ -175,18 +154,6 @@ func mergeDoc(dst, add *swaggerDoc, module, origin string) {
 			bucket[m] = op
 		}
 	}
-}
-
-func sameJSON(a, b any) bool {
-	ja, err := json.Marshal(a)
-	if err != nil {
-		return false
-	}
-	jb, err := json.Marshal(b)
-	if err != nil {
-		return false
-	}
-	return string(ja) == string(jb)
 }
 
 func toRawIR(name string, doc *swaggerDoc) *rawir.RawModule {
@@ -230,7 +197,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 	for _, p := range op.Parameters {
 		key := p.In + "\x00" + p.Name
 		if existing, ok := seenParameters[key]; ok {
-			if !sameJSON(existing, p) {
+			if !document.EqualJSON(existing, p) {
 				fmt.Fprintf(os.Stderr, "warn: diverging duplicate parameter %q in %s %s (kept first)\n", p.Name, out.Method, path)
 			}
 			continue
@@ -246,8 +213,8 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 			Required:    p.Required,
 			Type:        p.Type,
 			Description: p.Description,
-			Default:     anyToString(p.Default),
-			Enum:        anySliceToStrings(p.Enum),
+			Default:     document.String(p.Default),
+			Enum:        document.Strings(p.Enum),
 			Format:      p.Format,
 			Deprecated:  p.Deprecated,
 		})
@@ -259,25 +226,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 	if op.Security != nil {
 		sec = *op.Security
 	}
-	out.Security = convertSecurity(sec)
-	return out
-}
-
-func convertSecurity(sec []map[string][]string) []rawir.RawSecurityReq {
-	if sec == nil {
-		return nil
-	}
-	var out []rawir.RawSecurityReq
-	for _, req := range sec {
-		var scopes []string
-		for _, s := range req {
-			scopes = append(scopes, s...)
-		}
-		out = append(out, rawir.RawSecurityReq{Scopes: scopes})
-	}
-	if out == nil {
-		out = []rawir.RawSecurityReq{}
-	}
+	out.Security = document.Security(sec)
 	return out
 }
 
@@ -290,7 +239,7 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		Type:        s.Type,
 		Description: s.Description,
 		Format:      s.Format,
-		Enum:        anySliceToStrings(s.Enum),
+		Enum:        document.Strings(s.Enum),
 	}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*rawir.RawSchema, len(s.Properties))

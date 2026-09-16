@@ -7,12 +7,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
-
-	"github.com/lathe-cli/lathe/internal/codegen/rawir"
-	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
 const descriptorFile = "descriptor_set.pb"
@@ -116,45 +115,6 @@ func patternOf(r *annotations.HttpRule) (httpPattern, bool) {
 	return p, true
 }
 
-type index struct {
-	messages map[string]*messageEntry
-	enums    map[string]*descriptorpb.EnumDescriptorProto
-}
-
-type messageEntry struct {
-	file    *descriptorpb.FileDescriptorProto
-	msg     *descriptorpb.DescriptorProto
-	parents []int32
-}
-
-func newIndex(fds *descriptorpb.FileDescriptorSet) *index {
-	idx := &index{
-		messages: map[string]*messageEntry{},
-		enums:    map[string]*descriptorpb.EnumDescriptorProto{},
-	}
-	for _, file := range fds.File {
-		pkg := file.GetPackage()
-		for i, m := range file.MessageType {
-			idx.indexMessage(file, "."+pkg, m, []int32{4, int32(i)})
-		}
-		for _, e := range file.EnumType {
-			idx.enums["."+pkg+"."+e.GetName()] = e
-		}
-	}
-	return idx
-}
-
-func (idx *index) indexMessage(file *descriptorpb.FileDescriptorProto, parent string, m *descriptorpb.DescriptorProto, path []int32) {
-	full := parent + "." + m.GetName()
-	idx.messages[full] = &messageEntry{file: file, msg: m, parents: append([]int32(nil), path...)}
-	for i, nested := range m.NestedType {
-		idx.indexMessage(file, full, nested, append(append([]int32(nil), path...), 3, int32(i)))
-	}
-	for _, e := range m.EnumType {
-		idx.enums[full+"."+e.GetName()] = e
-	}
-}
-
 var pathVarRE = regexp.MustCompile(`\{([^{}]+)\}`)
 
 func (idx *index) buildOperation(
@@ -222,36 +182,18 @@ func (idx *index) buildOperation(
 		op.RequestBody = &rawir.RawRequestBody{Required: true, Schema: schema}
 	}
 
-	if reqMsg != nil {
-		bodyRoot := rule.body
-		bodyAll := bodyRoot == "*"
+	if reqMsg != nil && rule.body != "*" {
 		for _, f := range reqMsg.msg.Field {
 			rawName := f.GetName()
-			if pathParamSet[rawName] {
-				continue
-			}
-			if bodyAll {
-				continue
-			}
-			if bodyRoot != "" && rawName == bodyRoot {
-				continue
-			}
-			if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_MESSAGE &&
-				f.GetLabel() != descriptorpb.FieldDescriptorProto_LABEL_REPEATED {
-				continue
-			}
-			if idx.isMapField(f) {
-				continue
-			}
-			qtype := queryType(f)
-			if qtype == "" {
+			if pathParamSet[rawName] || rule.body != "" && rawName == rule.body || idx.isMapField(f) ||
+				f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_MESSAGE && f.GetLabel() != descriptorpb.FieldDescriptorProto_LABEL_REPEATED {
 				continue
 			}
 			op.Parameters = append(op.Parameters, rawir.RawParameter{
 				Name:        jsonName(f),
 				In:          "query",
 				Required:    false,
-				Type:        qtype,
+				Type:        queryType(f),
 				Description: fieldComment(reqMsg, f),
 			})
 		}
@@ -269,10 +211,7 @@ func parsePathVars(pattern string) ([]string, string) {
 	var names []string
 	cleaned := pathVarRE.ReplaceAllStringFunc(pattern, func(s string) string {
 		inner := s[1 : len(s)-1]
-		name := inner
-		if i := strings.Index(inner, "="); i >= 0 {
-			name = inner[:i]
-		}
+		name, _, _ := strings.Cut(inner, "=")
 		names = append(names, name)
 		root := rootOf(name)
 		return "{" + root + "}"
@@ -280,286 +219,7 @@ func parsePathVars(pattern string) ([]string, string) {
 	return names, cleaned
 }
 
-func jsonName(f *descriptorpb.FieldDescriptorProto) string {
-	if jn := f.GetJsonName(); jn != "" {
-		return jn
-	}
-	return snakeToCamel(f.GetName())
-}
-
-func snakeToCamel(s string) string {
-	if s == "" {
-		return ""
-	}
-	parts := strings.Split(s, "_")
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	var b strings.Builder
-	b.WriteString(parts[0])
-	for _, p := range parts[1:] {
-		if p == "" {
-			continue
-		}
-		b.WriteString(strings.ToUpper(p[:1]))
-		b.WriteString(p[1:])
-	}
-	return b.String()
-}
-
-func (idx *index) isMapField(f *descriptorpb.FieldDescriptorProto) bool {
-	if f.GetType() != descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
-		return false
-	}
-	if f.GetLabel() != descriptorpb.FieldDescriptorProto_LABEL_REPEATED {
-		return false
-	}
-	target := idx.messages[f.GetTypeName()]
-	if target == nil {
-		return false
-	}
-	return target.msg.GetOptions().GetMapEntry()
-}
-
 func rootOf(pathExpr string) string {
-	if i := strings.Index(pathExpr, "."); i >= 0 {
-		return pathExpr[:i]
-	}
-	return pathExpr
-}
-
-func findField(m *messageEntry, name string) *descriptorpb.FieldDescriptorProto {
-	if m == nil {
-		return nil
-	}
-	for _, f := range m.msg.Field {
-		if f.GetName() == name {
-			return f
-		}
-	}
-	return nil
-}
-
-func queryType(f *descriptorpb.FieldDescriptorProto) string {
-	repeated := f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
-	if repeated {
-		return "array"
-	}
-	switch f.GetType() {
-	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
-		return "boolean"
-	case descriptorpb.FieldDescriptorProto_TYPE_INT32,
-		descriptorpb.FieldDescriptorProto_TYPE_INT64,
-		descriptorpb.FieldDescriptorProto_TYPE_UINT32,
-		descriptorpb.FieldDescriptorProto_TYPE_UINT64,
-		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
-		descriptorpb.FieldDescriptorProto_TYPE_SINT64,
-		descriptorpb.FieldDescriptorProto_TYPE_FIXED32,
-		descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
-		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32,
-		descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
-		return "integer"
-	default:
-		return "string"
-	}
-}
-
-func (idx *index) messageToSchema(entry *messageEntry, out map[string]*rawir.RawSchema, visiting map[string]bool) *rawir.RawSchema {
-	if entry == nil {
-		return nil
-	}
-	typeName := idx.fullNameOf(entry)
-	if visiting[typeName] {
-		return &rawir.RawSchema{Ref: rawir.RefPrefix + schemaKey(typeName)}
-	}
-	visiting[typeName] = true
-	defer delete(visiting, typeName)
-
-	key := schemaKey(typeName)
-	if _, exists := out[key]; !exists {
-		sch := &rawir.RawSchema{
-			Type:       "object",
-			Properties: map[string]*rawir.RawSchema{},
-		}
-		out[key] = sch
-		for _, f := range entry.msg.Field {
-			property := idx.fieldToSchema(f, out, visiting)
-			property.Description = fieldComment(entry, f)
-			sch.Properties[jsonName(f)] = property
-		}
-	}
-	return &rawir.RawSchema{Ref: rawir.RefPrefix + key}
-}
-
-func (idx *index) fullNameOf(entry *messageEntry) string {
-	for k, v := range idx.messages {
-		if v == entry {
-			return k
-		}
-	}
-	return "." + entry.file.GetPackage() + "." + entry.msg.GetName()
-}
-
-func schemaKey(fullTypeName string) string {
-	return strings.TrimPrefix(fullTypeName, ".")
-}
-
-func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[string]bool, out map[string]*rawir.RawSchema) *rawir.RawSchema {
-	if reqMsg == nil {
-		return nil
-	}
-	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
-	for _, f := range reqMsg.msg.Field {
-		if pathParamSet[f.GetName()] {
-			continue
-		}
-		property := idx.fieldToSchema(f, out, map[string]bool{})
-		property.Description = fieldComment(reqMsg, f)
-		schema.Properties[jsonName(f)] = property
-	}
-	if len(schema.Properties) == 0 {
-		schema.Properties = nil
-	}
-	return schema
-}
-
-func (idx *index) fieldToSchema(f *descriptorpb.FieldDescriptorProto, out map[string]*rawir.RawSchema, visiting map[string]bool) *rawir.RawSchema {
-	if idx.isMapField(f) {
-		entry := idx.messages[f.GetTypeName()]
-		value := findField(entry, "value")
-		var valueSchema *rawir.RawSchema
-		if value != nil {
-			valueSchema = idx.fieldToSchema(value, out, visiting)
-		}
-		return &rawir.RawSchema{
-			Type: "object",
-			AdditionalProperties: &rawir.RawAdditionalProperties{
-				Allowed: true,
-				Schema:  valueSchema,
-			},
-		}
-	}
-	repeated := f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
-	s := scalarOrMessageSchema(idx, f, out, visiting)
-	if repeated {
-		return &rawir.RawSchema{Type: "array", Items: s}
-	}
-	return s
-}
-
-func scalarOrMessageSchema(idx *index, f *descriptorpb.FieldDescriptorProto, out map[string]*rawir.RawSchema, visiting map[string]bool) *rawir.RawSchema {
-	switch f.GetType() {
-	case descriptorpb.FieldDescriptorProto_TYPE_MESSAGE:
-		ref := f.GetTypeName()
-		target := idx.messages[ref]
-		if target == nil {
-			return &rawir.RawSchema{Type: "object"}
-		}
-		return idx.messageToSchema(target, out, visiting)
-	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
-		return &rawir.RawSchema{Type: "boolean"}
-	case descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_TYPE_BYTES:
-		return &rawir.RawSchema{Type: "string"}
-	case descriptorpb.FieldDescriptorProto_TYPE_ENUM:
-		schema := &rawir.RawSchema{Type: "string"}
-		if enum := idx.enums[f.GetTypeName()]; enum != nil {
-			for _, value := range enum.Value {
-				schema.Enum = append(schema.Enum, value.GetName())
-			}
-		}
-		return schema
-	case descriptorpb.FieldDescriptorProto_TYPE_INT32, descriptorpb.FieldDescriptorProto_TYPE_INT64,
-		descriptorpb.FieldDescriptorProto_TYPE_UINT32, descriptorpb.FieldDescriptorProto_TYPE_UINT64,
-		descriptorpb.FieldDescriptorProto_TYPE_SINT32, descriptorpb.FieldDescriptorProto_TYPE_SINT64,
-		descriptorpb.FieldDescriptorProto_TYPE_FIXED32, descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
-		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32, descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
-		return &rawir.RawSchema{Type: "integer"}
-	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT, descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
-		return &rawir.RawSchema{Type: "number"}
-	default:
-		return &rawir.RawSchema{Type: "string"}
-	}
-}
-
-func firstSentenceFromComment(file *descriptorpb.FileDescriptorProto, svc *descriptorpb.ServiceDescriptorProto, method *descriptorpb.MethodDescriptorProto) string {
-	loc := findMethodComment(file, svc, method)
-	if loc == nil {
-		return ""
-	}
-	s := strings.TrimSpace(loc.GetLeadingComments())
-	if s == "" {
-		return ""
-	}
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimSpace(s)
-}
-
-func findMethodComment(file *descriptorpb.FileDescriptorProto, svc *descriptorpb.ServiceDescriptorProto, method *descriptorpb.MethodDescriptorProto) *descriptorpb.SourceCodeInfo_Location {
-	if file.SourceCodeInfo == nil {
-		return nil
-	}
-	svcIdx := -1
-	for i, s := range file.Service {
-		if s == svc {
-			svcIdx = i
-			break
-		}
-	}
-	if svcIdx < 0 {
-		return nil
-	}
-	methodIdx := -1
-	for i, m := range svc.Method {
-		if m == method {
-			methodIdx = i
-			break
-		}
-	}
-	if methodIdx < 0 {
-		return nil
-	}
-	target := []int32{6, int32(svcIdx), 2, int32(methodIdx)}
-	for _, loc := range file.SourceCodeInfo.Location {
-		if pathEqual(loc.Path, target) {
-			return loc
-		}
-	}
-	return nil
-}
-
-func fieldComment(entry *messageEntry, field *descriptorpb.FieldDescriptorProto) string {
-	if entry == nil || entry.file.SourceCodeInfo == nil {
-		return ""
-	}
-	fieldIdx := -1
-	for i, f := range entry.msg.Field {
-		if f == field {
-			fieldIdx = i
-			break
-		}
-	}
-	if fieldIdx < 0 {
-		return ""
-	}
-	target := append(append([]int32(nil), entry.parents...), 2, int32(fieldIdx))
-	for _, loc := range entry.file.SourceCodeInfo.Location {
-		if pathEqual(loc.Path, target) {
-			return strings.TrimSpace(loc.GetLeadingComments())
-		}
-	}
-	return ""
-}
-
-func pathEqual(a, b []int32) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	root, _, _ := strings.Cut(pathExpr, ".")
+	return root
 }

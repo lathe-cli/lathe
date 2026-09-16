@@ -1,13 +1,9 @@
 package runtime
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -137,9 +133,6 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 			stepResult.Status = "skipped"
 			result.Steps = append(result.Steps, stepResult)
 		}
-
-		// Conditions are evaluated before any host or auth work so a skipped
-		// step never loads credentials or triggers a token refresh.
 		run, err := evalWorkflowConditions(step.When, state)
 		if err != nil {
 			if errors.Is(err, errStepSkipped) {
@@ -168,21 +161,11 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 			return fail(UsageError(cmd, err))
 		}
 
-		var host HostResolution
-		var clientOpts ClientOptions
-		if step.Operation.Security != nil && step.Operation.Security.Public {
-			host, clientOpts, err = tryLoadHostOptions(cmd, step.Operation.DefaultHostname, true)
-		} else {
-			host, clientOpts, err = loadHostOptions(cmd, step.Operation.DefaultHostname, true)
-		}
+		host, clientOpts, err := operationHostOptions(cmd, step.Operation, false)
 		if err != nil {
 			return fail(err)
 		}
 		reporter.noticeImplicitHost(cmd.ErrOrStderr(), host)
-		if v, err := cmd.Root().PersistentFlags().GetBool("debug"); err == nil && v {
-			clientOpts.Debug = true
-		}
-		clientOpts.UserAgent = cmd.Root().Use
 
 		opResult, err := InvokeOperation(cmd.Context(), step.Operation, input, OperationOptions{
 			Hostname:   host.Hostname,
@@ -204,10 +187,8 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 	if strings.TrimSpace(spec.OutputFrom) == "" {
 		return result, nil, nil
 	}
-	value, err := evalWorkflowOutputValue(spec.OutputFrom, state)
+	value, err := evalWorkflowValue(spec.OutputFrom, state, workflowOutput)
 	if err != nil {
-		// A bare reference to a skipped step degrades to the step summary
-		// rather than failing the command.
 		if errors.Is(err, errStepSkipped) {
 			return result, nil, nil
 		}
@@ -218,287 +199,4 @@ func executeWorkflow(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any)
 		return result, nil, err
 	}
 	return result, data, nil
-}
-
-type workflowState struct {
-	inputs  map[string]any
-	steps   map[string]any
-	skipped map[string]bool
-}
-
-// errStepSkipped marks a reference to a step that was skipped. It propagates
-// out of reference evaluation so the referencing step is skipped in turn, which
-// makes propagation transitive without a dependency graph.
-var errStepSkipped = errors.New("workflow step was skipped")
-
-func workflowInputValues(cmd *cobra.Command, spec WorkflowSpec, vals map[string]any) map[string]any {
-	input := OperationInput{Values: vals, Changed: operationChangedFlags(cmd, spec.Params)}
-	out := make(map[string]any, len(spec.Params))
-	for _, p := range spec.Params {
-		if !operationChanged(input, p) {
-			continue
-		}
-		v, ok, err := operationValue(input, p)
-		if err != nil || !ok {
-			continue
-		}
-		out[p.Name] = v
-		out[p.Flag] = v
-	}
-	return out
-}
-
-// evalWorkflowConditions reports whether a step should run. Conditions are
-// joined with AND; values within one condition are joined with OR.
-func evalWorkflowConditions(conditions []WorkflowCondition, state workflowState) (bool, error) {
-	for _, cond := range conditions {
-		actual, err := evalWorkflowConditionValue(cond.Value, state)
-		if err != nil {
-			return false, err
-		}
-		matched := slices.Contains(cond.Values, actual)
-		if cond.Operator == "notin" {
-			matched = !matched
-		}
-		if !matched {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-// evalWorkflowConditionValue is the lenient evaluator, kept separate from
-// evalWorkflowValue rather than wrapping it. Leniency applies per reference:
-// a reference that does not resolve contributes the empty string while the
-// surrounding literal text is preserved, so "prefix-${steps.probe.missing}"
-// evaluates to "prefix-". Collapsing the whole expression would silently turn
-// a partially resolvable condition into a comparison against "".
-//
-// Leniency stops at skipped steps: that sentinel propagates so the referencing
-// step is skipped rather than compared against an empty value.
-func evalWorkflowConditionValue(expr string, state workflowState) (string, error) {
-	var out strings.Builder
-	rest := expr
-	for {
-		start := strings.Index(rest, "${")
-		if start < 0 {
-			out.WriteString(rest)
-			return out.String(), nil
-		}
-		out.WriteString(rest[:start])
-		after := rest[start+2:]
-		end := strings.Index(after, "}")
-		if end < 0 {
-			// Unterminated references are rejected at codegen time. Treat the
-			// remainder as literal text instead of failing the condition.
-			out.WriteString(rest[start:])
-			return out.String(), nil
-		}
-		value, err := workflowRefValue(strings.TrimSpace(after[:end]), state)
-		switch {
-		case err == nil:
-			out.WriteString(workflowString(value))
-		case errors.Is(err, errStepSkipped):
-			return "", err
-		}
-		rest = after[end+1:]
-	}
-}
-
-func workflowOperationInput(step WorkflowStepSpec, state workflowState) (OperationInput, error) {
-	values := make(map[string]any, len(step.Params))
-	for key, expr := range step.Params {
-		value, err := evalWorkflowValue(expr, state)
-		if err != nil {
-			return OperationInput{}, fmt.Errorf("step %s param %s: %w", step.ID, key, err)
-		}
-		values[key] = value
-	}
-	sets, err := evalWorkflowAssignments(step.BodySets, state)
-	if err != nil {
-		return OperationInput{}, fmt.Errorf("step %s body set: %w", step.ID, err)
-	}
-	stringSets, err := evalWorkflowAssignments(step.BodyStringSets, state)
-	if err != nil {
-		return OperationInput{}, fmt.Errorf("step %s body set-str: %w", step.ID, err)
-	}
-	return OperationInput{
-		Values:         values,
-		BodySets:       sets,
-		BodyStringSets: stringSets,
-	}, nil
-}
-
-func evalWorkflowAssignments(values []WorkflowValue, state workflowState) ([]string, error) {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		evaluated, err := evalWorkflowString(value.Value, state)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, value.Name+"="+evaluated)
-	}
-	return out, nil
-}
-
-func workflowStepValue(data []byte) any {
-	if len(bytes.TrimSpace(data)) == 0 {
-		return nil
-	}
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err == nil {
-		var trailing any
-		if err := decoder.Decode(&trailing); errors.Is(err, io.EOF) {
-			return value
-		}
-	}
-	return string(data)
-}
-
-func evalWorkflowString(expr string, state workflowState) (string, error) {
-	if !strings.Contains(expr, "${") {
-		return expr, nil
-	}
-	var out strings.Builder
-	rest := expr
-	for {
-		start := strings.Index(rest, "${")
-		if start < 0 {
-			out.WriteString(rest)
-			return out.String(), nil
-		}
-		out.WriteString(rest[:start])
-		after := rest[start+2:]
-		end := strings.Index(after, "}")
-		if end < 0 {
-			return "", fmt.Errorf("unterminated reference in %q", expr)
-		}
-		ref := strings.TrimSpace(after[:end])
-		value, err := workflowRefValue(ref, state)
-		if err != nil {
-			return "", err
-		}
-		out.WriteString(workflowString(value))
-		rest = after[end+1:]
-	}
-}
-
-func evalWorkflowValue(expr string, state workflowState) (any, error) {
-	trimmed := strings.TrimSpace(expr)
-	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") && strings.Count(trimmed, "${") == 1 {
-		return workflowRefValue(strings.TrimSpace(trimmed[2:len(trimmed)-1]), state)
-	}
-	return evalWorkflowString(expr, state)
-}
-
-// evalWorkflowOutputValue evaluates output.from expressions. A bare reference
-// to a skipped step still propagates errStepSkipped (the caller degrades to the
-// step summary). A composite expression substitutes null for skipped references
-// so the remaining step data survives.
-func evalWorkflowOutputValue(expr string, state workflowState) (any, error) {
-	trimmed := strings.TrimSpace(expr)
-	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") && strings.Count(trimmed, "${") == 1 {
-		return workflowRefValue(strings.TrimSpace(trimmed[2:len(trimmed)-1]), state)
-	}
-	return evalWorkflowOutputString(expr, state)
-}
-
-// evalWorkflowOutputString is like evalWorkflowString but substitutes "null"
-// for references to skipped steps instead of propagating errStepSkipped. This
-// lets a JSON-literal output.from like '{"a":${steps.x},"b":${steps.y}}'
-// produce '{"a":<data>,"b":null}' when y is skipped, rather than discarding
-// the entire aggregate.
-func evalWorkflowOutputString(expr string, state workflowState) (string, error) {
-	if !strings.Contains(expr, "${") {
-		return expr, nil
-	}
-	var out strings.Builder
-	rest := expr
-	for {
-		start := strings.Index(rest, "${")
-		if start < 0 {
-			out.WriteString(rest)
-			return out.String(), nil
-		}
-		out.WriteString(rest[:start])
-		after := rest[start+2:]
-		end := strings.Index(after, "}")
-		if end < 0 {
-			return "", fmt.Errorf("unterminated reference in %q", expr)
-		}
-		ref := strings.TrimSpace(after[:end])
-		value, err := workflowRefValue(ref, state)
-		if err != nil {
-			if errors.Is(err, errStepSkipped) {
-				out.WriteString("null")
-				rest = after[end+1:]
-				continue
-			}
-			return "", err
-		}
-		out.WriteString(workflowString(value))
-		rest = after[end+1:]
-	}
-}
-
-func workflowRefValue(ref string, state workflowState) (any, error) {
-	if name, ok := strings.CutPrefix(ref, "input."); ok {
-		value, exists := state.inputs[name]
-		if !exists {
-			return nil, fmt.Errorf("unknown input %q", name)
-		}
-		return value, nil
-	}
-	if rest, ok := strings.CutPrefix(ref, "steps."); ok {
-		id, path, _ := strings.Cut(rest, ".")
-		if state.skipped[id] {
-			return nil, fmt.Errorf("step %q: %w", id, errStepSkipped)
-		}
-		step, exists := state.steps[id]
-		if !exists {
-			return nil, fmt.Errorf("unknown step %q", id)
-		}
-		if path == "" {
-			return step, nil
-		}
-		value, exists := getNestedPath(step, path)
-		if !exists {
-			return nil, fmt.Errorf("step %q has no output path %q", id, path)
-		}
-		return value, nil
-	}
-	return nil, fmt.Errorf("unknown reference %q", ref)
-}
-
-func workflowString(value any) string {
-	switch tv := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return tv
-	case []byte:
-		return string(tv)
-	case json.Number:
-		raw := tv.String()
-		if strings.ContainsAny(raw, ".eE") {
-			if f, err := strconv.ParseFloat(raw, 64); err == nil {
-				return strconv.FormatFloat(f, 'f', -1, 64)
-			}
-		} else if i, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			return strconv.FormatInt(i, 10)
-		}
-		return raw
-	case bool:
-		return fmt.Sprint(tv)
-	case float64:
-		return strconv.FormatFloat(tv, 'f', -1, 64)
-	default:
-		data, err := json.Marshal(tv)
-		if err == nil {
-			return string(data)
-		}
-		return fmt.Sprint(tv)
-	}
 }

@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func newAuthRoot(m *config.Manifest, hostname string) *cobra.Command {
@@ -27,9 +29,7 @@ func newAuthRoot(m *config.Manifest, hostname string) *cobra.Command {
 func selectedHost(t *testing.T) string {
 	t.Helper()
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatalf("LoadHosts: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadHosts: %v", err)
 	return hosts.Selected()
 }
 
@@ -44,15 +44,11 @@ func TestFirstLoginSelectsTheHostAndLaterOnesDoNot(t *testing.T) {
 	login := func(hostname string) string {
 		t.Helper()
 		stdin, input, err := os.Pipe()
-		if err != nil {
-			t.Fatal(err)
-		}
+		testutil.Require(t, err == nil, "%v", err)
 		if _, err := input.WriteString("secret\n"); err != nil {
 			t.Fatal(err)
 		}
-		if err := input.Close(); err != nil {
-			t.Fatal(err)
-		}
+		testutil.NoError(t, input.Close())
 		oldStdin := os.Stdin
 		os.Stdin = stdin
 		defer func() {
@@ -64,9 +60,7 @@ func TestFirstLoginSelectsTheHostAndLaterOnesDoNot(t *testing.T) {
 		var stderr bytes.Buffer
 		root.SetErr(&stderr)
 		root.SetArgs([]string{"auth", "login", "--with-token"})
-		if err := root.Execute(); err != nil {
-			t.Fatalf("login %s: %v", hostname, err)
-		}
+		testutil.NoError(t, root.Execute())
 		return stderr.String()
 	}
 
@@ -86,9 +80,7 @@ func TestFirstLoginSelectsTheHostAndLaterOnesDoNot(t *testing.T) {
 
 	root := newAuthRoot(m, "")
 	root.SetArgs([]string{"auth", "use", "https://second.example.com"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("auth use: %v", err)
-	}
+	testutil.NoError(t, root.Execute())
 	if got := selectedHost(t); got != "second.example.com" {
 		t.Errorf("selected = %q, want the explicit switch", got)
 	}
@@ -99,20 +91,14 @@ func TestAuthUseRejectsAHostThatIsNotLoggedIn(t *testing.T) {
 	config.Bind(m)
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatalf("LoadHosts: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadHosts: %v", err)
 	hosts.Set("a.example.com", config.HostEntry{AuthType: "bearer"})
-	if err := hosts.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+	testutil.NoError(t, hosts.Save())
 
 	root := newAuthRoot(m, "")
 	root.SetArgs([]string{"auth", "use", "missing.example.com"})
 	err = root.Execute()
-	if err == nil || !strings.Contains(err.Error(), "not logged in") {
-		t.Fatalf("err = %v, want a not-logged-in refusal", err)
-	}
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "not logged in"), "err = %v, want a not-logged-in refusal", err)
 	if got := selectedHost(t); got != "" {
 		t.Errorf("selected = %q, want the selection untouched", got)
 	}

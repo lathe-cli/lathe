@@ -4,26 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestLoadDir_EmptyDirArg(t *testing.T) {
 	got, err := LoadDir("")
-	if err != nil {
-		t.Fatalf("LoadDir(\"\"): %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("want empty map, got %v", got)
-	}
+	testutil.Require(t, err == nil, "LoadDir(\"\"): %v", err)
+	testutil.Check(t, len(got) == 0, "want empty map, got %v", got)
 }
 
 func TestLoadDir_MissingDir(t *testing.T) {
 	got, err := LoadDir(filepath.Join(t.TempDir(), "does-not-exist"))
-	if err != nil {
-		t.Fatalf("LoadDir on missing dir: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("want empty map, got %v", got)
-	}
+	testutil.Require(t, err == nil, "LoadDir on missing dir: %v", err)
+	testutil.Check(t, len(got) == 0, "want empty map, got %v", got)
 }
 
 func TestLoadDir_ParsesMultipleModules(t *testing.T) {
@@ -54,37 +48,19 @@ func TestLoadDir_ParsesMultipleModules(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "README.md"), "should be ignored")
 
 	got, err := LoadDir(dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 modules, got %d: %v", len(got), got)
-	}
+	testutil.Require(t, err == nil, "LoadDir: %v", err)
+	testutil.Require(t, len(got) == 2, "want 2 modules, got %d: %v", len(got), got)
 	u := got["iam"].Commands["create-user"]
-	if u.Use != "create" {
-		t.Errorf("iam create-user use: %q", u.Use)
-	}
-	if u.Short != "Create a user" || u.Long == "" || u.Example == "" {
-		t.Errorf("iam create-user override incomplete: %+v", u)
-	}
-	if len(u.Examples) != 1 || u.Examples[0].Summary != "Create a user from JSON" {
-		t.Fatalf("examples = %#v", u.Examples)
-	}
-	if u.Examples[0].OutputHints.IDPath != "data.createUser.id" || u.Examples[0].OutputHints.ListPath != "data.users" {
-		t.Errorf("example output hints = %#v", u.Examples[0].OutputHints)
-	}
+	testutil.Check(t, u.Use == "create", "iam create-user use: %q", u.Use)
+	testutil.Check(t, u.Short == "Create a user" && u.Long != "" && u.Example != "", "iam create-user override incomplete: %+v", u)
+	testutil.Require(t, len(u.Examples) == 1 && u.Examples[0].Summary == "Create a user from JSON", "examples = %#v", u.Examples)
+	testutil.Check(t, u.Examples[0].OutputHints.IDPath == "data.createUser.id" && u.Examples[0].OutputHints.ListPath == "data.users", "example output hints = %#v", u.Examples[0].OutputHints)
 	if input, ok := u.Examples[0].BodyShape["input"].(map[string]any); !ok || input["email"] != "alice@example.com" {
 		t.Errorf("example body shape = %#v", u.Examples[0].BodyShape)
 	}
-	if len(u.Examples[0].FollowUpCommands) != 1 || u.Examples[0].FollowUpCommands[0] != "myctl iam get-user --id <id> -o json" {
-		t.Errorf("follow-up commands = %#v", u.Examples[0].FollowUpCommands)
-	}
-	if len(u.Aliases) != 2 || u.Aliases[0] != "adduser" || u.Aliases[1] != "new-user" {
-		t.Errorf("iam create-user aliases: %v", u.Aliases)
-	}
-	if got["billing"].Commands["list-invoices"].Short != "List invoices" {
-		t.Errorf("billing list-invoices: %+v", got["billing"].Commands["list-invoices"])
-	}
+	testutil.Check(t, len(u.Examples[0].FollowUpCommands) == 1 && u.Examples[0].FollowUpCommands[0] == "myctl iam get-user --id <id> -o json", "follow-up commands = %#v", u.Examples[0].FollowUpCommands)
+	testutil.Check(t, len(u.Aliases) == 2 && u.Aliases[0] == "adduser" && u.Aliases[1] == "new-user", "iam create-user aliases: %v", u.Aliases)
+	testutil.Check(t, got["billing"].Commands["list-invoices"].Short == "List invoices", "billing list-invoices: %+v", got["billing"].Commands["list-invoices"])
 }
 
 func TestLoadDir_ParsesExtendedFields(t *testing.T) {
@@ -156,105 +132,45 @@ commands:
     hidden: false
 `)
 	got, err := LoadDir(dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadDir: %v", err)
 	mod := got["iam"]
-	if mod.Groups["Identity"].Short != "Manage user identities" {
-		t.Fatalf("group override = %#v", mod.Groups["Identity"])
-	}
-	if mod.Defaults.Pagination == nil {
-		t.Fatal("pagination defaults were not parsed")
-	}
-	if len(mod.Defaults.Pagination.MatchCommands) != 2 || mod.Defaults.Pagination.MatchCommands[0] != "list-*" {
-		t.Errorf("pagination match commands = %#v", mod.Defaults.Pagination.MatchCommands)
-	}
-	if mod.Defaults.Pagination.Params["page"] != "1" || mod.Defaults.Pagination.Params["pageSize"] != "20" {
-		t.Errorf("pagination params = %#v", mod.Defaults.Pagination.Params)
-	}
+	testutil.Require(t, mod.Groups["Identity"].Short == "Manage user identities", "group override = %#v", mod.Groups["Identity"])
+	testutil.Require(t, mod.Defaults.Pagination != nil, "pagination defaults were not parsed")
+	testutil.Check(t, len(mod.Defaults.Pagination.MatchCommands) == 2 && mod.Defaults.Pagination.MatchCommands[0] == "list-*", "pagination match commands = %#v", mod.Defaults.Pagination.MatchCommands)
+	testutil.Check(t, mod.Defaults.Pagination.Params["page"] == "1" && mod.Defaults.Pagination.Params["pageSize"] == "20", "pagination params = %#v", mod.Defaults.Pagination.Params)
 	cu := mod.Commands["create-user"]
-	if cu.Group != "Identity" {
-		t.Errorf("group = %q, want Identity", cu.Group)
-	}
-	if cu.Match.Method != "POST" || cu.Match.Path != "/users" {
-		t.Errorf("match = %#v", cu.Match)
-	}
-	if cu.Hidden == nil || !*cu.Hidden {
-		t.Errorf("hidden = %v, want true", cu.Hidden)
-	}
-	if len(cu.Notes) != 1 || cu.Notes[0] != "Use the canonical user ID." {
-		t.Errorf("notes = %#v", cu.Notes)
-	}
-	if len(cu.Prerequisites) != 1 || cu.Prerequisites[0] != "List users before creating dependent resources." {
-		t.Errorf("prerequisites = %#v", cu.Prerequisites)
-	}
-	if len(cu.KnownErrors) != 1 || cu.KnownErrors[0].Status != 400 || cu.KnownErrors[0].Cause != "missing user name" {
-		t.Errorf("known errors = %#v", cu.KnownErrors)
-	}
-	if cu.Mutation != "read" {
-		t.Errorf("mutation = %q, want read", cu.Mutation)
-	}
-	if len(cu.SearchTerms) != 2 || cu.SearchTerms[0] != "spend" || cu.SearchTerms[1] != "cost" {
-		t.Errorf("search terms = %#v", cu.SearchTerms)
-	}
-	if cu.Context == nil || cu.Context.SetOnSuccess == nil || cu.Context.SetOnSuccess.Name != "workspace" || cu.Context.SetOnSuccess.FromParam != "status" {
-		t.Errorf("context = %#v", cu.Context)
-	}
-	if cu.Body == nil || !cu.Body.Flags || cu.Body.RuntimeSchema == nil || cu.Body.RuntimeSchema.OperationID != "describeUser" || cu.Body.RuntimeSchema.ResponsePath != "input_schema" || cu.Body.RuntimeSchema.Params["user_id"] != "${params.user_id}" {
-		t.Errorf("body override = %#v", cu.Body)
-	}
-	if cu.Output == nil || len(cu.Output.DefaultColumns) != 3 || cu.Output.DefaultColumns[0] != "name" || cu.Output.DefaultColumns[1] != "spendMicro" || cu.Output.DefaultColumns[2] != "status.phase" {
-		t.Errorf("output = %#v", cu.Output)
-	}
-	if cu.Output.ColumnLabels["status.phase"] != "Status" {
-		t.Errorf("column labels = %#v", cu.Output.ColumnLabels)
-	}
+	testutil.Check(t, cu.Group == "Identity", "group = %q, want Identity", cu.Group)
+	testutil.Check(t, cu.Match.Method == "POST" && cu.Match.Path == "/users", "match = %#v", cu.Match)
+	testutil.Check(t, cu.Hidden != nil && *cu.Hidden, "hidden = %v, want true", cu.Hidden)
+	testutil.Check(t, len(cu.Notes) == 1 && cu.Notes[0] == "Use the canonical user ID.", "notes = %#v", cu.Notes)
+	testutil.Check(t, len(cu.Prerequisites) == 1 && cu.Prerequisites[0] == "List users before creating dependent resources.", "prerequisites = %#v", cu.Prerequisites)
+	testutil.Check(t, len(cu.KnownErrors) == 1 && cu.KnownErrors[0].Status == 400 && cu.KnownErrors[0].Cause == "missing user name", "known errors = %#v", cu.KnownErrors)
+	testutil.Check(t, cu.Mutation == "read", "mutation = %q, want read", cu.Mutation)
+	testutil.Check(t, len(cu.SearchTerms) == 2 && cu.SearchTerms[0] == "spend" && cu.SearchTerms[1] == "cost", "search terms = %#v", cu.SearchTerms)
+	testutil.Check(t, cu.Context != nil && cu.Context.SetOnSuccess != nil && cu.Context.SetOnSuccess.Name == "workspace" && cu.Context.SetOnSuccess.FromParam == "status", "context = %#v", cu.Context)
+	testutil.Check(t, cu.Body != nil && cu.Body.Flags && cu.Body.RuntimeSchema != nil && cu.Body.RuntimeSchema.OperationID == "describeUser" && cu.Body.RuntimeSchema.ResponsePath == "input_schema" && cu.Body.RuntimeSchema.Params["user_id"] == "${params.user_id}", "body override = %#v", cu.Body)
+	testutil.Check(t, cu.Output != nil && len(cu.Output.DefaultColumns) == 3 && cu.Output.DefaultColumns[0] == "name" && cu.Output.DefaultColumns[1] == "spendMicro" && cu.Output.DefaultColumns[2] == "status.phase", "output = %#v", cu.Output)
+	testutil.Check(t, cu.Output.ColumnLabels["status.phase"] == "Status", "column labels = %#v", cu.Output.ColumnLabels)
 	format := cu.Output.ColumnFormats["spendMicro"]
-	if format.Kind != "currency" || format.Currency != "USD" || format.SourceScale != 6 || !format.Grouping || format.MinFractionDigits != 2 || format.MaxFractionDigits != 6 {
-		t.Errorf("column format = %#v", format)
-	}
-	if cu.Output.ColumnAlignments["spendMicro"] != "right" {
-		t.Errorf("column alignments = %#v", cu.Output.ColumnAlignments)
-	}
+	testutil.Check(t, format.Kind == "currency" && format.Currency == "USD" && format.SourceScale == 6 && format.Grouping && format.MinFractionDigits == 2 && format.MaxFractionDigits == 6, "column format = %#v", format)
+	testutil.Check(t, cu.Output.ColumnAlignments["spendMicro"] == "right", "column alignments = %#v", cu.Output.ColumnAlignments)
 	sp := cu.Params["status"]
-	if sp.Flag != "user-status" {
-		t.Errorf("param flag = %q, want user-status", sp.Flag)
-	}
-	if sp.Argument != "state" {
-		t.Errorf("param argument = %q, want state", sp.Argument)
-	}
-	if sp.Help != "Account status" {
-		t.Errorf("param help = %q, want Account status", sp.Help)
-	}
-	if !sp.Required {
-		t.Error("param required = false, want true")
-	}
-	if sp.Default != "active" {
-		t.Errorf("param default = %q, want active", sp.Default)
-	}
-	if !sp.Deprecated {
-		t.Error("param deprecated = false, want true")
-	}
-	if sp.Context != "workspace" {
-		t.Errorf("param context = %q", sp.Context)
-	}
+	testutil.Check(t, sp.Flag == "user-status", "param flag = %q, want user-status", sp.Flag)
+	testutil.Check(t, sp.Argument == "state", "param argument = %q, want state", sp.Argument)
+	testutil.Check(t, sp.Help == "Account status", "param help = %q, want Account status", sp.Help)
+	testutil.Check(t, sp.Required, "param required = false, want true")
+	testutil.Check(t, sp.Default == "active", "param default = %q, want active", sp.Default)
+	testutil.Check(t, sp.Deprecated, "param deprecated = false, want true")
+	testutil.Check(t, sp.Context == "workspace", "param context = %q", sp.Context)
 	lp := cu.Params["legacy"]
-	if !lp.DeprecatedAlias {
-		t.Error("legacy param hidden alias = false, want true")
-	}
+	testutil.Check(t, lp.DeprecatedAlias, "legacy param hidden alias = false, want true")
 	du := mod.Commands["delete-user"]
-	if !du.Ignore {
-		t.Error("delete-user ignore = false, want true")
-	}
+	testutil.Check(t, du.Ignore, "delete-user ignore = false, want true")
 	gu := mod.Commands["get-user"]
-	if gu.Hidden == nil || *gu.Hidden {
-		t.Errorf("get-user hidden = %v, want false", gu.Hidden)
-	}
+	testutil.Check(t, gu.Hidden != nil && !*gu.Hidden, "get-user hidden = %v, want false", gu.Hidden)
 }
 
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
+	testutil.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
