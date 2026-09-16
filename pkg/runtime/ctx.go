@@ -121,40 +121,7 @@ func LoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
 }
 
 func loadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool) (HostResolution, ClientOptions, error) {
-	hosts, err := config.LoadHosts()
-	if err != nil {
-		return HostResolution{}, ClientOptions{}, err
-	}
-	res, err := resolveHostFrom(cmd, hosts, defaultHostname)
-	if err != nil {
-		return HostResolution{}, ClientOptions{}, err
-	}
-	e, ok := hosts.Get(res.Hostname)
-	if !ok {
-		return res, ClientOptions{}, missingHostCredentialsError(res.Hostname, hosts.Names())
-	}
-	insecure := e.Insecure
-	if v, err := cmd.Root().PersistentFlags().GetBool("insecure"); err == nil && v {
-		insecure = true
-	}
-	if refresh {
-		e, err = refreshHostAuthIfNeeded(cmd.Context(), res.Hostname, e, insecure)
-		if err != nil {
-			return res, ClientOptions{}, err
-		}
-	}
-	auth, err := NewAuthFromHost(e)
-	if err != nil {
-		return res, ClientOptions{}, err
-	}
-	opts := ClientOptions{
-		Auth:     auth,
-		Insecure: insecure,
-	}
-	if refresh && canRefreshHostAuth(e) {
-		opts.RefreshAuth = refreshAuthFunc(res.Hostname, insecure, e.OAuthToken)
-	}
-	return res, opts, nil
+	return hostOptions(cmd, defaultHostname, refresh, false)
 }
 
 func TryLoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
@@ -163,6 +130,10 @@ func TryLoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
 }
 
 func tryLoadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool) (HostResolution, ClientOptions, error) {
+	return hostOptions(cmd, defaultHostname, refresh, true)
+}
+
+func hostOptions(cmd *cobra.Command, defaultHostname string, refresh, optional bool) (HostResolution, ClientOptions, error) {
 	hosts, err := config.LoadHosts()
 	if err != nil {
 		return HostResolution{}, ClientOptions{}, err
@@ -171,35 +142,44 @@ func tryLoadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool
 	if err != nil {
 		return HostResolution{}, ClientOptions{}, err
 	}
-	e, ok := hosts.Get(res.Hostname)
-	if !ok {
-		opts := ClientOptions{}
-		if v, err := cmd.Root().PersistentFlags().GetBool("insecure"); err == nil && v {
-			opts.Insecure = true
-		}
+	entry, stored := hosts.Get(res.Hostname)
+	if !stored && !optional {
+		return res, ClientOptions{}, missingHostCredentialsError(res.Hostname, hosts.Names())
+	}
+	insecure, _ := cmd.Root().PersistentFlags().GetBool("insecure")
+	opts := ClientOptions{Insecure: entry.Insecure || insecure}
+	if !stored {
 		return res, opts, nil
 	}
-	insecure := e.Insecure
-	if v, err := cmd.Root().PersistentFlags().GetBool("insecure"); err == nil && v {
-		insecure = true
-	}
 	if refresh {
-		if refreshed, err := refreshHostAuthIfNeeded(cmd.Context(), res.Hostname, e, insecure); err == nil {
-			e = refreshed
+		refreshed, err := refreshHostAuthIfNeeded(cmd.Context(), res.Hostname, entry, opts.Insecure)
+		if err == nil {
+			entry = refreshed
+		} else if !optional {
+			return res, ClientOptions{}, err
 		}
 	}
-	auth, err := NewAuthFromHost(e)
+	opts.Auth, err = NewAuthFromHost(entry)
 	if err != nil {
-		return res, ClientOptions{}, nil
+		if optional {
+			err = nil
+		}
+		return res, ClientOptions{}, err
 	}
-	opts := ClientOptions{
-		Auth:     auth,
-		Insecure: insecure,
-	}
-	if refresh && canRefreshHostAuth(e) {
-		opts.RefreshAuth = refreshAuthFunc(res.Hostname, insecure, e.OAuthToken)
+	if refresh && canRefreshHostAuth(entry) {
+		opts.RefreshAuth = refreshAuthFunc(res.Hostname, opts.Insecure, entry.OAuthToken)
 	}
 	return res, opts, nil
+}
+
+func operationHostOptions(cmd *cobra.Command, spec CommandSpec, dryRun bool) (HostResolution, ClientOptions, error) {
+	optional := dryRun || (spec.Security != nil && spec.Security.Public)
+	host, opts, err := hostOptions(cmd, spec.DefaultHostname, !dryRun, optional)
+	if err == nil {
+		opts.Debug, _ = cmd.Root().PersistentFlags().GetBool("debug")
+		opts.UserAgent = cmd.Root().Use
+	}
+	return host, opts, err
 }
 
 func notAuthenticatedToHost(string) error {

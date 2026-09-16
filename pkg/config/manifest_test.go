@@ -1,9 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestLoad_FullSpec(t *testing.T) {
@@ -45,70 +48,36 @@ auth:
       fallback_field: uid
 `)
 	m, err := Load(data)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if m.CLI.Name != "demo" || m.CLI.Short != "demo CLI" {
-		t.Errorf("unexpected CLI: %+v", m.CLI)
-	}
-	if m.Auth.Validate == nil {
-		t.Fatal("expected Auth.Validate non-nil")
-	}
-	if m.Auth.Login == nil {
-		t.Fatal("expected Auth.Login non-nil")
-	}
-	if m.Auth.DefaultType != "apikey" || m.Auth.APIKeyHeader != "X-Auth-Token" {
-		t.Errorf("unexpected auth defaults: %+v", m.Auth)
-	}
-	if m.Auth.Login.Type != AuthLoginOAuthDevice || m.Auth.Login.StartPath != "/auth/cli/start" || m.Auth.Login.TokenPath != "/auth/cli/token" || m.Auth.Login.RefreshPath != "/auth/cli/refresh" {
-		t.Errorf("unexpected AuthLogin: %+v", m.Auth.Login)
-	}
-	if m.Auth.Login.StartRequest["client_id"] != "demo-cli" || m.Auth.Login.StartRequest["device_label"] != "${device_label}" {
-		t.Errorf("unexpected start request: %+v", m.Auth.Login.StartRequest)
-	}
-	if m.Auth.Login.PollRequest["client_id"] != "demo-cli" || m.Auth.Login.PollRequest["device_code"] != "${device_code}" {
-		t.Errorf("unexpected poll request: %+v", m.Auth.Login.PollRequest)
-	}
-	if m.Auth.Login.PollResponse.AccessToken != "token" || m.Auth.Login.PollResponse.Status != "state" || m.Auth.Login.PollResponse.Error != "failure.code" {
-		t.Errorf("unexpected poll response: %+v", m.Auth.Login.PollResponse)
-	}
-	if m.Contexts["workspace"].Env != "DEMO_WORKSPACE_ID" || m.Auth.Login.PollResponse.Contexts["workspace"] != "account.workspace_id" {
-		t.Errorf("unexpected contexts: manifest=%+v poll=%+v", m.Contexts, m.Auth.Login.PollResponse.Contexts)
-	}
-	if m.Auth.Validate.Method != "POST" || m.Auth.Validate.Path != "/whoami" {
-		t.Errorf("unexpected AuthValidate: %+v", m.Auth.Validate)
-	}
-	if m.Auth.Validate.Assert == nil || m.Auth.Validate.Assert.Field != "user.id" || !m.Auth.Validate.Assert.NonEmpty {
-		t.Errorf("unexpected AuthValidate.Assert: %+v", m.Auth.Validate.Assert)
-	}
-	if m.Auth.Validate.Display.UsernameField != "user.name" {
-		t.Errorf("unexpected UsernameField: %q", m.Auth.Validate.Display.UsernameField)
-	}
-	if m.Auth.Validate.Display.FallbackField != "uid" {
-		t.Errorf("unexpected FallbackField: %q", m.Auth.Validate.Display.FallbackField)
-	}
+	testutil.Require(t, err == nil, "Load: %v", err)
+	testutil.Check(t, m.CLI.Name == "demo" && m.CLI.Short == "demo CLI", "unexpected CLI: %+v", m.CLI)
+	testutil.Require(t, m.Auth.Validate != nil, "expected Auth.Validate non-nil")
+	testutil.Require(t, m.Auth.Login != nil, "expected Auth.Login non-nil")
+	testutil.Check(t, m.Auth.DefaultType == "apikey" && m.Auth.APIKeyHeader == "X-Auth-Token", "unexpected auth defaults: %+v", m.Auth)
+	testutil.Check(t, m.Auth.Login.Type == AuthLoginOAuthDevice && m.Auth.Login.StartPath == "/auth/cli/start" && m.Auth.Login.TokenPath == "/auth/cli/token" && m.Auth.Login.RefreshPath == "/auth/cli/refresh", "unexpected AuthLogin: %+v", m.Auth.Login)
+	testutil.Check(t, m.Auth.Login.StartRequest["client_id"] == "demo-cli" && m.Auth.Login.StartRequest["device_label"] == "${device_label}", "unexpected start request: %+v", m.Auth.Login.StartRequest)
+	testutil.Check(t, m.Auth.Login.PollRequest["client_id"] == "demo-cli" && m.Auth.Login.PollRequest["device_code"] == "${device_code}", "unexpected poll request: %+v", m.Auth.Login.PollRequest)
+	testutil.Check(t, m.Auth.Login.PollResponse.AccessToken == "token" && m.Auth.Login.PollResponse.Status == "state" && m.Auth.Login.PollResponse.Error == "failure.code", "unexpected poll response: %+v", m.Auth.Login.PollResponse)
+	testutil.Check(t, m.Contexts["workspace"].Env == "DEMO_WORKSPACE_ID" && m.Auth.Login.PollResponse.Contexts["workspace"] == "account.workspace_id", "unexpected contexts: manifest=%+v poll=%+v", m.Contexts, m.Auth.Login.PollResponse.Contexts)
+	testutil.Check(t, m.Auth.Validate.Method == "POST" && m.Auth.Validate.Path == "/whoami", "unexpected AuthValidate: %+v", m.Auth.Validate)
+	testutil.Check(t, m.Auth.Validate.Assert != nil && m.Auth.Validate.Assert.Field == "user.id" && m.Auth.Validate.Assert.NonEmpty, "unexpected AuthValidate.Assert: %+v", m.Auth.Validate.Assert)
+	testutil.Check(t, m.Auth.Validate.Display.UsernameField == "user.name", "unexpected UsernameField: %q", m.Auth.Validate.Display.UsernameField)
+	testutil.Check(t, m.Auth.Validate.Display.FallbackField == "uid", "unexpected FallbackField: %q", m.Auth.Validate.Display.FallbackField)
 }
 
 func TestLoadRejectsUnsafeContextName(t *testing.T) {
 	_, err := Load([]byte("cli:\n  name: demo\ncontexts:\n  \"workspace` **INJECT**\": {}\n"))
-	if err == nil || !strings.Contains(err.Error(), "context name") {
-		t.Fatalf("error = %v, want invalid context name", err)
-	}
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "context name"), "error = %v, want invalid context name", err)
 }
 
 func TestLoadRejectsCaseInsensitiveDuplicateContextEnv(t *testing.T) {
 	_, err := Load([]byte("cli:\n  name: demo\ncontexts:\n  workspace:\n    env: WORKSPACE_ID\n  organization:\n    env: workspace_id\n"))
-	if err == nil || !strings.Contains(err.Error(), "same environment variable") {
-		t.Fatalf("error = %v, want duplicate environment variable", err)
-	}
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "same environment variable"), "error = %v, want duplicate environment variable", err)
 }
 
 func TestLoadRejectsContextEnvReservedByCLI(t *testing.T) {
 	for _, env := range []string{"demo_host", "DEMO_CONFIG_DIR"} {
 		_, err := Load([]byte("cli:\n  name: demo\ncontexts:\n  workspace:\n    env: " + env + "\n"))
-		if err == nil || !strings.Contains(err.Error(), "reserved") {
-			t.Errorf("env %q error = %v, want reserved environment variable", env, err)
-		}
+		testutil.Check(t, err != nil && strings.Contains(err.Error(), "reserved"), "env %q error = %v, want reserved environment variable", env, err)
 	}
 }
 
@@ -118,12 +87,8 @@ cli:
   name: demo
 `)
 	m, err := Load(data)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if m.Auth.Validate != nil {
-		t.Errorf("expected Auth.Validate nil, got %+v", m.Auth.Validate)
-	}
+	testutil.Require(t, err == nil, "Load: %v", err)
+	testutil.Check(t, m.Auth.Validate == nil, "expected Auth.Validate nil, got %+v", m.Auth.Validate)
 }
 
 // Empty method is preserved by Load; the default-to-GET is applied at
@@ -139,36 +104,24 @@ auth:
       username_field: username
 `)
 	m, err := Load(data)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if m.Auth.Validate == nil {
-		t.Fatal("expected Auth.Validate non-nil")
-	}
-	if m.Auth.Validate.Method != "" {
-		t.Errorf("expected empty method, got %q", m.Auth.Validate.Method)
-	}
+	testutil.Require(t, err == nil, "Load: %v", err)
+	testutil.Require(t, m.Auth.Validate != nil, "expected Auth.Validate non-nil")
+	testutil.Check(t, m.Auth.Validate.Method == "", "expected empty method, got %q", m.Auth.Validate.Method)
 }
 
 func TestLoad_Malformed(t *testing.T) {
 	_, err := Load([]byte("this: is: not: yaml"))
-	if err == nil {
-		t.Fatal("expected error on malformed YAML")
-	}
+	testutil.Require(t, err != nil, "expected error on malformed YAML")
 }
 
 func TestLoad_RequiresName(t *testing.T) {
 	_, err := Load([]byte(`cli: {}`))
-	if err == nil {
-		t.Fatal("expected error when cli.name is missing")
-	}
+	testutil.Require(t, err != nil, "expected error when cli.name is missing")
 }
 
 func TestLoad_DerivesIdentityDefaults(t *testing.T) {
 	m, err := Load([]byte(`cli: {name: foobar}`))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	testutil.Require(t, err == nil, "Load: %v", err)
 	if got, want := m.CLI.ConfigDir, "foobar"; got != want {
 		t.Errorf("ConfigDir: got %q, want %q", got, want)
 	}
@@ -191,12 +144,8 @@ cli:
   config_dir_env: LEGACY_CONFIG
   host_env: LEGACY_HOST
 `))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if m.CLI.ConfigDir != "legacy" || m.CLI.ConfigDirEnv != "LEGACY_CONFIG" || m.CLI.HostEnv != "LEGACY_HOST" {
-		t.Errorf("explicit identity overridden: %+v", m.CLI)
-	}
+	testutil.Require(t, err == nil, "Load: %v", err)
+	testutil.Check(t, m.CLI.ConfigDir == "legacy" && m.CLI.ConfigDirEnv == "LEGACY_CONFIG" && m.CLI.HostEnv == "LEGACY_HOST", "explicit identity overridden: %+v", m.CLI)
 }
 
 func TestLoad_CommandPath(t *testing.T) {
@@ -205,9 +154,7 @@ cli:
   name: foo
   command_path: Namespaced
 `))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
+	testutil.Require(t, err == nil, "Load: %v", err)
 	if got, want := m.CLI.CommandPath, CommandPathNamespaced; got != want {
 		t.Fatalf("CommandPath: got %q, want %q", got, want)
 	}
@@ -217,58 +164,29 @@ cli:
   name: foo
   command_path: short
 `))
-	if err == nil {
-		t.Fatal("expected invalid command_path error")
-	}
+	testutil.Require(t, err != nil, "expected invalid command_path error")
 }
 
 func TestLoad_WorkflowRejectsDuplicateInputs(t *testing.T) {
-	tests := []struct {
-		name string
-		yaml string
-		want string
-	}{
-		{
-			name: "name",
-			want: "input name",
-			yaml: `
-cli:
-  name: demo
-workflow:
-  commands:
-    - use: doctor
-      inputs:
-        - name: app_id
-        - name: app_id
-      steps:
-        - id: health
-          uses: acme.getHealth
-`,
-		},
-		{
-			name: "flag",
-			want: "input flag",
-			yaml: `
-cli:
-  name: demo
-workflow:
-  commands:
-    - use: doctor
-      inputs:
-        - name: app_id
-        - name: app.id
-      steps:
-        - id: health
-          uses: acme.getHealth
-`,
-		},
-	}
-	for _, tc := range tests {
+	for _, tc := range []struct{ name, second, want string }{
+		{"name", "app_id", "input name"},
+		{"flag", "app.id", "input flag"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Load([]byte(tc.yaml))
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("error = %v, want %q", err, tc.want)
-			}
+			_, err := Load([]byte(fmt.Sprintf(`
+cli:
+  name: demo
+workflow:
+  commands:
+    - use: doctor
+      inputs:
+        - name: app_id
+        - name: %s
+      steps:
+        - id: health
+          uses: acme.getHealth
+`, tc.second)))
+			testutil.Require(t, err != nil && strings.Contains(err.Error(), tc.want), "error = %v, want %q", err, tc.want)
 		})
 	}
 }
@@ -281,9 +199,6 @@ func TestLoad_AuthLoginValidation(t *testing.T) {
 		{
 			name: "unsupported type",
 			yaml: `
-cli:
-  name: demo
-auth:
   login:
     type: github
     start_path: /start
@@ -293,9 +208,6 @@ auth:
 		{
 			name: "missing token path",
 			yaml: `
-cli:
-  name: demo
-auth:
   login:
     type: oauth_device
     start_path: /start
@@ -304,9 +216,6 @@ auth:
 		{
 			name: "relative path",
 			yaml: `
-cli:
-  name: demo
-auth:
   login:
     type: oauth_device
     start_path: start
@@ -316,27 +225,18 @@ auth:
 		{
 			name: "unsupported default auth type",
 			yaml: `
-cli:
-  name: demo
-auth:
   default_type: digest
 `,
 		},
 		{
 			name: "oauth default without login block",
 			yaml: `
-cli:
-  name: demo
-auth:
   default_type: oauth
 `,
 		},
 		{
 			name: "empty assertion",
 			yaml: `
-cli:
-  name: demo
-auth:
   validate:
     path: /whoami
     assert: {}
@@ -345,9 +245,6 @@ auth:
 		{
 			name: "unsupported request placeholder",
 			yaml: `
-cli:
-  name: demo
-auth:
   login:
     type: oauth_device
     start_path: /start
@@ -359,9 +256,6 @@ auth:
 		{
 			name: "unknown login context",
 			yaml: `
-cli:
-  name: demo
-auth:
   login:
     type: oauth_device
     start_path: /start
@@ -374,7 +268,7 @@ auth:
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := Load([]byte(tc.yaml)); err == nil {
+			if _, err := Load([]byte("cli:\n  name: demo\nauth:\n" + tc.yaml)); err == nil {
 				t.Fatal("Load succeeded, want error")
 			}
 		})
@@ -401,9 +295,7 @@ func TestBindActive_RoundTrip(t *testing.T) {
 		bound = nil
 		boundMu.Unlock()
 	})
-	if Active() != m {
-		t.Fatal("Active() did not return the bound manifest")
-	}
+	testutil.Require(t, Active() == m, "Active() did not return the bound manifest")
 }
 
 func TestLoadManifest_WorkflowConditions(t *testing.T) {
@@ -418,13 +310,9 @@ func TestLoadManifest_WorkflowConditions(t *testing.T) {
               values: [gpu, 404, "cpu", ""]
 `)
 		cond := m.Workflow.Commands[0].Steps[0].When
-		if len(cond) != 1 {
-			t.Fatalf("conditions = %#v", cond)
-		}
+		testutil.Require(t, len(cond) == 1, "conditions = %#v", cond)
 		want := WorkflowConditionValues{"gpu", "404", "cpu", ""}
-		if !reflect.DeepEqual(cond[0].Values, want) {
-			t.Fatalf("values = %#v, want %#v", cond[0].Values, want)
-		}
+		testutil.Require(t, reflect.DeepEqual(cond[0].Values, want), "values = %#v, want %#v", cond[0].Values, want)
 	})
 
 	for name, when := range map[string]string{
@@ -449,9 +337,7 @@ func TestLoadManifest_WorkflowConditions(t *testing.T) {
         - id: probe
           uses: console.Apps_Get
           when:` + when + "\n")))
-			if err == nil {
-				t.Fatal("expected an error")
-			}
+			testutil.Require(t, err != nil, "expected an error")
 		})
 	}
 }
@@ -459,9 +345,7 @@ func TestLoadManifest_WorkflowConditions(t *testing.T) {
 func mustLoadWorkflowManifest(t *testing.T, steps string) *Manifest {
 	t.Helper()
 	m, err := Load([]byte(workflowManifestYAML(steps)))
-	if err != nil {
-		t.Fatalf("LoadManifest: %v", err)
-	}
+	testutil.Require(t, err == nil, "LoadManifest: %v", err)
 	return m
 }
 
@@ -491,9 +375,7 @@ func TestLoadManifest_WorkflowConditionValuesMatchRuntimeFormatting(t *testing.T
 `)
 	got := m.Workflow.Commands[0].Steps[0].When[0].Values
 	want := WorkflowConditionValues{"1", "1.5", "404", "2.5", "gpu", "1.0", "true", "NaN", "+Inf", "-Inf", ""}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("values = %#v, want %#v", got, want)
-	}
+	testutil.Require(t, reflect.DeepEqual(got, want), "values = %#v, want %#v", got, want)
 }
 
 func TestLoadManifest_WorkflowConditionPreservesValueWhitespace(t *testing.T) {

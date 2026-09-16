@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestRunGitHubUpdateUsesReportedVersion(t *testing.T) {
@@ -53,9 +55,7 @@ func TestRunGitHubUpdateUsesReportedVersion(t *testing.T) {
 		}},
 	}
 
-	if err := runGitHubUpdate(cmd, m, false); err != nil {
-		t.Fatalf("runGitHubUpdate: %v", err)
-	}
+	testutil.NoError(t, runGitHubUpdate(cmd, m, false))
 	if got := out.String(); !strings.Contains(got, "demo is newer than latest release (v0.1.3-0.20260830061345-0837499497e7 > v0.1.2)") {
 		t.Fatalf("output = %q", got)
 	}

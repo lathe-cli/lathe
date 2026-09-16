@@ -53,25 +53,8 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 				checkouts[key] = sha
 			}
 		}
-		switch src.Backend {
-		case sourceconfig.BackendSwagger:
-			if err := syncSwagger(src, sourceDir, syncDir); err != nil {
-				return fmt.Errorf("source %q: %w", src.Name, err)
-			}
-		case sourceconfig.BackendProto:
-			if err := syncProto(src, sourceDir, syncDir, workRoot); err != nil {
-				return fmt.Errorf("source %q: %w", src.Name, err)
-			}
-		case sourceconfig.BackendOpenAPI3:
-			if err := syncOpenAPI3(src, sourceDir, syncDir); err != nil {
-				return fmt.Errorf("source %q: %w", src.Name, err)
-			}
-		case sourceconfig.BackendGraphQL:
-			if err := syncGraphQL(src, sourceDir, syncDir); err != nil {
-				return fmt.Errorf("source %q: %w", src.Name, err)
-			}
-		default:
-			return fmt.Errorf("source %q: unsupported backend %q", src.Name, src.Backend)
+		if err := syncSource(src, sourceDir, syncDir, workRoot); err != nil {
+			return fmt.Errorf("source %q: %w", src.Name, err)
 		}
 		state := &State{
 			Source:      src.Name,
@@ -93,4 +76,19 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 func repoWorkDir(workRoot, repoURL, ref string) string {
 	key := repoURL + "\x00" + ref
 	return filepath.Join(workRoot, fmt.Sprintf("%x", sha256.Sum256([]byte(key))))
+}
+
+func syncSource(src *sourceconfig.Source, sourceDir, syncDir, workRoot string) error {
+	switch src.Backend {
+	case sourceconfig.BackendSwagger:
+		return syncFiles(src, src.Swagger.Files, sourceDir, syncDir)
+	case sourceconfig.BackendOpenAPI3:
+		return syncFiles(src, src.OpenAPI3.Files, sourceDir, syncDir)
+	case sourceconfig.BackendGraphQL:
+		return syncFiles(src, []string{src.GraphQL.Schema}, sourceDir, syncDir)
+	case sourceconfig.BackendProto:
+		return syncProto(src, sourceDir, syncDir, workRoot)
+	default:
+		return fmt.Errorf("unsupported backend %q", src.Backend)
+	}
 }

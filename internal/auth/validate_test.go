@@ -9,6 +9,8 @@ import (
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestPluck(t *testing.T) {
@@ -32,9 +34,7 @@ func TestPluck(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := pluck(tc.raw, tc.path)
-			if got != tc.want || ok != tc.ok {
-				t.Errorf("pluck(%v, %q) = (%v, %v), want (%v, %v)", tc.raw, tc.path, got, ok, tc.want, tc.ok)
-			}
+			testutil.Check(t, got == tc.want && ok == tc.ok, "pluck(%v, %q) = (%v, %v), want (%v, %v)", tc.raw, tc.path, got, ok, tc.want, tc.ok)
 		})
 	}
 }
@@ -74,22 +74,14 @@ func TestPluckString(t *testing.T) {
 
 func TestValidateToken_NilValidateSkips(t *testing.T) {
 	r, err := validateWithAuth(context.Background(), "example.com", runtime.BearerAuth{Token: "t"}, nil, runtime.ClientOptions{})
-	if err != nil {
-		t.Fatalf("nil v should not error, got %v", err)
-	}
-	if r.Username != "" {
-		t.Errorf("nil v should yield empty Username, got %q", r.Username)
-	}
+	testutil.Require(t, err == nil, "nil v should not error, got %v", err)
+	testutil.Check(t, r.Username == "", "nil v should yield empty Username, got %q", r.Username)
 }
 
 func TestValidateToken_PluckFlat(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
-			t.Errorf("expected GET (default for empty method), got %s", r.Method)
-		}
-		if r.URL.Path != "/whoami" {
-			t.Errorf("expected /whoami, got %s", r.URL.Path)
-		}
+		testutil.Check(t, r.Method == "GET", "expected GET (default for empty method), got %s", r.Method)
+		testutil.Check(t, r.URL.Path == "/whoami", "expected /whoami, got %s", r.URL.Path)
 		if got := r.Header.Get("Authorization"); got != "Bearer tok" {
 			t.Errorf("expected Bearer token header, got %q", got)
 		}
@@ -107,12 +99,8 @@ func TestValidateToken_PluckFlat(t *testing.T) {
 		},
 	}
 	r, err := validateWithAuth(context.Background(), srv.URL, runtime.BearerAuth{Token: "tok"}, v, runtime.ClientOptions{})
-	if err != nil {
-		t.Fatalf("validateWithAuth: %v", err)
-	}
-	if r.Username != "alice" {
-		t.Errorf("want alice, got %q", r.Username)
-	}
+	testutil.Require(t, err == nil, "validateWithAuth: %v", err)
+	testutil.Check(t, r.Username == "alice", "want alice, got %q", r.Username)
 }
 
 func TestValidateToken_FallsBack(t *testing.T) {
@@ -130,12 +118,8 @@ func TestValidateToken_FallsBack(t *testing.T) {
 		},
 	}
 	r, err := validateWithAuth(context.Background(), srv.URL, runtime.BearerAuth{Token: "tok"}, v, runtime.ClientOptions{})
-	if err != nil {
-		t.Fatalf("validateWithAuth: %v", err)
-	}
-	if r.Username != "u1" {
-		t.Errorf("want u1, got %q", r.Username)
-	}
+	testutil.Require(t, err == nil, "validateWithAuth: %v", err)
+	testutil.Check(t, r.Username == "u1", "want u1, got %q", r.Username)
 }
 
 func TestValidateToken_NestedPluck(t *testing.T) {
@@ -152,12 +136,8 @@ func TestValidateToken_NestedPluck(t *testing.T) {
 		},
 	}
 	r, err := validateWithAuth(context.Background(), srv.URL, runtime.BearerAuth{Token: "tok"}, v, runtime.ClientOptions{})
-	if err != nil {
-		t.Fatalf("validateWithAuth: %v", err)
-	}
-	if r.Username != "carol" {
-		t.Errorf("want carol, got %q", r.Username)
-	}
+	testutil.Require(t, err == nil, "validateWithAuth: %v", err)
+	testutil.Check(t, r.Username == "carol", "want carol, got %q", r.Username)
 }
 
 // TestValidateToken_NoAssertNoDisplaySkipsDecode pins the loosening introduced
@@ -172,12 +152,8 @@ func TestValidateToken_NoAssertNoDisplaySkipsDecode(t *testing.T) {
 
 	v := &config.AuthValidate{Path: "/"}
 	r, err := validateWithAuth(context.Background(), srv.URL, runtime.BearerAuth{Token: "tok"}, v, runtime.ClientOptions{})
-	if err != nil {
-		t.Fatalf("validateWithAuth: %v", err)
-	}
-	if r.Username != "" {
-		t.Errorf("Username = %q, want empty", r.Username)
-	}
+	testutil.Require(t, err == nil, "validateWithAuth: %v", err)
+	testutil.Check(t, r.Username == "", "Username = %q, want empty", r.Username)
 }
 
 func TestValidateToken_Assertions(t *testing.T) {
@@ -213,12 +189,8 @@ func TestValidateToken_Assertions(t *testing.T) {
 				Display: config.AuthValidateDisplay{UsernameField: tc.display},
 			}
 			result, err := validateWithAuth(context.Background(), srv.URL, runtime.BearerAuth{Token: "tok"}, v, runtime.ClientOptions{})
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("validateWithAuth error = %v, wantErr %v", err, tc.wantErr)
-			}
-			if result.Username != tc.wantUser {
-				t.Fatalf("Username = %q, want %q", result.Username, tc.wantUser)
-			}
+			testutil.Require(t, err != nil == tc.wantErr, "validateWithAuth error = %v, wantErr %v", err, tc.wantErr)
+			testutil.Require(t, result.Username == tc.wantUser, "Username = %q, want %q", result.Username, tc.wantUser)
 		})
 	}
 }

@@ -128,14 +128,5 @@ func repoSHA(workDir string) (string, error) {
 }
 
 func isHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c >= '0' && c <= '9':
-		case c >= 'a' && c <= 'f':
-		default:
-			return false
-		}
-	}
-	return true
+	return strings.Trim(s, "0123456789abcdef") == ""
 }

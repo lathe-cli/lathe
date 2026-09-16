@@ -12,6 +12,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestJSONBodyFromFlags(t *testing.T) {
@@ -48,26 +50,18 @@ func TestJSONBodyFromFlags(t *testing.T) {
 		},
 	}
 	_, body, _, err := resolveOperationRequest(spec, input, ClientOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	raw, _, err := encodeRequestBody(body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, json.Unmarshal(raw, &got))
 	want := map[string]any{
 		"maxBudgetUsd":   float64(100),
 		"budgetDuration": "monthly",
 		"rpmLimit":       float64(60),
 		"allowedModels":  []any{"model-a", "model-b"},
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v, want %#v", got, want)
-	}
+	testutil.Require(t, reflect.DeepEqual(got, want), "got %#v, want %#v", got, want)
 	models = []string{"model-a", "unknown"}
 	if _, _, _, err := resolveOperationRequest(spec, input, ClientOptions{}); err == nil {
 		t.Fatal("expected invalid array item error")
@@ -91,31 +85,21 @@ func TestJSONBodyFlagsExclusiveWithFileAndSet(t *testing.T) {
 		HasFile:  true,
 		FileBody: []byte(`{"maxBudgetUsd":1}`),
 	}, ClientOptions{})
-	if err == nil || !strings.Contains(err.Error(), "--file cannot be combined") {
-		t.Fatalf("error = %v", err)
-	}
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "--file cannot be combined"), "error = %v", err)
 	_, _, _, err = resolveOperationRequest(spec, OperationInput{
 		Values:   map[string]any{flagKey: &budget},
 		Changed:  map[string]bool{flagKey: true},
 		BodySets: []string{"maxBudgetUsd=null"},
 	}, ClientOptions{})
-	if err == nil || !strings.Contains(err.Error(), "cannot be set by both") {
-		t.Fatalf("error = %v", err)
-	}
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "cannot be set by both"), "error = %v", err)
 	_, body, _, err := resolveOperationRequest(spec, OperationInput{
 		BodySets: []string{"expiresAt=null"},
 	}, ClientOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	raw, _, err := encodeRequestBody(body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, json.Unmarshal(raw, &got))
 	if _, ok := got["expiresAt"]; !ok || got["expiresAt"] != nil {
 		t.Fatalf("got %#v", got)
 	}
@@ -149,16 +133,10 @@ func TestBuildBodyFromSet(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := BuildBodyFromSet(tc.in)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			testutil.Require(t, err == nil, "unexpected error: %v", err)
 			var got map[string]any
-			if err := json.Unmarshal(raw, &got); err != nil {
-				t.Fatalf("invalid JSON: %v", err)
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("got %#v, want %#v", got, tc.want)
-			}
+			testutil.NoError(t, json.Unmarshal(raw, &got))
+			testutil.Check(t, reflect.DeepEqual(got, tc.want), "got %#v, want %#v", got, tc.want)
 		})
 	}
 }
@@ -168,79 +146,49 @@ func TestBuildEnvelopeBody(t *testing.T) {
 
 	t.Run("merges --set under merge path, keeps baked query", func(t *testing.T) {
 		raw, err := buildEnvelopeBody(tmpl, "variables", nil, []string{"name=demo", "replicas=3"}, nil, nil, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
-		if err := json.Unmarshal(raw, &got); err != nil {
-			t.Fatalf("invalid JSON: %v", err)
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &got))
 		want := map[string]any{
 			"query":     "mutation($name:String!){createApp(name:$name){id}}",
 			"variables": map[string]any{"name": "demo", "replicas": float64(3)},
 		}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("got %#v, want %#v", got, want)
-		}
+		testutil.Check(t, reflect.DeepEqual(got, want), "got %#v, want %#v", got, want)
 	})
 
 	t.Run("merges empty array literal under merge path", func(t *testing.T) {
 		raw, err := buildEnvelopeBody(tmpl, "variables", nil, []string{"input.skillIds=[]"}, nil, nil, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
-		if err := json.Unmarshal(raw, &got); err != nil {
-			t.Fatalf("invalid JSON: %v", err)
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &got))
 		vars, _ := got["variables"].(map[string]any)
 		input, _ := vars["input"].(map[string]any)
-		if !reflect.DeepEqual(input["skillIds"], []any{}) {
-			t.Errorf("skillIds = %#v, want empty array", input["skillIds"])
-		}
+		testutil.Check(t, reflect.DeepEqual(input["skillIds"], []any{}), "skillIds = %#v, want empty array", input["skillIds"])
 	})
 
 	t.Run("merges typed variable values at merge path", func(t *testing.T) {
 		raw, err := buildEnvelopeBody(tmpl, "variables", map[string]any{"name": "demo", "count": int64(3)}, nil, nil, nil, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
-		if err := json.Unmarshal(raw, &got); err != nil {
-			t.Fatalf("invalid JSON: %v", err)
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &got))
 		vars, _ := got["variables"].(map[string]any)
-		if vars["name"] != "demo" || vars["count"] != float64(3) {
-			t.Errorf("variables = %#v, want name=demo count=3", vars)
-		}
+		testutil.Check(t, vars["name"] == "demo" && vars["count"] == float64(3), "variables = %#v, want name=demo count=3", vars)
 	})
 
 	t.Run("no user input sends template unchanged", func(t *testing.T) {
 		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, nil, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
-		if err := json.Unmarshal(raw, &got); err != nil {
-			t.Fatalf("invalid JSON: %v", err)
-		}
-		if !reflect.DeepEqual(got["variables"], map[string]any{}) {
-			t.Errorf("variables = %#v, want empty object", got["variables"])
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &got))
+		testutil.Check(t, reflect.DeepEqual(got["variables"], map[string]any{}), "variables = %#v, want empty object", got["variables"])
 	})
 
 	t.Run("--file replaces merge target", func(t *testing.T) {
 		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, []byte(`{"name":"from-file"}`), true)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
-		if err := json.Unmarshal(raw, &got); err != nil {
-			t.Fatalf("invalid JSON: %v", err)
-		}
-		if !reflect.DeepEqual(got["variables"], map[string]any{"name": "from-file"}) {
-			t.Errorf("variables = %#v", got["variables"])
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &got))
+		testutil.Check(t, reflect.DeepEqual(got["variables"], map[string]any{"name": "from-file"}), "variables = %#v", got["variables"])
 	})
 
 	t.Run("--file with empty merge path is rejected", func(t *testing.T) {
@@ -261,13 +209,9 @@ func TestBuildBodyFromSet_SetStrKeepsStrings(t *testing.T) {
 		[]string{"spec.replicas=3", "spec.enabled=true"},
 		[]string{"spec.stringReplicas=3", "spec.stringEnabled=true", "metadata.name=demo"},
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	testutil.Require(t, err == nil, "unexpected error: %v", err)
 	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	testutil.NoError(t, json.Unmarshal(raw, &got))
 	want := map[string]any{
 		"spec": map[string]any{
 			"replicas":       float64(3),
@@ -277,9 +221,7 @@ func TestBuildBodyFromSet_SetStrKeepsStrings(t *testing.T) {
 		},
 		"metadata": map[string]any{"name": "demo"},
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %#v, want %#v", got, want)
-	}
+	testutil.Check(t, reflect.DeepEqual(got, want), "got %#v, want %#v", got, want)
 }
 
 func TestBuildBodyFromSet_ArrayIndex(t *testing.T) {
@@ -326,16 +268,10 @@ func TestBuildBodyFromSet_ArrayIndex(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := BuildBodyFromSet(tc.in)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			testutil.Require(t, err == nil, "unexpected error: %v", err)
 			var got map[string]any
-			if err := json.Unmarshal(raw, &got); err != nil {
-				t.Fatalf("invalid JSON: %v", err)
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("got %#v, want %#v", got, tc.want)
-			}
+			testutil.NoError(t, json.Unmarshal(raw, &got))
+			testutil.Check(t, reflect.DeepEqual(got, tc.want), "got %#v, want %#v", got, tc.want)
 		})
 	}
 }
@@ -404,29 +340,19 @@ func TestReadStdin(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			data, err := readStdinWithin(t, tc.ctx(t), tc.reader(t), 5*time.Second)
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("err = %v, want %v", err, tc.wantErr)
-			}
-			if string(data) != tc.wantData {
-				t.Fatalf("data = %q, want %q", data, tc.wantData)
-			}
+			testutil.Require(t, errors.Is(err, tc.wantErr), "err = %v, want %v", err, tc.wantErr)
+			testutil.Require(t, string(data) == tc.wantData, "data = %q, want %q", data, tc.wantData)
 		})
 	}
 }
 
 func TestReadBodyContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "body.json")
-	if err := os.WriteFile(path, []byte(`{"id":1}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.WriteFile(path, []byte(`{"id":1}`), 0o600))
 	data, err := ReadBodyContext(context.Background(), path)
-	if err != nil || string(data) != `{"id":1}` {
-		t.Fatalf("ReadBodyContext(file) = %q, %v", data, err)
-	}
+	testutil.Require(t, err == nil && string(data) == `{"id":1}`, "ReadBodyContext(file) = %q, %v", data, err)
 	data, err = ReadBody(path)
-	if err != nil || string(data) != `{"id":1}` {
-		t.Fatalf("ReadBody(file) = %q, %v", data, err)
-	}
+	testutil.Require(t, err == nil && string(data) == `{"id":1}`, "ReadBody(file) = %q, %v", data, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

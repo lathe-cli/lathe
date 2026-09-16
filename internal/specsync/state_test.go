@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 const fakeSHA = "1234567890abcdef1234567890abcdef12345678"
@@ -27,28 +29,20 @@ func TestSaveLoadState_RoundTrip(t *testing.T) {
 		SyncedFrom:  "v1.2.3",
 		ResolvedSHA: fakeSHA,
 	}
-	if err := SaveState(dir, want); err != nil {
-		t.Fatalf("SaveState: %v", err)
-	}
+	testutil.NoError(t, SaveState(dir, want))
 	got, err := LoadState(dir)
-	if err != nil {
-		t.Fatalf("LoadState: %v", err)
-	}
-	if *got != *want {
-		t.Errorf("round trip mismatch:\n got = %+v\nwant = %+v", got, want)
-	}
+	testutil.Require(t, err == nil, "LoadState: %v", err)
+	testutil.Check(t, *got == *want, "round trip mismatch:\n got = %+v\nwant = %+v", got, want)
 }
 
 func TestVerifyState_AcceptsFullState(t *testing.T) {
 	dir := t.TempDir()
-	if err := SaveState(dir, &State{
+	testutil.NoError(t, SaveState(dir, &State{
 		Source:      "demo",
 		Backend:     "swagger",
 		SyncedFrom:  "v1.2.3",
 		ResolvedSHA: fakeSHA,
-	}); err != nil {
-		t.Fatalf("SaveState: %v", err)
-	}
+	}))
 	if err := VerifyState(dir, gitSource()); err != nil {
 		t.Errorf("VerifyState: %v", err)
 	}
@@ -57,14 +51,12 @@ func TestVerifyState_AcceptsFullState(t *testing.T) {
 func TestVerifyState_AcceptsLocalState(t *testing.T) {
 	dir := t.TempDir()
 	localPath := filepath.Join(t.TempDir(), "api")
-	if err := SaveState(dir, &State{
+	testutil.NoError(t, SaveState(dir, &State{
 		SourceKind: SourceKindLocal,
 		Source:     "demo",
 		Backend:    "openapi3",
 		SyncedFrom: localPath,
-	}); err != nil {
-		t.Fatalf("SaveState: %v", err)
-	}
+	}))
 	src := &sourceconfig.Source{
 		Name:      "demo",
 		Backend:   sourceconfig.BackendOpenAPI3,
@@ -80,44 +72,28 @@ func TestVerifyState_RejectsMissingResolvedSHA(t *testing.T) {
 	// Simulate an old sync-state.yaml written before T2.2 landed — no
 	// resolved_sha field.
 	legacy := "source: demo\nbackend: swagger\nsynced_from: v1.2.3\n"
-	if err := os.WriteFile(filepath.Join(dir, StateFile), []byte(legacy), 0o644); err != nil {
-		t.Fatalf("seed legacy state: %v", err)
-	}
+	testutil.NoError(t, os.WriteFile(filepath.Join(dir, StateFile), []byte(legacy), 0o644))
 	err := VerifyState(dir, gitSource())
-	if err == nil {
-		t.Fatalf("VerifyState accepted state missing resolved_sha")
-	}
-	if !strings.Contains(err.Error(), "resolved_sha") {
-		t.Errorf("error should mention resolved_sha: %v", err)
-	}
+	testutil.Require(t, err != nil, "VerifyState accepted state missing resolved_sha")
+	testutil.Check(t, strings.Contains(err.Error(), "resolved_sha"), "error should mention resolved_sha: %v", err)
 }
 
 func TestVerifyState_RejectsStaleTag(t *testing.T) {
 	dir := t.TempDir()
-	if err := SaveState(dir, &State{
+	testutil.NoError(t, SaveState(dir, &State{
 		Source:      "demo",
 		Backend:     "swagger",
 		SyncedFrom:  "v1.0.0",
 		ResolvedSHA: fakeSHA,
-	}); err != nil {
-		t.Fatalf("SaveState: %v", err)
-	}
+	}))
 	err := VerifyState(dir, gitSource())
-	if err == nil {
-		t.Fatalf("VerifyState accepted stale tag")
-	}
-	if !strings.Contains(err.Error(), "pinned_tag") {
-		t.Errorf("error should mention pinned_tag mismatch: %v", err)
-	}
+	testutil.Require(t, err != nil, "VerifyState accepted stale tag")
+	testutil.Check(t, strings.Contains(err.Error(), "pinned_tag"), "error should mention pinned_tag mismatch: %v", err)
 }
 
 func TestVerifyState_RejectsMissingFile(t *testing.T) {
 	dir := t.TempDir() // empty
 	err := VerifyState(dir, gitSource())
-	if err == nil {
-		t.Fatalf("VerifyState accepted missing sync-state")
-	}
-	if !strings.Contains(err.Error(), "lathe specsync") {
-		t.Errorf("error should tell user to run lathe specsync: %v", err)
-	}
+	testutil.Require(t, err != nil, "VerifyState accepted missing sync-state")
+	testutil.Check(t, strings.Contains(err.Error(), "lathe specsync"), "error should tell user to run lathe specsync: %v", err)
 }

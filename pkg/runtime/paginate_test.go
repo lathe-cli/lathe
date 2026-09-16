@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestPaginateAll_Cursor(t *testing.T) {
@@ -33,20 +35,12 @@ func TestPaginateAll_Cursor(t *testing.T) {
 
 	hint := PaginationHint{Strategy: "cursor", TokenParam: "page_token", TokenField: "next_page_token", LimitParam: "limit"}
 	data, err := PaginateAll(context.Background(), srv.URL, "GET", "/items?limit=2", nil, ClientOptions{Timeout: 5 * time.Second}, hint, "items", 10)
-	if err != nil {
-		t.Fatalf("PaginateAll: %v", err)
-	}
+	testutil.Require(t, err == nil, "PaginateAll: %v", err)
 
 	var result map[string][]map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(result["items"]) != 3 {
-		t.Errorf("got %d items, want 3", len(result["items"]))
-	}
-	if !strings.Contains(string(data), "9007199254740993") {
-		t.Errorf("merged output lost integer precision: %s", data)
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
+	testutil.Check(t, len(result["items"]) == 3, "got %d items, want 3", len(result["items"]))
+	testutil.Check(t, strings.Contains(string(data), "9007199254740993"), "merged output lost integer precision: %s", data)
 	if atomic.LoadInt32(&call) != 2 {
 		t.Errorf("made %d requests, want 2", atomic.LoadInt32(&call))
 	}
@@ -83,9 +77,7 @@ func TestPaginateAll_BodyCursor(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		var body map[string]any
-		if err := json.Unmarshal(raw, &body); err != nil {
-			t.Fatalf("request body is not JSON: %v", err)
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &body))
 		bodiesMu.Lock()
 		bodies = append(bodies, body)
 		bodiesMu.Unlock()
@@ -102,18 +94,12 @@ func TestPaginateAll_BodyCursor(t *testing.T) {
 	body := []byte(`{"query":"query listApps($first: Int, $after: String) { listApps(first: $first, after: $after) { nodes { id } pageInfo { endCursor hasNextPage } } }","variables":{"first":1}}`)
 	hint := PaginationHint{Strategy: "body-cursor", TokenParam: "variables.after", TokenField: "data.listApps.pageInfo.endCursor", LimitParam: "variables.first"}
 	data, err := PaginateAll(context.Background(), srv.URL, "POST", "/graphql", body, ClientOptions{Timeout: 5 * time.Second}, hint, "data.listApps.nodes", 10)
-	if err != nil {
-		t.Fatalf("PaginateAll: %v", err)
-	}
+	testutil.Require(t, err == nil, "PaginateAll: %v", err)
 
 	var result map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
 	items := result["data"].(map[string]any)["listApps"].(map[string]any)["nodes"].([]any)
-	if len(items) != 2 {
-		t.Errorf("got %d items, want 2", len(items))
-	}
+	testutil.Check(t, len(items) == 2, "got %d items, want 2", len(items))
 	if atomic.LoadInt32(&call) != 2 {
 		t.Errorf("made %d requests, want 2", atomic.LoadInt32(&call))
 	}
@@ -124,9 +110,7 @@ func TestPaginateAll_BodyCursor(t *testing.T) {
 		t.Fatalf("first request after = %#v, want absent", firstVars["after"])
 	}
 	secondVars := bodies[1]["variables"].(map[string]any)
-	if secondVars["after"] != "cursor-2" {
-		t.Fatalf("second request after = %#v, want cursor-2", secondVars["after"])
-	}
+	testutil.Require(t, secondVars["after"] == "cursor-2", "second request after = %#v, want cursor-2", secondVars["after"])
 }
 
 func TestPaginateAll_CursorNestedPaths(t *testing.T) {
@@ -156,25 +140,15 @@ func TestPaginateAll_CursorNestedPaths(t *testing.T) {
 
 	hint := PaginationHint{Strategy: "cursor", TokenParam: "after", TokenField: "data.sessionList.pageInfo.endCursor"}
 	data, err := PaginateAll(context.Background(), srv.URL, "GET", "/sessions?first=2", nil, ClientOptions{Timeout: 5 * time.Second}, hint, "data.sessionList.nodes", 10)
-	if err != nil {
-		t.Fatalf("PaginateAll: %v", err)
-	}
+	testutil.Require(t, err == nil, "PaginateAll: %v", err)
 
 	var result map[string]any
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
 	raw, ok := getNestedPath(result, "data.sessionList.nodes")
-	if !ok {
-		t.Fatalf("merged result missing nested list path: %s", string(data))
-	}
+	testutil.Require(t, ok, "merged result missing nested list path: %s", string(data))
 	items, ok := raw.([]any)
-	if !ok || len(items) != 3 {
-		t.Fatalf("nested items = %#v, want 3 items", raw)
-	}
-	if len(paths) != 2 || !strings.Contains(paths[1], "after=tok2") {
-		t.Fatalf("request paths = %v, want second request to carry cursor", paths)
-	}
+	testutil.Require(t, ok && len(items) == 3, "nested items = %#v, want 3 items", raw)
+	testutil.Require(t, len(paths) == 2 && strings.Contains(paths[1], "after=tok2"), "request paths = %v, want second request to carry cursor", paths)
 }
 
 func TestPaginateAll_Offset(t *testing.T) {
@@ -199,17 +173,11 @@ func TestPaginateAll_Offset(t *testing.T) {
 
 	hint := PaginationHint{Strategy: "offset", TokenParam: "offset", LimitParam: "limit"}
 	data, err := PaginateAll(context.Background(), srv.URL, "GET", "/items?limit=2", nil, ClientOptions{Timeout: 5 * time.Second}, hint, "data", 10)
-	if err != nil {
-		t.Fatalf("PaginateAll: %v", err)
-	}
+	testutil.Require(t, err == nil, "PaginateAll: %v", err)
 
 	var result map[string][]map[string]string
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(result["data"]) != 5 {
-		t.Errorf("got %d items, want 5", len(result["data"]))
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
+	testutil.Check(t, len(result["data"]) == 5, "got %d items, want 5", len(result["data"]))
 }
 
 func TestPaginateAll_MaxPages(t *testing.T) {
@@ -224,17 +192,11 @@ func TestPaginateAll_MaxPages(t *testing.T) {
 
 	hint := PaginationHint{Strategy: "cursor", TokenParam: "page_token", TokenField: "next_page_token"}
 	data, err := PaginateAll(context.Background(), srv.URL, "GET", "/items", nil, ClientOptions{Timeout: 5 * time.Second}, hint, "items", 3)
-	if err != nil {
-		t.Fatalf("PaginateAll: %v", err)
-	}
+	testutil.Require(t, err == nil, "PaginateAll: %v", err)
 
 	var result map[string][]map[string]string
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(result["items"]) != 3 {
-		t.Errorf("got %d items, want 3 (max-pages cap)", len(result["items"]))
-	}
+	testutil.NoError(t, json.Unmarshal(data, &result))
+	testutil.Check(t, len(result["items"]) == 3, "got %d items, want 3 (max-pages cap)", len(result["items"]))
 }
 
 func TestSetQueryParam(t *testing.T) {
@@ -247,9 +209,7 @@ func TestSetQueryParam(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := setQueryParam(tc.base, tc.key, tc.val)
-		if got != tc.want {
-			t.Errorf("setQueryParam(%q, %q, %q) = %q, want %q", tc.base, tc.key, tc.val, got, tc.want)
-		}
+		testutil.Check(t, got == tc.want, "setQueryParam(%q, %q, %q) = %q, want %q", tc.base, tc.key, tc.val, got, tc.want)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestRetryTransport_RetriesOn429(t *testing.T) {
@@ -32,13 +34,9 @@ func TestRetryTransport_RetriesOn429(t *testing.T) {
 	}
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL+"/x", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip: %v", err)
-	}
+	testutil.Require(t, err == nil, "RoundTrip: %v", err)
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
+	testutil.Check(t, resp.StatusCode == 200, "status = %d, want 200", resp.StatusCode)
 	if got := atomic.LoadInt32(&calls); got != 3 {
 		t.Errorf("calls = %d, want 3", got)
 	}
@@ -65,13 +63,9 @@ func TestRetryTransport_RetriesOn5xx(t *testing.T) {
 			}
 			req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 			resp, err := rt.RoundTrip(req)
-			if err != nil {
-				t.Fatalf("RoundTrip: %v", err)
-			}
+			testutil.Require(t, err == nil, "RoundTrip: %v", err)
 			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				t.Errorf("status = %d, want 200", resp.StatusCode)
-			}
+			testutil.Check(t, resp.StatusCode == 200, "status = %d, want 200", resp.StatusCode)
 		})
 	}
 }
@@ -89,14 +83,10 @@ func TestHTTPClient_DefaultRetriesSkipPost(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", srv.URL, strings.NewReader(`{"key":"val"}`))
 	resp, err := HTTPClient(ClientOptions{Timeout: 3 * time.Second}).Do(req)
-	if err != nil {
-		t.Fatalf("Do: %v", err)
-	}
+	testutil.Require(t, err == nil, "Do: %v", err)
 	resp.Body.Close()
 
-	if resp.StatusCode != 500 {
-		t.Fatalf("status = %d, want 500", resp.StatusCode)
-	}
+	testutil.Require(t, resp.StatusCode == 500, "status = %d, want 500", resp.StatusCode)
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("calls = %d, want 1", got)
 	}
@@ -117,9 +107,7 @@ func TestRetryTransport_NoRetryOn4xx(t *testing.T) {
 	}
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip: %v", err)
-	}
+	testutil.Require(t, err == nil, "RoundTrip: %v", err)
 	resp.Body.Close()
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Errorf("calls = %d, want 1 (no retry on 404)", got)
@@ -141,13 +129,9 @@ func TestRetryTransport_StopsAfterMaxRetries(t *testing.T) {
 	}
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip: %v", err)
-	}
+	testutil.Require(t, err == nil, "RoundTrip: %v", err)
 	resp.Body.Close()
-	if resp.StatusCode != 503 {
-		t.Errorf("status = %d, want 503 after exhausting retries", resp.StatusCode)
-	}
+	testutil.Check(t, resp.StatusCode == 503, "status = %d, want 503 after exhausting retries", resp.StatusCode)
 	if got := atomic.LoadInt32(&calls); got != 3 {
 		t.Errorf("calls = %d, want 3 (1 initial + 2 retries)", got)
 	}
@@ -177,17 +161,11 @@ func TestRetryTransport_ReplaysBody(t *testing.T) {
 		return io.NopCloser(strings.NewReader(`{"key":"val"}`)), nil
 	}
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip: %v", err)
-	}
+	testutil.Require(t, err == nil, "RoundTrip: %v", err)
 	resp.Body.Close()
-	if len(bodies) != 2 {
-		t.Fatalf("want 2 attempts, got %d", len(bodies))
-	}
+	testutil.Require(t, len(bodies) == 2, "want 2 attempts, got %d", len(bodies))
 	for i, b := range bodies {
-		if b != `{"key":"val"}` {
-			t.Errorf("attempt %d body = %q", i, b)
-		}
+		testutil.Check(t, b == `{"key":"val"}`, "attempt %d body = %q", i, b)
 	}
 }
 
@@ -207,9 +185,7 @@ func TestRetryTransport_RespectsRetryAfter(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", srv.URL, nil)
 	resp, _ := rt.RoundTrip(req)
 	resp.Body.Close()
-	if slept != 7*time.Second {
-		t.Errorf("slept = %v, want 7s (Retry-After)", slept)
-	}
+	testutil.Check(t, slept == 7*time.Second, "slept = %v, want 7s (Retry-After)", slept)
 }
 
 func TestRetryTransport_CancellationStopsBackoff(t *testing.T) {
@@ -232,9 +208,7 @@ func TestRetryTransport_CancellationStopsBackoff(t *testing.T) {
 	cancel()
 	select {
 	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("error = %v, want context canceled", err)
-		}
+		testutil.Require(t, errors.Is(err, context.Canceled), "error = %v, want context canceled", err)
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("retry backoff ignored cancellation")
 	}
@@ -251,8 +225,6 @@ func TestRetryBackoff_Exponential(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := retryBackoff(tc.attempt, nil)
-		if got != tc.want {
-			t.Errorf("backoff(%d) = %v, want %v", tc.attempt, got, tc.want)
-		}
+		testutil.Check(t, got == tc.want, "backoff(%d) = %v, want %v", tc.attempt, got, tc.want)
 	}
 }

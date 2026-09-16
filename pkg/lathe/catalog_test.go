@@ -11,31 +11,23 @@ import (
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func mustBuild(t *testing.T, root *cobra.Command, service string, specs []runtime.CommandSpec) {
 	t.Helper()
-	if err := runtime.Build(root, service, specs); err != nil {
-		t.Fatalf("Build(%q): %v", service, err)
-	}
+	testutil.NoError(t, runtime.Build(root, service, specs))
 }
 
 func TestCommandsJSON_EmptyCatalog(t *testing.T) {
 	root := NewApp(testManifest())
 	out, err := execute(root, "commands", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, `"commands": []`) {
-		t.Fatalf("output missing empty commands array:\n%s", out)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, strings.Contains(out, `"commands": []`), "output missing empty commands array:\n%s", out)
 	var catalog runtime.Catalog
-	if err := json.Unmarshal([]byte(out), &catalog); err != nil {
-		t.Fatal(err)
-	}
-	if catalog.Commands == nil || len(catalog.Commands) != 0 {
-		t.Fatalf("commands = %#v", catalog.Commands)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &catalog))
+	testutil.Require(t, catalog.Commands != nil && len(catalog.Commands) == 0, "commands = %#v", catalog.Commands)
 }
 
 func TestCommandsShowAndSearchJSON(t *testing.T) {
@@ -62,49 +54,23 @@ func TestCommandsShowAndSearchJSON(t *testing.T) {
 	}})
 
 	out, err := execute(root, "commands", "show", "demo", "users", "get-user", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var entry runtime.CatalogCommand
-	if err := json.Unmarshal([]byte(out), &entry); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(entry.Path, " ") != "demo users get-user" || entry.Group != "Users" {
-		t.Fatalf("entry = %+v", entry)
-	}
-	if len(entry.Notes) != 1 || entry.Notes[0] != "Use the canonical user ID." {
-		t.Fatalf("notes = %#v", entry.Notes)
-	}
-	if len(entry.Prerequisites) != 1 || entry.Prerequisites[0] != "List users before fetching details." {
-		t.Fatalf("prerequisites = %#v", entry.Prerequisites)
-	}
-	if len(entry.KnownErrors) != 1 || entry.KnownErrors[0].Status != 400 || entry.KnownErrors[0].Cause != "missing id" {
-		t.Fatalf("known errors = %#v", entry.KnownErrors)
-	}
-	if len(entry.Examples) != 1 || entry.Examples[0].Command != "myctl demo users get-user --id 123 -o json" || entry.Examples[0].OutputHints.IDPath != "data.user.id" {
-		t.Fatalf("examples = %#v", entry.Examples)
-	}
-	if entry.Mutation != runtime.MutationRead {
-		t.Fatalf("mutation = %q", entry.Mutation)
-	}
-	if entry.DryRun == nil || entry.DryRun.Mode != runtime.DryRunHTTPPreview || entry.DryRun.Flag != "dry-run" {
-		t.Fatalf("dry_run = %+v", entry.DryRun)
-	}
-	if len(entry.Flags) != 2 || !entry.Flags[1].Required || entry.Flags[1].Name != "type" {
-		t.Fatalf("required query flag = %#v", entry.Flags)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &entry))
+	testutil.Require(t, strings.Join(entry.Path, " ") == "demo users get-user" && entry.Group == "Users", "entry = %+v", entry)
+	testutil.Require(t, len(entry.Notes) == 1 && entry.Notes[0] == "Use the canonical user ID.", "notes = %#v", entry.Notes)
+	testutil.Require(t, len(entry.Prerequisites) == 1 && entry.Prerequisites[0] == "List users before fetching details.", "prerequisites = %#v", entry.Prerequisites)
+	testutil.Require(t, len(entry.KnownErrors) == 1 && entry.KnownErrors[0].Status == 400 && entry.KnownErrors[0].Cause == "missing id", "known errors = %#v", entry.KnownErrors)
+	testutil.Require(t, len(entry.Examples) == 1 && entry.Examples[0].Command == "myctl demo users get-user --id 123 -o json" && entry.Examples[0].OutputHints.IDPath == "data.user.id", "examples = %#v", entry.Examples)
+	testutil.Require(t, entry.Mutation == runtime.MutationRead, "mutation = %q", entry.Mutation)
+	testutil.Require(t, entry.DryRun != nil && entry.DryRun.Mode == runtime.DryRunHTTPPreview && entry.DryRun.Flag == "dry-run", "dry_run = %+v", entry.DryRun)
+	testutil.Require(t, len(entry.Flags) == 2 && entry.Flags[1].Required && entry.Flags[1].Name == "type", "required query flag = %#v", entry.Flags)
 
 	out, err = execute(root, "search", "getUser", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var results []runtime.SearchResult
-	if err := json.Unmarshal([]byte(out), &results); err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 || results[0].Command.Use != "get-user" {
-		t.Fatalf("results = %+v", results)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &results))
+	testutil.Require(t, len(results) == 1 && results[0].Command.Use == "get-user", "results = %+v", results)
 }
 
 func TestCommandsShow_EnvelopeBody(t *testing.T) {
@@ -121,26 +87,14 @@ func TestCommandsShow_EnvelopeBody(t *testing.T) {
 	}})
 
 	out, err := execute(root, "commands", "show", "demo", "apps", "create-app", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var entry runtime.CatalogCommand
-	if err := json.Unmarshal([]byte(out), &entry); err != nil {
-		t.Fatal(err)
-	}
-	if entry.Body == nil || entry.Body.Template != tmpl || entry.Body.MergePath != "variables" {
-		t.Fatalf("envelope body = %+v", entry.Body)
-	}
-	if entry.HTTP.Method != "POST" || entry.HTTP.PathTemplate != "/graphql" {
-		t.Fatalf("http = %+v", entry.HTTP)
-	}
-	if entry.Mutation != runtime.MutationWrite {
-		t.Fatalf("mutation = %q", entry.Mutation)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &entry))
+	testutil.Require(t, entry.Body != nil && entry.Body.Template == tmpl && entry.Body.MergePath == "variables", "envelope body = %+v", entry.Body)
+	testutil.Require(t, entry.HTTP.Method == "POST" && entry.HTTP.PathTemplate == "/graphql", "http = %+v", entry.HTTP)
+	testutil.Require(t, entry.Mutation == runtime.MutationWrite, "mutation = %q", entry.Mutation)
 	for _, want := range []string{`"template"`, `"merge_path"`} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("show output missing %q:\n%s", want, out)
-		}
+		testutil.Require(t, strings.Contains(out, want), "show output missing %q:\n%s", want, out)
 	}
 }
 
@@ -161,49 +115,29 @@ func TestCommandsShow_EnvelopeVariableFlag(t *testing.T) {
 	}})
 
 	out, err := execute(root, "commands", "show", "demo", "apps", "create-app", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var entry runtime.CatalogCommand
-	if err := json.Unmarshal([]byte(out), &entry); err != nil {
-		t.Fatal(err)
-	}
-	if len(entry.Flags) != 1 || entry.Flags[0].Name != "name" || entry.Flags[0].Location != runtime.InVariable || !entry.Flags[0].Required {
-		t.Fatalf("variable flag = %+v", entry.Flags)
-	}
-	if entry.Body == nil || entry.Body.MergePath != "variables" {
-		t.Fatalf("envelope body = %+v", entry.Body)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &entry))
+	testutil.Require(t, len(entry.Flags) == 1 && entry.Flags[0].Name == "name" && entry.Flags[0].Location == runtime.InVariable && entry.Flags[0].Required, "variable flag = %+v", entry.Flags)
+	testutil.Require(t, entry.Body != nil && entry.Body.MergePath == "variables", "envelope body = %+v", entry.Body)
 }
 
 func TestCommandsShow_NotFound(t *testing.T) {
 	root := NewApp(testManifest())
 	_, err := execute(root, "commands", "show", "demo", "users", "missing")
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	testutil.Require(t, err != nil, "expected error")
 }
 
 func TestCommandsSchemaJSON(t *testing.T) {
 	root := NewApp(testManifest())
 	out, err := execute(root, "commands", "schema", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var schema runtime.CatalogSchema
-	if err := json.Unmarshal([]byte(out), &schema); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &schema))
 	want := runtime.CatalogSchemaDocument()
-	if schema.CatalogSchemaVersion != want.CatalogSchemaVersion {
-		t.Fatalf("schema = %d", schema.CatalogSchemaVersion)
-	}
-	if schema.DryRun.Result != want.DryRun.Result {
-		t.Fatalf("dry_run = %+v", schema.DryRun)
-	}
-	if !strings.Contains(out, `"surfaces"`) || !strings.Contains(out, `"commands.show"`) {
-		t.Fatalf("schema JSON missing surfaces:\n%s", out)
-	}
+	testutil.Require(t, schema.CatalogSchemaVersion == want.CatalogSchemaVersion, "schema = %d", schema.CatalogSchemaVersion)
+	testutil.Require(t, schema.DryRun.Result == want.DryRun.Result, "dry_run = %+v", schema.DryRun)
+	testutil.Require(t, strings.Contains(out, `"surfaces"`) && strings.Contains(out, `"commands.show"`), "schema JSON missing surfaces:\n%s", out)
 }
 
 func TestSearchExcludesHiddenCommands(t *testing.T) {
@@ -218,16 +152,10 @@ func TestSearchExcludesHiddenCommands(t *testing.T) {
 	}})
 
 	out, err := execute(root, "search", "delete", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	var results []runtime.SearchResult
-	if err := json.Unmarshal([]byte(out), &results); err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("results = %+v", results)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(out), &results))
+	testutil.Require(t, len(results) == 0, "results = %+v", results)
 }
 
 func testManifest() *config.Manifest {
@@ -238,36 +166,20 @@ func TestCommandsShowUnknownPathUsageError(t *testing.T) {
 	root := NewApp(testManifest())
 	_, err := execute(root, "commands", "show", "keys", "nope-secret")
 	var le *runtime.LatheError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LatheError, got %v", err)
-	}
-	if le.Code != runtime.CodeUsage {
-		t.Fatalf("code = %q, want %q", le.Code, runtime.CodeUsage)
-	}
-	if !strings.Contains(le.Detail, "no generated command") {
-		t.Fatalf("detail = %q", le.Detail)
-	}
-	if !strings.Contains(le.Detail, "myctl commands") {
-		t.Fatalf("detail missing listing hint: %q", le.Detail)
-	}
-	if strings.Contains(le.Detail, "nope-secret") {
-		t.Fatalf("detail echoed user input: %q", le.Detail)
-	}
+	testutil.Require(t, errors.As(err, &le), "expected LatheError, got %v", err)
+	testutil.Require(t, le.Code == runtime.CodeUsage, "code = %q, want %q", le.Code, runtime.CodeUsage)
+	testutil.Require(t, strings.Contains(le.Detail, "no generated command"), "detail = %q", le.Detail)
+	testutil.Require(t, strings.Contains(le.Detail, "myctl commands"), "detail missing listing hint: %q", le.Detail)
+	testutil.Require(t, !strings.Contains(le.Detail, "nope-secret"), "detail echoed user input: %q", le.Detail)
 }
 
 func TestSearchEmptyQueryUsageError(t *testing.T) {
 	root := NewApp(testManifest())
 	_, err := execute(root, "search", "  ")
 	var le *runtime.LatheError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LatheError, got %v", err)
-	}
-	if le.Code != runtime.CodeUsage {
-		t.Fatalf("code = %q, want %q", le.Code, runtime.CodeUsage)
-	}
-	if le.Detail != "search query must not be empty" {
-		t.Fatalf("detail = %q", le.Detail)
-	}
+	testutil.Require(t, errors.As(err, &le), "expected LatheError, got %v", err)
+	testutil.Require(t, le.Code == runtime.CodeUsage, "code = %q, want %q", le.Code, runtime.CodeUsage)
+	testutil.Require(t, le.Detail == "search query must not be empty", "detail = %q", le.Detail)
 }
 
 func execute(root *cobra.Command, args ...string) (string, error) {

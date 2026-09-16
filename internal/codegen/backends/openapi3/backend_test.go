@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/codegen/normalize"
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
 	"github.com/lathe-cli/lathe/pkg/runtime"
@@ -30,59 +31,27 @@ func TestParse_Golden(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			syncDir := t.TempDir()
-			inputPath := filepath.Join(syncDir, tc.name+tc.ext)
-			if err := os.WriteFile(inputPath, []byte(tc.input), 0o644); err != nil {
-				t.Fatalf("seed input: %v", err)
-			}
-
-			src := &sourceconfig.Source{
-				Name: "demo",
-				OpenAPI3: &sourceconfig.OpenAPI3Config{
-					Files: []string{tc.name + tc.ext},
-				},
-			}
-			mod, err := Parse(src, syncDir)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			mod, err := parseInput(t, tc.input, tc.ext, nil)
+			testutil.Require(t, err == nil, "Parse: %v", err)
 			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
 	}
 }
 
 func TestParse_OpenAPI31NullableTypeArray(t *testing.T) {
-	syncDir := t.TempDir()
-	inputPath := filepath.Join(syncDir, "openapi.json")
-	if err := os.WriteFile(inputPath, []byte(openapi31NullableTypeArrayJSON), 0o644); err != nil {
-		t.Fatalf("seed input: %v", err)
-	}
-
-	src := &sourceconfig.Source{
-		Name: "demo",
-		OpenAPI3: &sourceconfig.OpenAPI3Config{
-			Files: []string{"openapi.json"},
-		},
-	}
-	mod, err := Parse(src, syncDir)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	mod, err := parseInput(t, openapi31NullableTypeArrayJSON, ".json", nil)
+	testutil.Require(t, err == nil, "Parse: %v", err)
 	if got := mod.Operations[0].Parameters[0].Type; got != "boolean" {
 		t.Fatalf("parameter type = %q, want boolean", got)
 	}
 	if got := mod.Operations[0].Responses["200"].Schema.Properties["name"].Type; got != "string" {
 		t.Fatalf("property type = %q, want string", got)
 	}
-	if !mod.Operations[0].Responses["200"].Schema.Properties["name"].Nullable {
-		t.Fatal("nullable type array lost nullability")
-	}
+	testutil.Require(t, mod.Operations[0].Responses["200"].Schema.Properties["name"].Nullable, "nullable type array lost nullability")
 }
 
 func TestParse_ExposeOperationIDs(t *testing.T) {
-	syncDir := t.TempDir()
 	input := `{
   "openapi": "3.0.3",
   "paths": {
@@ -91,27 +60,13 @@ func TestParse_ExposeOperationIDs(t *testing.T) {
     "/health": {"get": {"operationId": "Health_Get", "responses": {"200": {}}}}
   }
 }`
-	if err := os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(input), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	src := &sourceconfig.Source{
-		Name: "demo",
-		OpenAPI3: &sourceconfig.OpenAPI3Config{
-			Files:  []string{"openapi.json"},
-			Expose: &sourceconfig.OpenAPIExpose{OperationIDs: []string{"Pet_Get", "Pet_List"}},
-		},
-	}
-	mod, err := Parse(src, syncDir)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	mod, err := parseInput(t, input, ".json", &sourceconfig.OpenAPIExpose{OperationIDs: []string{"Pet_Get", "Pet_List"}})
+	testutil.Require(t, err == nil, "Parse: %v", err)
 	got := map[string]bool{}
 	for _, op := range mod.Operations {
 		got[op.OperationID] = true
 	}
-	if !reflect.DeepEqual(got, map[string]bool{"Pet_Get": true, "Pet_List": true}) {
-		t.Fatalf("operations = %#v", got)
-	}
+	testutil.Require(t, reflect.DeepEqual(got, map[string]bool{"Pet_Get": true, "Pet_List": true}), "operations = %#v", got)
 }
 
 func TestParse_ExposeOperationIDsFailsClosed(t *testing.T) {
@@ -132,14 +87,10 @@ func TestParse_ExposeOperationIDsFailsClosed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			syncDir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(tc.input), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			testutil.NoError(t, os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(tc.input), 0o644))
 			files := []string{"openapi.json"}
 			if tc.name == "ambiguous" {
-				if err := os.WriteFile(filepath.Join(syncDir, "duplicate.json"), []byte(tc.input), 0o644); err != nil {
-					t.Fatal(err)
-				}
+				testutil.NoError(t, os.WriteFile(filepath.Join(syncDir, "duplicate.json"), []byte(tc.input), 0o644))
 				files = append(files, "duplicate.json")
 			}
 			src := &sourceconfig.Source{
@@ -210,9 +161,7 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 		t.Fatalf("exclusive_null = %#v, want both oneOf branches", exclusive)
 	}
 	metadata := schema.Properties["metadata"].AdditionalProperties
-	if metadata == nil || metadata.Schema == nil || metadata.Schema.Type != "string" {
-		t.Fatalf("metadata additionalProperties = %#v, want string schema", metadata)
-	}
+	testutil.Require(t, metadata != nil && metadata.Schema != nil && metadata.Schema.Type == "string", "metadata additionalProperties = %#v, want string schema", metadata)
 	if freeform := schema.Properties["freeform"].AdditionalProperties; freeform == nil || !freeform.Allowed || freeform.Schema != nil {
 		t.Fatalf("freeform additionalProperties = %#v, want true", freeform)
 	}
@@ -223,9 +172,7 @@ func TestParse_OpenAPI31SchemaFidelity(t *testing.T) {
 		t.Fatalf("related = %#v, want expanded nullable Base", related)
 	}
 	extended := schema.Properties["extended"]
-	if extended == nil || len(extended.AllOf) != 2 || extended.AllOf[0] == nil || extended.AllOf[1] == nil || extended.AllOf[0].Properties["id"] == nil || extended.AllOf[0].Properties["id"].Nullable || extended.AllOf[1].Properties["id"] == nil || !extended.AllOf[1].Properties["id"].Nullable {
-		t.Fatalf("extended = %#v, want referenced and sibling constraints", extended)
-	}
+	testutil.Require(t, extended != nil && len(extended.AllOf) == 2 && extended.AllOf[0] != nil && extended.AllOf[1] != nil && extended.AllOf[0].Properties["id"] != nil && !extended.AllOf[0].Properties["id"].Nullable && extended.AllOf[1].Properties["id"] != nil && extended.AllOf[1].Properties["id"].Nullable, "extended = %#v, want referenced and sibling constraints", extended)
 	if composed := schema.Properties["composed"]; len(composed.AllOf) != 2 || composed.AllOf[0].Properties["id"].Type != "string" || composed.AllOf[1].Properties["name"].Type != "string" {
 		t.Fatalf("composed = %#v, want both allOf branches", composed)
 	}
@@ -260,19 +207,11 @@ func TestParse_NullableEnumAnyOfBecomesBodyFlagSchema(t *testing.T) {
 }`
 	spec := parseNormalized(t, input)[0]
 	duration := spec.RequestBody.Schema.Properties["budgetDuration"]
-	if duration.Type != "string" || !duration.Nullable || len(duration.Enum) != 3 || duration.Enum[0] != "daily" {
-		t.Fatalf("budgetDuration = %#v", duration)
-	}
-	if spec.RequestBody.Schema.Properties["maxBudgetUsd"].Type != "number" || !spec.RequestBody.Schema.Properties["maxBudgetUsd"].Nullable {
-		t.Fatalf("maxBudgetUsd = %#v", spec.RequestBody.Schema.Properties["maxBudgetUsd"])
-	}
+	testutil.Require(t, duration.Type == "string" && duration.Nullable && len(duration.Enum) == 3 && duration.Enum[0] == "daily", "budgetDuration = %#v", duration)
+	testutil.Require(t, spec.RequestBody.Schema.Properties["maxBudgetUsd"].Type == "number" && spec.RequestBody.Schema.Properties["maxBudgetUsd"].Nullable, "maxBudgetUsd = %#v", spec.RequestBody.Schema.Properties["maxBudgetUsd"])
 	got, _, err := normalize.ExpandJSONBodyFlags(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[0].Flag != "budget-duration" || got[0].Enum[0] != "daily" || !strings.Contains(got[0].Help, "Budget duration") || got[1].GoType != "float64" {
-		t.Fatalf("flags = %#v", got)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, len(got) == 2 && got[0].Flag == "budget-duration" && got[0].Enum[0] == "daily" && strings.Contains(got[0].Help, "Budget duration") && got[1].GoType == "float64", "flags = %#v", got)
 }
 
 func TestParse_MultipartBodyFields(t *testing.T) {
@@ -311,22 +250,16 @@ func TestParse_MultipartBodyFields(t *testing.T) {
   }
 }`
 	spec := parseNormalized(t, input)[0]
-	if spec.RequestBody == nil || spec.RequestBody.MediaType != "multipart/form-data" {
-		t.Fatalf("request body = %#v", spec.RequestBody)
-	}
+	testutil.Require(t, spec.RequestBody != nil && spec.RequestBody.MediaType == "multipart/form-data", "request body = %#v", spec.RequestBody)
 	want := map[string]runtime.ParamSpec{
 		"formData:file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary"},
 		"formData:purpose": {Name: "purpose", Flag: "body-purpose", In: runtime.InFormData, GoType: "string", Help: "purpose (formData)"},
 		"query:purpose":    {Name: "purpose", Flag: "purpose", In: runtime.InQuery, GoType: "string", Help: "purpose (query)"},
 	}
-	if len(spec.Params) != len(want) {
-		t.Fatalf("params = %#v", spec.Params)
-	}
+	testutil.Require(t, len(spec.Params) == len(want), "params = %#v", spec.Params)
 	for _, param := range spec.Params {
 		key := param.In + ":" + param.Name
-		if !reflect.DeepEqual(param, want[key]) {
-			t.Errorf("param %q = %#v, want %#v", key, param, want[key])
-		}
+		testutil.Check(t, reflect.DeepEqual(param, want[key]), "param %q = %#v, want %#v", key, param, want[key])
 	}
 }
 
@@ -352,9 +285,7 @@ func TestParse_ResponseContentSelectionIsDeterministic(t *testing.T) {
     }
   }
 }`
-	if err := os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(input), 0o644); err != nil {
-		t.Fatalf("seed input: %v", err)
-	}
+	testutil.NoError(t, os.WriteFile(filepath.Join(syncDir, "openapi.json"), []byte(input), 0o644))
 	src := &sourceconfig.Source{
 		Name:     "demo",
 		OpenAPI3: &sourceconfig.OpenAPI3Config{Files: []string{"openapi.json"}},
@@ -362,16 +293,10 @@ func TestParse_ResponseContentSelectionIsDeterministic(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		mod, err := Parse(src, syncDir)
-		if err != nil {
-			t.Fatalf("Parse: %v", err)
-		}
+		testutil.Require(t, err == nil, "Parse: %v", err)
 		response := mod.Operations[0].Responses["201"]
-		if response.MediaType != "application/xml" {
-			t.Fatalf("iteration %d: media type = %q, want application/xml", i, response.MediaType)
-		}
-		if response.Schema == nil || response.Schema.Type != "object" || response.Schema.Properties["id"] == nil {
-			t.Fatalf("iteration %d: schema = %#v, want application/xml schema", i, response.Schema)
-		}
+		testutil.Require(t, response.MediaType == "application/xml", "iteration %d: media type = %q, want application/xml", i, response.MediaType)
+		testutil.Require(t, response.Schema != nil && response.Schema.Type == "object" && response.Schema.Properties["id"] != nil, "iteration %d: schema = %#v, want application/xml schema", i, response.Schema)
 	}
 }
 
@@ -474,9 +399,7 @@ func TestParse_ServerOverridePrecedence(t *testing.T) {
 		}
 		delete(want, spec.OperationID)
 	}
-	if len(want) != 0 {
-		t.Fatalf("missing operations: %v", want)
-	}
+	testutil.Require(t, len(want) == 0, "missing operations: %v", want)
 }
 
 func TestParse_SecuritySemantics(t *testing.T) {
@@ -503,344 +426,33 @@ func TestParse_SecuritySemantics(t *testing.T) {
 			input := `{"openapi":"3.0.3"` + tc.documentSecurity + `,"paths":{"/health":{"get":{"operationId":"Health_Get"` + tc.operationSecurity + `,"responses":{"200":{}}}}}}`
 			security := parseNormalized(t, input)[0].Security
 			if tc.wantUnspecified {
-				if security != nil {
-					t.Fatalf("security = %#v, want nil so the runtime keeps requiring auth", security)
-				}
+				testutil.Require(t, security == nil, "security = %#v, want nil so the runtime keeps requiring auth", security)
 				return
 			}
-			if security == nil || security.Public != tc.wantPublic || !reflect.DeepEqual(security.Scopes, tc.wantScopes) {
-				t.Fatalf("security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
-			}
+			testutil.Require(t, security != nil && security.Public == tc.wantPublic && reflect.DeepEqual(security.Scopes, tc.wantScopes), "security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
 		})
 	}
 }
 
 func parseNormalized(t *testing.T, input string) []runtime.CommandSpec {
 	t.Helper()
-	syncDir := t.TempDir()
-	inputPath := filepath.Join(syncDir, "openapi.json")
-	if err := os.WriteFile(inputPath, []byte(input), 0o644); err != nil {
-		t.Fatalf("seed input: %v", err)
-	}
-
-	src := &sourceconfig.Source{
-		Name: "demo",
-		OpenAPI3: &sourceconfig.OpenAPI3Config{
-			Files: []string{"openapi.json"},
-		},
-	}
-	mod, err := Parse(src, syncDir)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	mod, err := parseInput(t, input, ".json", nil)
+	testutil.Require(t, err == nil, "Parse: %v", err)
 	specs := normalize.Normalize(mod)
-	if len(specs) == 0 {
-		t.Fatal("Normalize produced no commands")
-	}
+	testutil.Require(t, len(specs) != 0, "Normalize produced no commands")
 	return specs
 }
 
 func TestParse_RejectsOpenAPI31MultiTypeUnion(t *testing.T) {
-	syncDir := t.TempDir()
-	inputPath := filepath.Join(syncDir, "openapi.json")
-	if err := os.WriteFile(inputPath, []byte(openapi31MultiTypeUnionJSON), 0o644); err != nil {
-		t.Fatalf("seed input: %v", err)
-	}
-
-	src := &sourceconfig.Source{
-		Name: "demo",
-		OpenAPI3: &sourceconfig.OpenAPI3Config{
-			Files: []string{"openapi.json"},
-		},
-	}
-	_, err := Parse(src, syncDir)
-	if err == nil {
-		t.Fatal("Parse succeeded, want unsupported union error")
-	}
-	if !strings.Contains(err.Error(), "unsupported schema type union") {
-		t.Fatalf("error = %v, want unsupported schema type union", err)
-	}
+	_, err := parseInput(t, openapi31MultiTypeUnionJSON, ".json", nil)
+	testutil.Require(t, err != nil, "Parse succeeded, want unsupported union error")
+	testutil.Require(t, strings.Contains(err.Error(), "unsupported schema type union"), "error = %v, want unsupported schema type union", err)
 }
 
-const petstoreMinJSON = `{
-  "openapi": "3.0.3",
-  "paths": {
-    "/pets": {
-      "get": {
-        "operationId": "Pet_List",
-        "tags": ["Pets"],
-        "summary": "List pets.",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {"$ref": "#/components/schemas/Pet"}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/pets/{id}": {
-      "get": {
-        "operationId": "Pet_Get",
-        "tags": ["Pets"],
-        "summary": "Get one pet.",
-        "parameters": [
-          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {"$ref": "#/components/schemas/Pet"}
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Pet": {
-        "type": "object",
-        "properties": {
-          "id": {"type": "integer"},
-          "name": {"type": "string"}
-        }
-      }
-    }
-  }
-}`
-
-const refResolutionJSON = `{
-  "openapi": "3.0.3",
-  "paths": {
-    "/pets": {
-      "post": {
-        "operationId": "Pet_Create",
-        "tags": ["Pets"],
-        "summary": "Create a pet.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {"$ref": "#/components/schemas/Pet"}
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {"$ref": "#/components/schemas/Pet"}
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Pet": {
-        "type": "object",
-        "properties": {
-          "name": {"type": "string"}
-        }
-      }
-    }
-  }
-}`
-
-const pathAndQueryJSON = `{
-  "openapi": "3.0.3",
-  "paths": {
-    "/users/{id}": {
-      "get": {
-        "operationId": "User_Get",
-        "tags": ["Users"],
-        "summary": "Get a user.",
-        "parameters": [
-          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}},
-          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer"}, "description": "Max rows."}
-        ],
-        "responses": {}
-      }
-    }
-  }
-}`
-
-const requestBodyJSON = `{
-  "openapi": "3.0.3",
-  "paths": {
-    "/users": {
-      "post": {
-        "operationId": "User_Create",
-        "tags": ["Users"],
-        "summary": "Create a user.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "email": {"type": "string"},
-                  "role": {"type": "string"}
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {"$ref": "#/components/schemas/User"}
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "User": {
-        "type": "object",
-        "properties": {
-          "id": {"type": "integer"},
-          "email": {"type": "string"},
-          "role": {"type": "string"}
-        }
-      }
-    }
-  }
-}`
-
-const requestBodyNonJSON = `{
-  "openapi": "3.0.3",
-  "paths": {
-    "/exports": {
-      "post": {
-        "operationId": "Export_Create",
-        "tags": ["Exports"],
-        "summary": "Create export.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "text/plain": {"schema": {"type": "string"}},
-            "application/xml": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}
-          }
-        },
-        "responses": {}
-      }
-    }
-  }
-}`
-
-const pathLevelParamsJSON = `{
-  "openapi": "3.0.3",
-  "paths": {
-    "/orgs/{org_id}/members": {
-      "parameters": [
-        {"name": "org_id", "in": "path", "required": true, "schema": {"type": "string"}}
-      ],
-      "get": {
-        "operationId": "Org_ListMembers",
-        "tags": ["Orgs"],
-        "summary": "List org members.",
-        "parameters": [
-          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer"}}
-        ],
-        "responses": {}
-      },
-      "post": {
-        "operationId": "Org_AddMember",
-        "tags": ["Orgs"],
-        "summary": "Add a member.",
-        "parameters": [
-          {"name": "org_id", "in": "path", "required": true, "schema": {"type": "string"}, "description": "Override"}
-        ],
-        "requestBody": {"required": true},
-        "responses": {}
-      }
-    }
-  }
-}`
-
-const openapi31NullableTypeArrayJSON = `{
-  "openapi": "3.1.0",
-  "paths": {
-    "/threads": {
-      "get": {
-        "operationId": "Thread_List",
-        "tags": ["Threads"],
-        "parameters": [
-          {"name": "archived", "in": "query", "schema": {"type": ["boolean", "null"]}}
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "name": {"type": ["string", "null"]}
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}`
-
-const openapi31MultiTypeUnionJSON = `{
-  "openapi": "3.1.0",
-  "paths": {
-    "/threads": {
-      "get": {
-        "operationId": "Thread_List",
-        "tags": ["Threads"],
-        "parameters": [
-          {"name": "filter", "in": "query", "schema": {"type": ["string", "integer"]}}
-        ],
-        "responses": {}
-      }
-    }
-  }
-}`
-
-const petstoreMinYAML = `openapi: "3.0.3"
-paths:
-  /pets:
-    get:
-      operationId: Pet_List
-      tags: [Pets]
-      summary: List pets.
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Pet"
-components:
-  schemas:
-    Pet:
-      type: object
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-`
+func parseInput(t *testing.T, input, ext string, expose *sourceconfig.OpenAPIExpose) (*rawir.RawModule, error) {
+	t.Helper()
+	dir := t.TempDir()
+	file := "openapi" + ext
+	testutil.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte(input), 0o644))
+	return Parse(&sourceconfig.Source{Name: "demo", OpenAPI3: &sourceconfig.OpenAPI3Config{Files: []string{file}, Expose: expose}}, dir)
+}

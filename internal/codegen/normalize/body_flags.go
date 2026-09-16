@@ -3,8 +3,9 @@ package normalize
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"mime"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/lathe-cli/lathe/pkg/runtime"
@@ -59,11 +60,7 @@ func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, []strin
 	for _, name := range schema.Required {
 		required[name] = true
 	}
-	names := make([]string, 0, len(schema.Properties))
-	for name := range schema.Properties {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(schema.Properties))
 	existing := map[string]bool{}
 	for _, param := range spec.Params {
 		existing[param.Flag] = true

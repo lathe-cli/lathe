@@ -32,7 +32,7 @@ func commandsCmd(m *config.Manifest) *cobra.Command {
 			return nil
 		},
 	}
-	addJSONFlag(cmd, &jsonOut, "Emit catalog JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit catalog JSON")
 	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "Include hidden commands")
 	cmd.AddCommand(commandsShowCmd(m), commandsSchemaCmd())
 	return cmd
@@ -75,7 +75,7 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 			return nil
 		},
 	}
-	addJSONFlag(cmd, &jsonOut, "Emit command JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit command JSON")
 	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "Include hidden commands")
 	return cmd
 }
@@ -95,7 +95,7 @@ func commandsSchemaCmd() *cobra.Command {
 			return nil
 		},
 	}
-	addJSONFlag(cmd, &jsonOut, "Emit schema JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit schema JSON")
 	return cmd
 }
 
@@ -130,7 +130,7 @@ func searchCmd(m *config.Manifest) *cobra.Command {
 			return nil
 		},
 	}
-	addJSONFlag(cmd, &jsonOut, "Emit search results JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit search results JSON")
 	cmd.Flags().IntVar(&limit, "limit", runtime.DefaultSearchLimit, "Maximum number of results")
 	return cmd
 }
@@ -157,8 +157,4 @@ func writeJSON(cmd *cobra.Command, v any) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
-}
-
-func addJSONFlag(cmd *cobra.Command, target *bool, usage string) {
-	cmd.Flags().BoolVar(target, "json", false, usage)
 }

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
@@ -28,22 +29,8 @@ func TestParse_Golden(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			syncDir := t.TempDir()
-			data, err := proto.Marshal(tc.build())
-			if err != nil {
-				t.Fatalf("marshal FileDescriptorSet: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(syncDir, descriptorFile), data, 0o644); err != nil {
-				t.Fatalf("seed descriptor_set.pb: %v", err)
-			}
-
-			src := &sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}
-			mod, err := Parse(src, syncDir)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			mod := parseDescriptors(t, tc.build())
 			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
 	}
@@ -54,19 +41,7 @@ func TestParseIgnoresImportedDependencyServices(t *testing.T) {
 	dependency := buildGoogleAPIHTTPGet().File[0]
 	dependency.Name = proto.String("dependency.proto")
 	fds.File = append(fds.File, dependency)
-	data, err := proto.Marshal(fds)
-	if err != nil {
-		t.Fatal(err)
-	}
-	syncDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(syncDir, descriptorFile), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	src := &sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}
-	mod, err := Parse(src, syncDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mod := parseDescriptors(t, fds)
 	if got := len(mod.Operations); got != 1 {
 		t.Fatalf("operation count = %d, want only entry-file operations", got)
 	}
@@ -74,26 +49,25 @@ func TestParseIgnoresImportedDependencyServices(t *testing.T) {
 
 func TestParsePreservesMapRequestBodySchema(t *testing.T) {
 	fds := buildGoogleAPIHTTPPostBodyStarPath()
-	data, err := proto.Marshal(fds)
-	if err != nil {
-		t.Fatal(err)
-	}
-	syncDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(syncDir, descriptorFile), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	src := &sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}
-	mod, err := Parse(src, syncDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mod := parseDescriptors(t, fds)
 	labels := mod.Operations[0].RequestBody.Schema.Properties["labels"]
-	if labels == nil || labels.Type != "object" || labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
-		t.Fatalf("labels schema = %#v", labels)
-	}
+	testutil.Require(t, labels != nil && labels.Type == "object" && labels.AdditionalProperties != nil && labels.AdditionalProperties.Schema != nil && labels.AdditionalProperties.Schema.Type == "string", "labels schema = %#v", labels)
 }
 
-// ---- descriptor builders ----------------------------------------------------
+func TestParsePreservesDescriptorComments(t *testing.T) {
+	descriptors := buildGoogleAPIHTTPGet()
+	descriptors.File[0].SourceCodeInfo = &descriptorpb.SourceCodeInfo{Location: []*descriptorpb.SourceCodeInfo_Location{
+		{Path: []int32{6, 0, 2, 0}, LeadingComments: proto.String("\n Get one user.\nAdditional details.\n")},
+		{Path: []int32{4, 0, 2, 0}, LeadingComments: proto.String(" User identifier. ")},
+		{Path: []int32{4, 1, 2, 1}, LeadingComments: proto.String(" Display name. ")},
+	}}
+	mod := parseDescriptors(t, descriptors)
+	operation := mod.Operations[0]
+	testutil.Require(t, operation.Summary == "Get one user." && operation.Parameters[0].Description == "User identifier.", "operation comments = %#v", operation)
+	if name := mod.Schemas["demo.User"].Properties["name"]; name.Description != "Display name." {
+		t.Fatalf("response field comment = %#v", name)
+	}
+}
 
 func scalarField(name string, num int32, typ descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto {
 	return &descriptorpb.FieldDescriptorProto{
@@ -115,13 +89,9 @@ func messageField(name string, num int32, fullTypeName string) *descriptorpb.Fie
 }
 
 func repeatedMessageField(name string, num int32, fullTypeName string) *descriptorpb.FieldDescriptorProto {
-	return &descriptorpb.FieldDescriptorProto{
-		Name:     proto.String(name),
-		Number:   proto.Int32(num),
-		Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
-		Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-		TypeName: proto.String(fullTypeName),
-	}
+	field := messageField(name, num, fullTypeName)
+	field.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	return field
 }
 
 func methodWithHTTP(name, in, out string, rule *annotations.HttpRule) *descriptorpb.MethodDescriptorProto {
@@ -149,22 +119,14 @@ func fileSet(pkg string, msgs []*descriptorpb.DescriptorProto, svc *descriptorpb
 	return &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{file}}
 }
 
-// ---- cases ------------------------------------------------------------------
-
 func buildGoogleAPIHTTPGet() *descriptorpb.FileDescriptorSet {
-	req := &descriptorpb.DescriptorProto{
-		Name: proto.String("GetUserRequest"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
-	user := &descriptorpb.DescriptorProto{
-		Name: proto.String("User"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("name", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
+	req := message("GetUserRequest",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	user := message("User",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("name", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
 	svc := &descriptorpb.ServiceDescriptorProto{
 		Name: proto.String("Users"),
 		Method: []*descriptorpb.MethodDescriptorProto{methodWithHTTP(
@@ -178,19 +140,13 @@ func buildGoogleAPIHTTPGet() *descriptorpb.FileDescriptorSet {
 }
 
 func buildGoogleAPIHTTPPostBody() *descriptorpb.FileDescriptorSet {
-	req := &descriptorpb.DescriptorProto{
-		Name: proto.String("CreateUserRequest"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("name", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("email", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
-	user := &descriptorpb.DescriptorProto{
-		Name: proto.String("User"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
+	req := message("CreateUserRequest",
+		scalarField("name", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("email", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	user := message("User",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
 	svc := &descriptorpb.ServiceDescriptorProto{
 		Name: proto.String("Users"),
 		Method: []*descriptorpb.MethodDescriptorProto{methodWithHTTP(
@@ -207,30 +163,21 @@ func buildGoogleAPIHTTPPostBody() *descriptorpb.FileDescriptorSet {
 }
 
 func buildGoogleAPIHTTPPostBodyStarPath() *descriptorpb.FileDescriptorSet {
-	labelsEntry := &descriptorpb.DescriptorProto{
-		Name: proto.String("LabelsEntry"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("value", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-		Options: &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)},
-	}
-	req := &descriptorpb.DescriptorProto{
-		Name:       proto.String("UpdateUserRequest"),
-		NestedType: []*descriptorpb.DescriptorProto{labelsEntry},
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("name", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("email", 3, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			repeatedMessageField("labels", 4, ".demo.UpdateUserRequest.LabelsEntry"),
-		},
-	}
-	user := &descriptorpb.DescriptorProto{
-		Name: proto.String("User"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
+	labelsEntry := message("LabelsEntry",
+		scalarField("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("value", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	labelsEntry.Options = &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)}
+	req := message("UpdateUserRequest",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("name", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("email", 3, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		repeatedMessageField("labels", 4, ".demo.UpdateUserRequest.LabelsEntry"),
+	)
+	req.NestedType = []*descriptorpb.DescriptorProto{labelsEntry}
+	user := message("User",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
 	svc := &descriptorpb.ServiceDescriptorProto{
 		Name: proto.String("Users"),
 		Method: []*descriptorpb.MethodDescriptorProto{methodWithHTTP(
@@ -247,26 +194,17 @@ func buildGoogleAPIHTTPPostBodyStarPath() *descriptorpb.FileDescriptorSet {
 }
 
 func buildGoogleAPIHTTPPostBodyField() *descriptorpb.FileDescriptorSet {
-	payload := &descriptorpb.DescriptorProto{
-		Name: proto.String("CreateUserPayload"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("name", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("email", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
-	req := &descriptorpb.DescriptorProto{
-		Name: proto.String("CreateUserRequest"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			messageField("user", 1, ".demo.CreateUserPayload"),
-			scalarField("trace_id", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
-	user := &descriptorpb.DescriptorProto{
-		Name: proto.String("User"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
+	payload := message("CreateUserPayload",
+		scalarField("name", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("email", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	req := message("CreateUserRequest",
+		messageField("user", 1, ".demo.CreateUserPayload"),
+		scalarField("trace_id", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	user := message("User",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
 	svc := &descriptorpb.ServiceDescriptorProto{
 		Name: proto.String("Users"),
 		Method: []*descriptorpb.MethodDescriptorProto{methodWithHTTP(
@@ -283,22 +221,16 @@ func buildGoogleAPIHTTPPostBodyField() *descriptorpb.FileDescriptorSet {
 }
 
 func buildScalarTypeMapping() *descriptorpb.FileDescriptorSet {
-	req := &descriptorpb.DescriptorProto{
-		Name: proto.String("ListXRequest"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			scalarField("count", 2, descriptorpb.FieldDescriptorProto_TYPE_INT32),
-			scalarField("big", 3, descriptorpb.FieldDescriptorProto_TYPE_INT64),
-			scalarField("flag", 4, descriptorpb.FieldDescriptorProto_TYPE_BOOL),
-			scalarField("blob", 5, descriptorpb.FieldDescriptorProto_TYPE_BYTES),
-		},
-	}
-	resp := &descriptorpb.DescriptorProto{
-		Name: proto.String("ListXResponse"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("total", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32),
-		},
-	}
+	req := message("ListXRequest",
+		scalarField("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		scalarField("count", 2, descriptorpb.FieldDescriptorProto_TYPE_INT32),
+		scalarField("big", 3, descriptorpb.FieldDescriptorProto_TYPE_INT64),
+		scalarField("flag", 4, descriptorpb.FieldDescriptorProto_TYPE_BOOL),
+		scalarField("blob", 5, descriptorpb.FieldDescriptorProto_TYPE_BYTES),
+	)
+	resp := message("ListXResponse",
+		scalarField("total", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32),
+	)
 	svc := &descriptorpb.ServiceDescriptorProto{
 		Name: proto.String("Items"),
 		Method: []*descriptorpb.MethodDescriptorProto{methodWithHTTP(
@@ -312,25 +244,16 @@ func buildScalarTypeMapping() *descriptorpb.FileDescriptorSet {
 }
 
 func buildMessageRef() *descriptorpb.FileDescriptorSet {
-	address := &descriptorpb.DescriptorProto{
-		Name: proto.String("Address"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("street", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
-	req := &descriptorpb.DescriptorProto{
-		Name: proto.String("GetUserRequest"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-		},
-	}
-	user := &descriptorpb.DescriptorProto{
-		Name: proto.String("User"),
-		Field: []*descriptorpb.FieldDescriptorProto{
-			scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
-			messageField("address", 2, ".demo.Address"),
-		},
-	}
+	address := message("Address",
+		scalarField("street", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	req := message("GetUserRequest",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+	)
+	user := message("User",
+		scalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+		messageField("address", 2, ".demo.Address"),
+	)
 	svc := &descriptorpb.ServiceDescriptorProto{
 		Name: proto.String("Users"),
 		Method: []*descriptorpb.MethodDescriptorProto{methodWithHTTP(
@@ -356,4 +279,19 @@ func buildNoHTTPRule() *descriptorpb.FileDescriptorSet {
 		)},
 	}
 	return fileSet("demo", []*descriptorpb.DescriptorProto{req, resp}, svc)
+}
+
+func parseDescriptors(t *testing.T, descriptors *descriptorpb.FileDescriptorSet) *rawir.RawModule {
+	t.Helper()
+	data, err := proto.Marshal(descriptors)
+	testutil.Require(t, err == nil, "%v", err)
+	dir := t.TempDir()
+	testutil.NoError(t, os.WriteFile(filepath.Join(dir, descriptorFile), data, 0o644))
+	mod, err := Parse(&sourceconfig.Source{Name: "demo", Proto: &sourceconfig.ProtoConfig{Entries: []string{"demo.proto"}}}, dir)
+	testutil.Require(t, err == nil, "%v", err)
+	return mod
+}
+
+func message(name string, fields ...*descriptorpb.FieldDescriptorProto) *descriptorpb.DescriptorProto {
+	return &descriptorpb.DescriptorProto{Name: proto.String(name), Field: fields}
 }

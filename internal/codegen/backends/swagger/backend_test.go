@@ -26,78 +26,27 @@ func TestParse_Golden(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			syncDir := t.TempDir()
-			inputPath := filepath.Join(syncDir, tc.name+".swagger.json")
-			if err := os.WriteFile(inputPath, []byte(tc.input), 0o644); err != nil {
-				t.Fatalf("seed swagger input: %v", err)
-			}
-
-			src := &sourceconfig.Source{
-				Name: "demo",
-				Swagger: &sourceconfig.SwaggerConfig{
-					Files: []string{tc.name + ".swagger.json"},
-				},
-			}
-			mod, err := Parse(src, syncDir)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			mod := parseInput(t, tc.input, ".json")
 			testutil.AssertRawModuleGolden(t, tc.name, mod)
 		})
 	}
 }
 
 func TestParse_YAMLMatchesJSON(t *testing.T) {
-	syncDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(syncDir, "petstore.json"), []byte(petstoreMinInput), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(syncDir, "petstore.yaml"), []byte(petstoreMinYAMLInput), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	parse := func(file string) *rawir.RawModule {
-		t.Helper()
-		src := &sourceconfig.Source{
-			Name:    "demo",
-			Swagger: &sourceconfig.SwaggerConfig{Files: []string{file}},
-		}
-		mod, err := Parse(src, syncDir)
-		if err != nil {
-			t.Fatalf("Parse(%s): %v", file, err)
-		}
-		return mod
-	}
-
-	jsonModule := parse("petstore.json")
-	yamlModule := parse("petstore.yaml")
+	jsonModule := parseInput(t, petstoreMinInput, ".json")
+	yamlModule := parseInput(t, petstoreMinYAMLInput, ".yaml")
 	for _, module := range []*rawir.RawModule{jsonModule, yamlModule} {
 		sort.Slice(module.Operations, func(i, j int) bool {
 			return module.Operations[i].Method+" "+module.Operations[i].Path <
 				module.Operations[j].Method+" "+module.Operations[j].Path
 		})
 	}
-	if !reflect.DeepEqual(jsonModule, yamlModule) {
-		t.Fatalf("YAML module differs from JSON\nJSON: %#v\nYAML: %#v", jsonModule, yamlModule)
-	}
+	testutil.Require(t, reflect.DeepEqual(jsonModule, yamlModule), "YAML module differs from JSON\nJSON: %#v\nYAML: %#v", jsonModule, yamlModule)
 }
 
 func TestParse_DeduplicatesSwaggerParameters(t *testing.T) {
-	syncDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(syncDir, "duplicate.yaml"), []byte(duplicateParameterYAMLInput), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	src := &sourceconfig.Source{
-		Name:    "demo",
-		Swagger: &sourceconfig.SwaggerConfig{Files: []string{"duplicate.yaml"}},
-	}
-
-	mod, err := Parse(src, syncDir)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	mod := parseInput(t, duplicateParameterYAMLInput, ".yaml")
 	if got := len(mod.Operations[0].Parameters); got != 1 {
 		t.Fatalf("parameters = %d, want one unique parameter", got)
 	}
@@ -125,25 +74,13 @@ func TestParse_SecuritySemantics(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			input := `{"swagger":"2.0"` + tc.documentSecurity + `,"paths":{"/health":{"get":{"operationId":"Health_Get"` + tc.operationSecurity + `,"responses":{"200":{}}}}}}`
-			syncDir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(syncDir, "swagger.json"), []byte(input), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			src := &sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: []string{"swagger.json"}}}
-			mod, err := Parse(src, syncDir)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			mod := parseInput(t, input, ".json")
 			security := normalize.Normalize(mod)[0].Security
 			if tc.wantUnspecified {
-				if security != nil {
-					t.Fatalf("security = %#v, want nil so the runtime keeps requiring auth", security)
-				}
+				testutil.Require(t, security == nil, "security = %#v, want nil so the runtime keeps requiring auth", security)
 				return
 			}
-			if security == nil || security.Public != tc.wantPublic || !reflect.DeepEqual(security.Scopes, tc.wantScopes) {
-				t.Fatalf("security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
-			}
+			testutil.Require(t, security != nil && security.Public == tc.wantPublic && reflect.DeepEqual(security.Scopes, tc.wantScopes), "security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
 		})
 	}
 }
@@ -172,23 +109,12 @@ func TestParse_PreservesBodySchemaMetadata(t *testing.T) {
 	    }
 	  }
 	}`
-	syncDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(syncDir, "swagger.json"), []byte(input), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mod, err := Parse(&sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: []string{"swagger.json"}}}, syncDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mod := parseInput(t, input, ".json")
 	schema := normalize.Normalize(mod)[0].RequestBody.Schema
 	value := schema.Properties["value"]
 	labels := schema.Properties["labels"]
-	if value.Description != "Secret value" || value.Format != "password" || len(value.Enum) != 1 || value.Enum[0] != "primary" {
-		t.Fatalf("value schema = %#v", value)
-	}
-	if labels.AdditionalProperties == nil || labels.AdditionalProperties.Schema == nil || labels.AdditionalProperties.Schema.Type != "string" {
-		t.Fatalf("labels schema = %#v", labels)
-	}
+	testutil.Require(t, value.Description == "Secret value" && value.Format == "password" && len(value.Enum) == 1 && value.Enum[0] == "primary", "value schema = %#v", value)
+	testutil.Require(t, labels.AdditionalProperties != nil && labels.AdditionalProperties.Schema != nil && labels.AdditionalProperties.Schema.Type == "string", "labels schema = %#v", labels)
 }
 
 const petstoreMinInput = `{
@@ -351,3 +277,13 @@ const tagsFallbackInput = `{
   }
 }
 `
+
+func parseInput(t *testing.T, input, ext string) *rawir.RawModule {
+	t.Helper()
+	dir := t.TempDir()
+	file := "swagger" + ext
+	testutil.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte(input), 0o644))
+	mod, err := Parse(&sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: []string{file}}}, dir)
+	testutil.Require(t, err == nil, "%v", err)
+	return mod
+}

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestExpandJSONBodyFlags(t *testing.T) {
@@ -29,37 +31,19 @@ func TestExpandJSONBodyFlags(t *testing.T) {
 		},
 	}
 	got, setOnly, err := ExpandJSONBodyFlags(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(setOnly) != 0 {
-		t.Fatalf("setOnly = %#v, want empty", setOnly)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, len(setOnly) == 0, "setOnly = %#v, want empty", setOnly)
 	byName := map[string]runtime.ParamSpec{}
 	for _, param := range got {
 		byName[param.Name] = param
-		if param.In != runtime.InBody {
-			t.Errorf("%s In = %q", param.Name, param.In)
-		}
-		if param.Required {
-			t.Errorf("%s unexpectedly required", param.Name)
-		}
+		testutil.Check(t, param.In == runtime.InBody, "%s In = %q", param.Name, param.In)
+		testutil.Check(t, !param.Required, "%s unexpectedly required", param.Name)
 	}
-	if byName["maxBudgetUsd"].Flag != "max-budget-usd" || byName["maxBudgetUsd"].GoType != "float64" {
-		t.Fatalf("maxBudgetUsd = %+v", byName["maxBudgetUsd"])
-	}
-	if byName["budgetDuration"].Flag != "budget-duration" || !equalStrings(byName["budgetDuration"].Enum, []string{"daily", "weekly", "monthly"}) {
-		t.Fatalf("budgetDuration = %+v", byName["budgetDuration"])
-	}
-	if byName["rpmLimit"].GoType != "int64" {
-		t.Fatalf("rpmLimit = %+v", byName["rpmLimit"])
-	}
-	if byName["allowedModels"].GoType != "[]string" || !equalStrings(byName["allowedModels"].ItemEnum, []string{"model-a", "model-b"}) {
-		t.Fatalf("allowedModels = %+v", byName["allowedModels"])
-	}
-	if byName["expiresAt"].Format != "date-time" {
-		t.Fatalf("expiresAt = %+v", byName["expiresAt"])
-	}
+	testutil.Require(t, byName["maxBudgetUsd"].Flag == "max-budget-usd" && byName["maxBudgetUsd"].GoType == "float64", "maxBudgetUsd = %+v", byName["maxBudgetUsd"])
+	testutil.Require(t, byName["budgetDuration"].Flag == "budget-duration" && equalStrings(byName["budgetDuration"].Enum, []string{"daily", "weekly", "monthly"}), "budgetDuration = %+v", byName["budgetDuration"])
+	testutil.Require(t, byName["rpmLimit"].GoType == "int64", "rpmLimit = %+v", byName["rpmLimit"])
+	testutil.Require(t, byName["allowedModels"].GoType == "[]string" && equalStrings(byName["allowedModels"].ItemEnum, []string{"model-a", "model-b"}), "allowedModels = %+v", byName["allowedModels"])
+	testutil.Require(t, byName["expiresAt"].Format == "date-time", "expiresAt = %+v", byName["expiresAt"])
 }
 
 func TestExpandJSONBodyFlags_RequiredAndCollision(t *testing.T) {
@@ -81,12 +65,8 @@ func TestExpandJSONBodyFlags_RequiredAndCollision(t *testing.T) {
 	spec.Params = nil
 	spec.RequestBody.Schema.Properties = map[string]*runtime.SchemaSpec{"name": {Type: "string"}, "enabled": {Type: "boolean"}}
 	got, _, err := ExpandJSONBodyFlags(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[1].Name != "name" || !got[1].Required || !strings.Contains(got[1].Help, "required") {
-		t.Fatalf("params = %#v", got)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, len(got) == 2 && got[1].Name == "name" && got[1].Required && strings.Contains(got[1].Help, "required"), "params = %#v", got)
 }
 
 func TestExpandJSONBodyFlags_RejectsUnsupported(t *testing.T) {
@@ -124,9 +104,7 @@ func TestExpandJSONBodyFlags_RejectsUnsupported(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := ExpandJSONBodyFlags(tc.spec)
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("error = %v, want %q", err, tc.want)
-			}
+			testutil.Require(t, err != nil && strings.Contains(err.Error(), tc.want), "error = %v, want %q", err, tc.want)
 		})
 	}
 }
@@ -142,15 +120,9 @@ func TestExpandJSONBodyFlags_SkipsNestedObjectProperties(t *testing.T) {
 		},
 	})
 	got, setOnly, err := ExpandJSONBodyFlags(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Name != "name" || got[0].Flag != "name" || !got[0].Required {
-		t.Fatalf("params = %#v", got)
-	}
-	if !equalStrings(setOnly, []string{"admins", "limits"}) {
-		t.Fatalf("setOnly = %#v", setOnly)
-	}
+	testutil.Require(t, err == nil, "%v", err)
+	testutil.Require(t, len(got) == 1 && got[0].Name == "name" && got[0].Flag == "name" && got[0].Required, "params = %#v", got)
+	testutil.Require(t, equalStrings(setOnly, []string{"admins", "limits"}), "setOnly = %#v", setOnly)
 }
 
 func jsonBodySpec(schema *runtime.SchemaSpec) runtime.CommandSpec {

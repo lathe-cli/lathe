@@ -37,23 +37,11 @@ func needsStoredContext(spec CommandSpec, input OperationInput) bool {
 }
 
 func contextNeedsStored(param ParamSpec, input OperationInput) bool {
-	if contextValueAvailable(param, input) {
+	if operationValueProvided(param, input) {
 		return false
 	}
 	info, ok := config.Active().Contexts[param.Context]
 	return !ok || info.Env == "" || strings.TrimSpace(os.Getenv(info.Env)) == ""
-}
-
-func contextValueAvailable(param ParamSpec, input OperationInput) bool {
-	if input.Changed != nil {
-		return input.Changed[boundParamKey(param)] || input.Changed[param.Name] || input.Changed[param.Flag]
-	}
-	for _, key := range []string{boundParamKey(param), param.Name, param.Flag} {
-		if _, ok := input.Values[key]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func resolveOperationContexts(spec CommandSpec, input *OperationInput, hostname string) error {
@@ -69,7 +57,7 @@ func resolveOperationContexts(spec CommandSpec, input *OperationInput, hostname 
 		input.Values = map[string]any{}
 	}
 	for _, param := range spec.Params {
-		if param.Context == "" || contextValueAvailable(param, *input) {
+		if param.Context == "" || operationValueProvided(param, *input) {
 			continue
 		}
 		info, ok := config.Active().Contexts[param.Context]

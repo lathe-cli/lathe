@@ -5,14 +5,14 @@ import (
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestValidateContexts(t *testing.T) {
 	manifest := &config.Manifest{Contexts: map[string]config.ContextInfo{"workspace": {}}}
 	valid := runtime.CommandSpec{Use: "use", Params: []runtime.ParamSpec{{Name: "workspace_id", Flag: "workspace-id", GoType: "string", Context: "workspace"}}, SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "workspace_id"}}
-	if err := (&App{Manifest: manifest, Modules: []Module{{CLIName: "api", Specs: []runtime.CommandSpec{valid}}}}).Validate(); err != nil {
-		t.Fatalf("valid context: %v", err)
-	}
+	testutil.NoError(t, (&App{Manifest: manifest, Modules: []Module{{CLIName: "api", Specs: []runtime.CommandSpec{valid}}}}).Validate())
 
 	invalid := valid
 	invalid.Params = append([]runtime.ParamSpec(nil), valid.Params...)

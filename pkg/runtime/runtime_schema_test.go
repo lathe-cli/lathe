@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/pkg/config"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestInvokeOperation_RuntimeSchema(t *testing.T) {
@@ -44,13 +46,9 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 	})
 	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
 	hosts, err := config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	hosts.Set(srv.URL, config.HostEntry{Contexts: map[string]string{"workspace": "ws-1"}})
-	if err := hosts.Save(); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, hosts.Save())
 
 	appID := ParamSpec{Name: "app_id", Flag: "app-id", In: InPath, GoType: "string", Required: true}
 	source := CommandSpec{
@@ -106,13 +104,9 @@ func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 		t.Fatalf("invalid body hits = schema:%d target:%d", schemaHits.Load(), targetHits.Load())
 	}
 	hosts, err = config.LoadHosts()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testutil.Require(t, err == nil, "%v", err)
 	entry, _ := hosts.Get(srv.URL)
-	if entry.Contexts["workspace"] != "ws-1" {
-		t.Fatalf("schema preflight persisted context = %#v", entry.Contexts)
-	}
+	testutil.Require(t, entry.Contexts["workspace"] == "ws-1", "schema preflight persisted context = %#v", entry.Contexts)
 
 	valid := baseInput
 	valid.FileBody = []byte(`{"count":2.0,"note":null}`)

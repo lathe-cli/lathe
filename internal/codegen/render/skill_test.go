@@ -11,6 +11,8 @@ import (
 	"github.com/lathe-cli/lathe/internal/specsync"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+
+	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
 func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
@@ -20,9 +22,7 @@ func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
 		Template:  `{"query":"mutation($name:String!){createApp(name:$name){id}}","variables":{}}`,
 		MergePath: "variables",
 	})
-	if !strings.Contains(got, "variables") || !strings.Contains(got, "--set") {
-		t.Errorf("bodySummary = %q, want merge-path guidance", got)
-	}
+	testutil.Check(t, strings.Contains(got, "variables") && strings.Contains(got, "--set"), "bodySummary = %q, want merge-path guidance", got)
 }
 
 func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
@@ -81,13 +81,11 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		},
 	})
 
-	if err := RenderSkillDirectory(filepath.Join(dir, "skills", "acmectl"), manifest, []SkillModule{{
+	testutil.NoError(t, RenderSkillDirectory(filepath.Join(dir, "skills", "acmectl"), manifest, []SkillModule{{
 		Source: source,
 		State:  &specsync.State{Source: "users", Backend: "openapi3", SyncedFrom: "v1.0.0", ResolvedSHA: "abc123"},
 		Specs:  merged,
-	}}); err != nil {
-		t.Fatalf("RenderSkillDirectory: %v", err)
-	}
+	}}))
 
 	skill := readFile(t, dir, "skills/acmectl/SKILL.md")
 	for _, want := range []string{
@@ -107,9 +105,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"exit 0",
 		"auth context status -o json",
 	} {
-		if !strings.Contains(skill, want) {
-			t.Errorf("SKILL.md missing %q", want)
-		}
+		testutil.Check(t, strings.Contains(skill, want), "SKILL.md missing %q", want)
 	}
 
 	if marker := readFile(t, dir, "skills/acmectl/"+skillOwnerFile); !strings.Contains(marker, "lathe codegen") {
@@ -121,15 +117,11 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	}
 
 	openai := readFile(t, dir, "skills/acmectl/agents/openai.yaml")
-	if !strings.Contains(openai, "default_prompt:") || !strings.Contains(openai, "$acmectl") {
-		t.Fatalf("openai.yaml missing default prompt: %s", openai)
-	}
+	testutil.Require(t, strings.Contains(openai, "default_prompt:") && strings.Contains(openai, "$acmectl"), "openai.yaml missing default prompt: %s", openai)
 
 	catalog := readFile(t, dir, "skills/acmectl/references/catalog.md")
 	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "input_modes", "body.runtime_schema", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json", "error.http", "pause exits zero", "`mutation`", "`dry_run`", "catalog_schema_version", "surfaces", "other than `read`", "explicit user confirmation"} {
-		if !strings.Contains(catalog, want) {
-			t.Errorf("catalog.md missing %q", want)
-		}
+		testutil.Check(t, strings.Contains(catalog, want), "catalog.md missing %q", want)
 	}
 
 	module := readFile(t, dir, "skills/acmectl/references/modules/users.md")
@@ -155,19 +147,11 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"Sets context `organization` from parameter `type` after success.",
 		"Example: `acmectl accounts create-user --set name=alice`",
 	} {
-		if !strings.Contains(module, want) {
-			t.Errorf("users.md missing %q", want)
-		}
+		testutil.Check(t, strings.Contains(module, want), "users.md missing %q", want)
 	}
-	if strings.Contains(module, "Example: `acmectl users accounts create-user") {
-		t.Fatalf("module reference kept stale namespaced example:\n%s", module)
-	}
-	if strings.Contains(module, "delete-user") || strings.Contains(module, "Raw summary") {
-		t.Fatalf("module reference leaked hidden command or raw overlay content:\n%s", module)
-	}
-	if strings.Contains(module, "**INJECT**") {
-		t.Fatalf("module reference contains injected parameter content:\n%s", module)
-	}
+	testutil.Require(t, !strings.Contains(module, "Example: `acmectl users accounts create-user"), "module reference kept stale namespaced example:\n%s", module)
+	testutil.Require(t, !strings.Contains(module, "delete-user") && !strings.Contains(module, "Raw summary"), "module reference leaked hidden command or raw overlay content:\n%s", module)
+	testutil.Require(t, !strings.Contains(module, "**INJECT**"), "module reference contains injected parameter content:\n%s", module)
 }
 
 func TestRenderModuleReference_FormatsExamples(t *testing.T) {
@@ -217,9 +201,7 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 		"- Example:\n\n```\nEND=$(date +%s); START=$((END - 3600))\nacmectl users users query-logs \\\n  --start $START --end $END -o json\njq '.items[]'\n```",
 		"- Examples:\n  - Create from JSON\n    Command: `acmectl users users create-user --file user.json -o json`\n    Body shape: `{\"input\":{\"name\":\"...\"}}`\n    Output ID path: `data.createUser.id`\n    Follow-up commands:\n      - `acmectl users users get-user --id <id> -o json`",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("module reference missing %q\nfull output:\n%s", want, got)
-		}
+		testutil.Require(t, strings.Contains(got, want), "module reference missing %q\nfull output:\n%s", want, got)
 	}
 
 	flat := renderModuleReference(manifest, module, true)
@@ -228,9 +210,7 @@ func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 		"acmectl users query-logs \\\n  --start $START --end $END -o json",
 		"Command: `acmectl users create-user --file user.json -o json`",
 	} {
-		if !strings.Contains(flat, want) {
-			t.Fatalf("flat module reference missing %q\nfull output:\n%s", want, flat)
-		}
+		testutil.Require(t, strings.Contains(flat, want), "flat module reference missing %q\nfull output:\n%s", want, flat)
 	}
 }
 
@@ -249,25 +229,17 @@ func TestRenderModuleReference_NormalizesMultiWordGroupPaths(t *testing.T) {
 	}
 
 	namespaced := renderModuleReference(manifest, module, false)
-	if !strings.Contains(namespaced, "### `acmectl billing payment list-payments`") {
-		t.Fatalf("namespaced module reference should use Cobra command name:\n%s", namespaced)
-	}
-	if strings.Contains(namespaced, "payment api list-payments") {
-		t.Fatalf("namespaced module reference kept unnormalized group path:\n%s", namespaced)
-	}
+	testutil.Require(t, strings.Contains(namespaced, "### `acmectl billing payment list-payments`"), "namespaced module reference should use Cobra command name:\n%s", namespaced)
+	testutil.Require(t, !strings.Contains(namespaced, "payment api list-payments"), "namespaced module reference kept unnormalized group path:\n%s", namespaced)
 
 	flat := renderModuleReference(manifest, module, true)
 	for _, want := range []string{
 		"### `acmectl payment list-payments`",
 		"- Example: `acmectl payment list-payments -o json`",
 	} {
-		if !strings.Contains(flat, want) {
-			t.Fatalf("flat module reference missing %q\nfull output:\n%s", want, flat)
-		}
+		testutil.Require(t, strings.Contains(flat, want), "flat module reference missing %q\nfull output:\n%s", want, flat)
 	}
-	if strings.Contains(flat, "payment api list-payments") {
-		t.Fatalf("flat module reference kept unnormalized group path:\n%s", flat)
-	}
+	testutil.Require(t, !strings.Contains(flat, "payment api list-payments"), "flat module reference kept unnormalized group path:\n%s", flat)
 }
 
 func TestRenderModuleReference_GraphQLSourceSummary(t *testing.T) {
@@ -328,36 +300,24 @@ func TestRenderModuleReference_GraphQLSourceSummary(t *testing.T) {
 		"Body: required; templated body, set inputs under `variables`",
 		"Output: list path `data.apps.nodes`; columns `id`, `name`",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("graphql module reference missing %q\nfull output:\n%s", want, got)
-		}
+		testutil.Require(t, strings.Contains(got, want), "graphql module reference missing %q\nfull output:\n%s", want, got)
 	}
 }
 
 func TestRenderSkillDirectory_RejectsUnsafeRoot(t *testing.T) {
 	err := RenderSkillDirectory("", &config.Manifest{CLI: config.CLIInfo{Name: "x"}}, nil)
-	if err == nil {
-		t.Fatal("expected invalid root error")
-	}
+	testutil.Require(t, err != nil, "expected invalid root error")
 }
 
 func TestRenderSkillDirectory_RefusesExistingUnownedDirectory(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "skills", "acmectl")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "sentinel.txt"), []byte("keep"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(root, 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(root, "sentinel.txt"), []byte("keep"), 0o644))
 
 	err := RenderSkillDirectory(root, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil)
-	if err == nil {
-		t.Fatal("expected unowned directory error")
-	}
-	if !strings.Contains(err.Error(), "refusing to remove") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	testutil.Require(t, err != nil, "expected unowned directory error")
+	testutil.Require(t, strings.Contains(err.Error(), "refusing to remove"), "unexpected error: %v", err)
 	if got := readFile(t, dir, "skills/acmectl/sentinel.txt"); got != "keep" {
 		t.Fatalf("sentinel was changed: %q", got)
 	}
@@ -366,20 +326,12 @@ func TestRenderSkillDirectory_RefusesExistingUnownedDirectory(t *testing.T) {
 func TestRenderSkillDirectory_RefusesLegacyOwnerMarker(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "skills", "acmectl")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".lathe-codegen-skill"), []byte("legacy marker\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(root, 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(root, ".lathe-codegen-skill"), []byte("legacy marker\n"), 0o644))
 
 	err := RenderSkillDirectory(root, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil)
-	if err == nil {
-		t.Fatal("expected legacy owner marker to be rejected")
-	}
-	if !strings.Contains(err.Error(), "refusing to remove") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	testutil.Require(t, err != nil, "expected legacy owner marker to be rejected")
+	testutil.Require(t, strings.Contains(err.Error(), "refusing to remove"), "unexpected error: %v", err)
 	if got := readFile(t, dir, "skills/acmectl/.lathe-codegen-skill"); got != "legacy marker\n" {
 		t.Fatalf("legacy marker was changed: %q", got)
 	}
@@ -388,19 +340,11 @@ func TestRenderSkillDirectory_RefusesLegacyOwnerMarker(t *testing.T) {
 func TestRenderSkillDirectory_RegeneratesOwnedDirectory(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "skills", "acmectl")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, skillOwnerFile), []byte("old marker"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "stale.txt"), []byte("stale"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, os.MkdirAll(root, 0o755))
+	testutil.NoError(t, os.WriteFile(filepath.Join(root, skillOwnerFile), []byte("old marker"), 0o644))
+	testutil.NoError(t, os.WriteFile(filepath.Join(root, "stale.txt"), []byte("stale"), 0o644))
 
-	if err := RenderSkillDirectory(root, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil); err != nil {
-		t.Fatalf("RenderSkillDirectory: %v", err)
-	}
+	testutil.NoError(t, RenderSkillDirectory(root, &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}, nil))
 	if _, err := os.Stat(filepath.Join(root, "stale.txt")); !os.IsNotExist(err) {
 		t.Fatalf("stale file should be removed, stat err = %v", err)
 	}
@@ -412,8 +356,6 @@ func TestRenderSkillDirectory_RegeneratesOwnedDirectory(t *testing.T) {
 func readFile(t *testing.T, root string, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, path))
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	testutil.Require(t, err == nil, "read %s: %v", path, err)
 	return string(data)
 }
