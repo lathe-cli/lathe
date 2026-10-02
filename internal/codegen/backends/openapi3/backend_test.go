@@ -456,3 +456,20 @@ func parseInput(t *testing.T, input, ext string, expose *sourceconfig.OpenAPIExp
 	testutil.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte(input), 0o644))
 	return Parse(&sourceconfig.Source{Name: "demo", OpenAPI3: &sourceconfig.OpenAPI3Config{Files: []string{file}, Expose: expose}}, dir)
 }
+
+func TestParse_TagDescriptions(t *testing.T) {
+	for _, tc := range []struct{ input, ext string }{
+		{`{"openapi":"3.0.3","tags":[{"name":"Users","description":"Manage user accounts"}],"paths":{"/users":{"get":{"operationId":"listUsers","tags":["Users"],"responses":{}}},"/other":{"get":{"operationId":"listOther","tags":["Other"],"responses":{}}}}}`, ".json"},
+		{"openapi: 3.0.3\ntags:\n  - name: Users\n    description: Manage user accounts\npaths:\n  /users:\n    get:\n      operationId: listUsers\n      tags: [Users]\n      responses: {}\n  /other:\n    get:\n      operationId: listOther\n      tags: [Other]\n      responses: {}\n", ".yaml"},
+	} {
+		mod, err := parseInput(t, tc.input, tc.ext, nil)
+		testutil.NoError(t, err)
+		for _, spec := range normalize.Normalize(mod) {
+			want := ""
+			if spec.Group == "Users" {
+				want = "Manage user accounts"
+			}
+			testutil.Require(t, spec.GroupShort == want, "%s: group %q description = %q, want %q", tc.ext, spec.Group, spec.GroupShort, want)
+		}
+	}
+}

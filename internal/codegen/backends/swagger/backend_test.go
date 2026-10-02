@@ -287,3 +287,19 @@ func parseInput(t *testing.T, input, ext string) *rawir.RawModule {
 	testutil.Require(t, err == nil, "%v", err)
 	return mod
 }
+
+func TestParse_TagDescriptions(t *testing.T) {
+	for _, tc := range []struct{ input, ext string }{
+		{`{"swagger":"2.0","tags":[{"name":"Users","description":"Manage user accounts"}],"paths":{"/users":{"get":{"operationId":"listUsers","tags":["Users"],"responses":{}}},"/other":{"get":{"operationId":"listOther","tags":["Other"],"responses":{}}}}}`, ".json"},
+		{"swagger: '2.0'\ntags:\n  - name: Users\n    description: Manage user accounts\npaths:\n  /users:\n    get:\n      operationId: listUsers\n      tags: [Users]\n      responses: {}\n  /other:\n    get:\n      operationId: listOther\n      tags: [Other]\n      responses: {}\n", ".yaml"},
+	} {
+		mod := parseInput(t, tc.input, tc.ext)
+		for _, spec := range normalize.Normalize(mod) {
+			want := ""
+			if spec.Group == "Users" {
+				want = "Manage user accounts"
+			}
+			testutil.Require(t, spec.GroupShort == want, "%s: group %q description = %q, want %q", tc.ext, spec.Group, spec.GroupShort, want)
+		}
+	}
+}

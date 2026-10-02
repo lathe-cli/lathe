@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 24
+const CatalogSchemaVersion = 25
 
 const DefaultSearchLimit = 20
 
@@ -57,6 +57,8 @@ type CatalogOutputFormats struct {
 }
 
 type CatalogCommand struct {
+	GroupDescription string `json:"group_description,omitempty"`
+
 	Kind          string             `json:"kind"`
 	Path          []string           `json:"path"`
 	Service       string             `json:"service"`

@@ -15,6 +15,13 @@ import (
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
+func TestModuleReference_GroupDescription(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "demo"}}
+	module := SkillModule{Source: &sourceconfig.Source{Name: "users"}, Specs: []runtime.CommandSpec{{Group: "Users", GroupShort: "Manage user accounts", Use: "list", Method: "GET"}}}
+	got := renderModuleReference(manifest, module, true)
+	testutil.Require(t, strings.Contains(got, "## Users\n\nManage user accounts\n\n"), "group description missing from reference: %s", got)
+}
+
 func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
 	got := bodySummary(&runtime.RequestBody{
 		Required:  true,

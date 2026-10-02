@@ -15,6 +15,7 @@ import (
 )
 
 type swaggerDoc struct {
+	Tags        []document.Tag                  `json:"tags"`
 	Produces    []string                        `json:"produces"`
 	Definitions map[string]*schemaNode          `json:"definitions"`
 	Paths       map[string]map[string]operation `json:"paths"`
@@ -131,6 +132,7 @@ func applyEffectiveSecurity(doc *swaggerDoc) {
 }
 
 func mergeDoc(dst, add *swaggerDoc, module, origin string) {
+	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
 	for k, v := range add.Definitions {
 		if existing, exists := dst.Definitions[k]; exists {
 			if !document.EqualJSON(existing, v) {
@@ -163,6 +165,10 @@ func toRawIR(name string, doc *swaggerDoc) *rawir.RawModule {
 	}
 	for k, v := range doc.Definitions {
 		mod.Schemas[k] = convertSchema(v)
+	}
+	mod.GroupDescriptions = make(map[string]string, len(doc.Tags))
+	for _, tag := range doc.Tags {
+		mod.GroupDescriptions[tag.Name] = tag.Description
 	}
 	for path, methods := range doc.Paths {
 		for _, m := range []string{"get", "post", "put", "delete", "patch"} {

@@ -97,6 +97,10 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 			mod.Schemas[k] = convertSchema(v)
 		}
 	}
+	mod.GroupDescriptions = make(map[string]string, len(doc.Tags))
+	for _, tag := range doc.Tags {
+		mod.GroupDescriptions[tag.Name] = tag.Description
+	}
 	for path, item := range doc.Paths {
 		pathParams := item.Parameters
 		for _, pair := range []struct {

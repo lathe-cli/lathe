@@ -14,6 +14,7 @@ import (
 )
 
 type oas3Doc struct {
+	Tags       []document.Tag        `json:"tags" yaml:"tags"`
 	Paths      map[string]*pathItem  `json:"paths" yaml:"paths"`
 	Components *components           `json:"components,omitempty" yaml:"components,omitempty"`
 	Security   []map[string][]string `json:"security,omitempty" yaml:"security,omitempty"`
@@ -142,6 +143,7 @@ func unmarshalAuto(path string, data []byte, v any) error {
 }
 
 func mergeDoc(dst, add *oas3Doc, module, origin string) {
+	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
 	if add.Components != nil && len(add.Components.Schemas) > 0 {
 		if dst.Components == nil {
 			dst.Components = &components{Schemas: map[string]*schemaNode{}}
