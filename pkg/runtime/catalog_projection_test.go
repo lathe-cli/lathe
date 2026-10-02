@@ -339,3 +339,51 @@ func TestBuildCatalog_UnconditionalStepOmitsWhen(t *testing.T) {
 	testutil.Require(t, err == nil, "marshal: %v", err)
 	testutil.Require(t, !strings.Contains(string(data), "when"), "catalog JSON = %s", data)
 }
+
+func TestCatalog_MappedRuntimeSchemaContexts(t *testing.T) {
+	config.Bind(&config.Manifest{Contexts: map[string]config.ContextInfo{"workspace": {Env: "TEST_WORKSPACE"}}})
+	for _, tc := range []struct {
+		name    string
+		mapping string
+		target  ParamSpec
+		want    int
+	}{
+		{name: "unmapped", want: 1},
+		{name: "literal", mapping: "ws-fixed"},
+		{name: "empty literal", mapping: ""},
+		{name: "required reference", mapping: "${params.target_id}", target: ParamSpec{Name: "target_id", Flag: "target-id", GoType: "string", Required: true}},
+		{name: "required flag reference", mapping: "${params.target-id}", target: ParamSpec{Name: "target_id", Flag: "target-id", GoType: "string", Required: true}},
+		{name: "default reference", mapping: "${params.target_id}", target: ParamSpec{Name: "target_id", Flag: "target-id", GoType: "string", Default: "ws-default"}},
+		{name: "required body reference", mapping: "${params.target_id}", target: ParamSpec{Name: "target_id", Flag: "target-id", In: InBody, GoType: "string", Required: true}, want: 1},
+		{name: "required variable reference", mapping: "${params.target_id}", target: ParamSpec{Name: "target_id", Flag: "target-id", In: InVariable, GoType: "string", Required: true}, want: 1},
+		{name: "optional reference", mapping: "${params.target_id}", target: ParamSpec{Name: "target_id", Flag: "target-id", GoType: "string"}, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binding := &RuntimeSchemaSpec{Operation: CommandSpec{Params: []ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"}}}}
+			if tc.name != "unmapped" {
+				binding.Params = map[string]string{"workspace-id": tc.mapping}
+			}
+			spec := CommandSpec{Params: []ParamSpec{tc.target}, RequestBody: &RequestBody{RuntimeSchema: binding}}
+			got := catalogCommand("demo", spec, nil).Body.RuntimeSchema.Contexts
+			testutil.Require(t, len(got) == tc.want, "contexts = %#v, want %d", got, tc.want)
+			if tc.want == 1 {
+				testutil.Require(t, got[0].Name == "workspace", "fallback context = %#v", got)
+			}
+		})
+	}
+}
+
+func TestCatalog_MappedWorkflowContexts(t *testing.T) {
+	config.Bind(&config.Manifest{Contexts: map[string]config.ContextInfo{"workspace": {}}})
+	for _, key := range []string{"workspace_id", "workspace-id", boundParamKey(ParamSpec{In: InQuery, Flag: "workspace-id"})} {
+		spec := WorkflowSpec{Use: "check", Steps: []WorkflowStepSpec{{
+			ID: "check", Params: map[string]string{key: "${input.workspace}"},
+			Operation: CommandSpec{Params: []ParamSpec{
+				{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"},
+				{Name: "account", Flag: "account", In: InQuery, GoType: "string", Context: "account"},
+			}},
+		}}}
+		contexts := catalogWorkflowCommand(spec, nil).Workflow.Steps[0].Contexts
+		testutil.Require(t, len(contexts) == 1 && contexts[0].Name == "account", "mapping %q: contexts = %#v", key, contexts)
+	}
+}

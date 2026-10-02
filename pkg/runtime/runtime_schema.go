@@ -94,6 +94,9 @@ func runtimeSchemaInput(target CommandSpec, input OperationInput, binding Runtim
 			if !ok {
 				return CommandSpec{}, OperationInput{}, fmt.Errorf("runtime schema target param %q not found", targetName)
 			}
+			if !operationChanged(input, target.Params[targetIndex]) {
+				continue
+			}
 			resolved, present, err := operationValue(input, target.Params[targetIndex])
 			if err != nil {
 				return CommandSpec{}, OperationInput{}, err
