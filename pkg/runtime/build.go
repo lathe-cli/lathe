@@ -102,9 +102,10 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 }
 
 func helpCommand(use, short string) *cobra.Command {
+	summary, _, _ := strings.Cut(strings.TrimSpace(short), "\n")
 	return &cobra.Command{
 		Use:   use,
-		Short: strings.Join(strings.Fields(short), " "),
+		Short: strings.TrimSpace(summary),
 		Long:  short,
 		Args:  UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {

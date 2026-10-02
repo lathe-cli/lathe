@@ -447,5 +447,5 @@ paths:
 	generated := readCodegenFile(t, "internal/generated/acme/acme_gen.go")
 	testutil.Require(t, strings.Contains(generated, `"Manage accounts"`), "destination tag description missing: %s", generated)
 	module := readCodegenFile(t, "skills/acmectl/references/modules/acme.md")
-	testutil.Require(t, strings.Contains(module, "## Accounts\n\nManage accounts\n\n"), "destination tag missing from Skill: %s", module)
+	testutil.Require(t, strings.Contains(module, "## Accounts\n\n- Description: Manage accounts\n\n"), "destination tag missing from Skill: %s", module)
 }

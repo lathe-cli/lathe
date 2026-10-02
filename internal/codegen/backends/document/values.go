@@ -60,7 +60,9 @@ func MergeTags(dst, add []Tag, module, origin string) []Tag {
 	}
 	for _, tag := range add {
 		if i, exists := indices[tag.Name]; exists {
-			if dst[i].Description != tag.Description {
+			if dst[i].Description == "" {
+				dst[i].Description = tag.Description
+			} else if tag.Description != "" && dst[i].Description != tag.Description {
 				fmt.Fprintf(os.Stderr, "warn: %s: diverging tag %q in %s (kept first)\n", module, tag.Name, origin)
 			}
 			continue

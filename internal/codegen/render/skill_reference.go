@@ -42,7 +42,7 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 	for _, group := range slices.Sorted(maps.Keys(groups)) {
 		fmt.Fprintf(&b, "## %s\n\n", group)
 		if description := groups[group][0].GroupShort; description != "" {
-			fmt.Fprintf(&b, "%s\n\n", oneLine(description))
+			fmt.Fprintf(&b, "- Description: %s\n\n", oneLine(description))
 		}
 		for _, spec := range groups[group] {
 			path := commandPath(cli, module, spec, flat)
