@@ -245,3 +245,10 @@ func TestSearchCatalog_NonLatinTokenPrecision(t *testing.T) {
 	paths = searchPaths(root, "不存在")
 	testutil.Require(t, len(paths) == 0, "non-Latin no-match = %v", paths)
 }
+
+func TestSearchCatalog_CamelCaseWithCombiningMark(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{Group: "Cafes", Use: "inspect", OperationID: "getCafe\u0301Menu", Method: "GET", PathTpl: "/cafes"}})
+	paths := searchPaths(root, "menu")
+	testutil.Require(t, len(paths) == 1 && paths[0] == "demo cafes inspect", "camelCase suffix after combining mark = %v", paths)
+}

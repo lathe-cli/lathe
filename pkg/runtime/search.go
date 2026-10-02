@@ -203,7 +203,7 @@ func matchToken(candidate string, candidateStem string, token string, stem strin
 	if len(stem) >= minStemPrefixMatchLen && strings.HasPrefix(candidateStem, stem) {
 		return matchStemPrefix
 	}
-	if hasUncasedLetter(token) && strings.Contains(candidate, token) {
+	if strings.Contains(candidate, token) && hasUncasedLetter(token) {
 		return matchSubstring
 	}
 	return matchNone
@@ -286,12 +286,15 @@ func normalizeSearchText(s string) string {
 	b.Grow(len(s))
 	var prev rune
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) {
+		letterOrDigit := unicode.IsLetter(r) || unicode.IsDigit(r)
+		if letterOrDigit || unicode.IsMark(r) {
 			if b.Len() > 0 && unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
 				b.WriteByte(' ')
 			}
 			b.WriteRune(unicode.ToLower(r))
-			prev = r
+			if letterOrDigit {
+				prev = r
+			}
 			continue
 		}
 		if b.Len() > 0 {
