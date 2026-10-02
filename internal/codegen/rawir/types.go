@@ -1,6 +1,8 @@
 package rawir
 
 type RawModule struct {
+	GroupDescriptions map[string]string `json:",omitempty"`
+
 	Name       string
 	Operations []RawOperation
 	Schemas    map[string]*RawSchema

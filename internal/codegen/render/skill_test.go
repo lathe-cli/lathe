@@ -15,6 +15,13 @@ import (
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
+func TestModuleReference_GroupDescription(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "demo"}}
+	module := SkillModule{Source: &sourceconfig.Source{Name: "users"}, Specs: []runtime.CommandSpec{{Group: "Users", GroupShort: "Manage user accounts", Use: "list", Method: "GET"}}}
+	got := renderModuleReference(manifest, module, true)
+	testutil.Require(t, strings.Contains(got, "## Users\n\n- Description: Manage user accounts\n\n"), "group description missing from reference: %s", got)
+}
+
 func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
 	got := bodySummary(&runtime.RequestBody{
 		Required:  true,
@@ -358,6 +365,13 @@ func readFile(t *testing.T, root string, path string) string {
 	data, err := os.ReadFile(filepath.Join(root, path))
 	testutil.Require(t, err == nil, "read %s: %v", path, err)
 	return string(data)
+}
+
+func TestModuleReference_GroupDescriptionMarkdown(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "demo"}}
+	module := SkillModule{Specs: []runtime.CommandSpec{{Group: "Users", GroupShort: "```\nManage users", Use: "list", Method: "GET"}}}
+	got := renderModuleReference(manifest, module, true)
+	testutil.Require(t, strings.Contains(got, "- Description: ``` Manage users\n\n### `demo users list`"), "description must not open a code fence: %s", got)
 }
 
 func TestModuleReference_HiddenCommandShortcut(t *testing.T) {

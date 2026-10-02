@@ -342,3 +342,22 @@ func TestRenderSkillBundlePackage(t *testing.T) {
 	testutil.Require(t, err == nil, "%v", err)
 	testutil.Require(t, strings.Contains(string(got), `//go:embed acmectl/**`), "embed bridge missing root:\n%s", got)
 }
+
+func TestMergeOverlay_GroupDescriptionFollowsGroup(t *testing.T) {
+	specs := []runtime.CommandSpec{
+		{Group: "Users", GroupShort: "Manage users", Use: "list-users"},
+		{Group: "Accounts", GroupShort: "Manage accounts", Use: "list-accounts"},
+	}
+	for _, tc := range []struct{ group, override, want string }{
+		{group: "Accounts", want: "Manage accounts"},
+		{group: "Custom", want: ""},
+		{group: "Accounts", override: "Inspect billing accounts", want: "Inspect billing accounts"},
+	} {
+		mod := overlay.Module{Commands: map[string]overlay.Override{"list-users": {Group: tc.group}}}
+		if tc.override != "" {
+			mod.Groups = map[string]overlay.GroupOverride{tc.group: {Short: tc.override}}
+		}
+		merged := mustMergeOverlayModule(t, specs, mod)
+		testutil.Require(t, merged[0].GroupShort == tc.want, "group %q: description = %q, want %q", tc.group, merged[0].GroupShort, tc.want)
+	}
+}

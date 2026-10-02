@@ -424,3 +424,28 @@ func runGit(t *testing.T, dir string, args ...string) {
 func runTestCodegen(args ...string) error {
 	return RunCodegen(append([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, args...), &bytes.Buffer{})
 }
+
+func TestRunCodegen_RegroupUsesUnreferencedTag(t *testing.T) {
+	t.Chdir(t.TempDir())
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", `openapi: "3.0.3"
+tags:
+  - name: Users
+    description: Manage users
+  - name: Accounts
+    description: Manage accounts
+paths:
+  /users:
+    get:
+      operationId: Users_List
+      tags: [Users]
+      responses:
+        "200": {}
+`)
+	writeCodegenFile(t, "overlays/acme.yaml", "commands:\n  list:\n    group: Accounts\n")
+	testutil.NoError(t, runTestCodegen("-overlay", "overlays"))
+	generated := readCodegenFile(t, "internal/generated/acme/acme_gen.go")
+	testutil.Require(t, strings.Contains(generated, `"Manage accounts"`), "destination tag description missing: %s", generated)
+	module := readCodegenFile(t, "skills/acmectl/references/modules/acme.md")
+	testutil.Require(t, strings.Contains(module, "## Accounts\n\n- Description: Manage accounts\n\n"), "destination tag missing from Skill: %s", module)
+}

@@ -104,6 +104,11 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		if err != nil {
 			return nil, fmt.Errorf("source %q overlay: %w", src.Name, err)
 		}
+		for i := range specs {
+			if _, overridden := overlays[src.Name].Groups[specs[i].Group]; !overridden && specs[i].GroupShort == "" {
+				specs[i].GroupShort = mod.GroupDescriptions[specs[i].Group]
+			}
+		}
 		if len(specs) == 0 {
 			return nil, fmt.Errorf("source %q produced no commands: check its entry/file list, expose policy, and overlay ignore rules", src.Name)
 		}

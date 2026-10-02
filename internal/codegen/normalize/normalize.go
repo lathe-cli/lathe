@@ -26,6 +26,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		}
 		spec := runtime.CommandSpec{
 			Group:       group(op),
+			GroupShort:  mod.GroupDescriptions[group(op)],
 			Use:         useName,
 			Short:       pickShort(op),
 			OperationID: opID,

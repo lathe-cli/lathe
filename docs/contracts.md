@@ -75,6 +75,11 @@ Table output may declare per-column `column_alignments` (`left` or `right`).
 Currency `column_formats` default to right alignment unless overridden
 (SchemaVersion 17, CatalogSchemaVersion 24).
 
+Operation entries may carry `group_description` from document-level tags or
+an overlay group summary (CatalogSchemaVersion 25). Generated declarations
+reuse `CommandSpec.GroupShort`; SchemaVersion remains 17. Regenerate downstream
+CLIs to pick up source descriptions.
+
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
 write vs read from the HTTP method, and do not assume a `--dry-run` flag is

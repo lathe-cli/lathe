@@ -11,6 +11,14 @@ import (
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
+func TestCatalog_GroupDescription(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{Group: "Users", GroupShort: "Manage user accounts", Use: "list", Method: "GET"}})
+	data, err := json.Marshal(BuildCatalog(root, CatalogOptions{}))
+	testutil.NoError(t, err)
+	testutil.Require(t, strings.Contains(string(data), `"group_description":"Manage user accounts"`), "group description missing from catalog: %s", data)
+}
+
 func TestBuildCatalog_UsesAttachedSpec(t *testing.T) {
 	config.Bind(&config.Manifest{CLI: config.CLIInfo{Name: "myctl"}, Contexts: map[string]config.ContextInfo{
 		"workspace": {Env: "MYCTL_WORKSPACE_ID"},

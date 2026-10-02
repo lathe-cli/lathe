@@ -289,6 +289,15 @@ are merged during codegen and never read at runtime.
 
 ### Command Shape
 
+OpenAPI 3 and Swagger document-level `tags[].description` supplies group help
+and generated Skill group introductions. An overlay `groups.<name>.short`
+overrides it. Undocumented groups retain `<group> operations` help. When an
+overlay moves a command, it uses the destination group's description; the
+source group's description does not follow the command. Conflicting non-empty
+tag descriptions across spec files warn and keep the first non-empty description.
+Group summaries use the first non-empty line; group help and the catalog retain
+the full description.
+
 ```yaml
 groups:
   users:

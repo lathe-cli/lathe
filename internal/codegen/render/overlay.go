@@ -25,6 +25,13 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) ([]runt
 	if err := validateJSONBodyFlagParams(merged); err != nil {
 		return nil, err
 	}
+	descriptions := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		descriptions[spec.Group] = spec.GroupShort
+	}
+	for i := range merged {
+		merged[i].GroupShort = descriptions[merged[i].Group]
+	}
 	applyRuntimeSchemaBindings(specs, merged, mod)
 	applyGroupOverrides(merged, mod.Groups)
 	return merged, nil

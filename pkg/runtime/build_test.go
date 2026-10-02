@@ -229,6 +229,28 @@ func TestBuild_RejectsAliasThatShadowsCanonicalCommand(t *testing.T) {
 	testutil.Require(t, err != nil && strings.Contains(err.Error(), "alias"), "Build error = %v, want normalized group alias conflict", err)
 }
 
+func TestBuild_GroupDescriptionSummary(t *testing.T) {
+	description := "\n  Manage users  \n\nDetailed guidance for user accounts."
+	for _, flat := range []bool{false, true} {
+		root := newRootWithModuleGroup()
+		specs := []CommandSpec{{Group: "Users", GroupShort: description, Use: "list", Method: "GET", PathTpl: "/users"}}
+		var err error
+		if flat {
+			err = BuildFlat(root, "demo", specs)
+		} else {
+			err = Build(root, "demo", specs)
+		}
+		testutil.Require(t, err == nil, "build: %v", err)
+		parent := root
+		if !flat {
+			parent = mustFindChild(t, root, "demo")
+		}
+		group := mustFindChild(t, parent, "users")
+		testutil.Require(t, group.Short == "Manage users", "short = %q", group.Short)
+		testutil.Require(t, group.Long == description, "long = %q", group.Long)
+	}
+}
+
 func TestBuild_ShortcutPresetHelp(t *testing.T) {
 	for _, hidden := range []bool{false, true} {
 		for _, tc := range []struct{ help, want string }{

@@ -87,7 +87,7 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 			g.Hidden = true
 			groups[s.Group] = g
 			ordered = append(ordered, g)
-		} else if g.Short != groupShort {
+		} else if g.Long != groupShort {
 			return nil, fmt.Errorf("group %q has conflicting descriptions", s.Group)
 		}
 		c := buildCmd(s)
@@ -106,9 +106,11 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 }
 
 func helpCommand(use, short string) *cobra.Command {
+	summary, _, _ := strings.Cut(strings.TrimSpace(short), "\n")
 	return &cobra.Command{
 		Use:   use,
-		Short: short,
+		Short: strings.TrimSpace(summary),
+		Long:  short,
 		Args:  UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()

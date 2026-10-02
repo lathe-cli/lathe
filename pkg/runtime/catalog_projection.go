@@ -13,6 +13,8 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 		examples = []CommandExample{{Command: spec.Example}}
 	}
 	cmd := CatalogCommand{
+		GroupDescription: spec.GroupShort,
+
 		Kind:          "operation",
 		Path:          append([]string(nil), path...),
 		Service:       service,
