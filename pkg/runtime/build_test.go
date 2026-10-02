@@ -229,6 +229,30 @@ func TestBuild_RejectsAliasThatShadowsCanonicalCommand(t *testing.T) {
 	testutil.Require(t, err != nil && strings.Contains(err.Error(), "alias"), "Build error = %v, want normalized group alias conflict", err)
 }
 
+func TestBuild_ShortcutPresetHelp(t *testing.T) {
+	for _, hidden := range []bool{false, true} {
+		for _, tc := range []struct{ help, want string }{
+			{"Identifier required by the API (path, required, uuid)", "Identifier required by the API (path, uuid)"},
+			{"Identifier (path, required by upstream)", "Identifier (path, required by upstream)"},
+			{"Identifier (path, required by upstream) (path)", "Identifier (path, required by upstream) (path)"},
+			{"Identifier (path, required by upstream) (path, required)", "Identifier (path, required by upstream) (path)"},
+		} {
+			root := newRootWithModuleGroup()
+			spec := CommandSpec{
+				Group: "Pets", Use: "get", Method: "GET", PathTpl: "/pets/{id}", Hidden: hidden,
+				Params:    []ParamSpec{{Name: "id", Flag: "id", In: InPath, GoType: "string", Required: true, Help: tc.help}},
+				Shortcuts: []CommandShortcut{{Use: "pet-123", Params: map[string]string{"id": "123"}}},
+			}
+			mustBuild(t, root, "demo", []CommandSpec{spec})
+			shortcut := mustFindChild(t, root, "pet-123")
+			help := shortcut.Flags().Lookup("id").Usage
+			testutil.Require(t, help == tc.want, "shortcut flag help = %q, want %q", help, tc.want)
+			canonical := mustFindChild(t, mustFindChild(t, mustFindChild(t, root, "demo"), "pets"), "get")
+			testutil.Require(t, canonical.Flags().Lookup("id").Usage == spec.Params[0].Help, "canonical flag help changed")
+		}
+	}
+}
+
 func TestBuild_ShortcutOnlyVisibility(t *testing.T) {
 	for _, flat := range []bool{false, true} {
 		root := newRootWithModuleGroup()

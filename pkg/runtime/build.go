@@ -200,6 +200,12 @@ func shortcutSpec(spec CommandSpec, shortcut CommandShortcut) (CommandSpec, erro
 			return CommandSpec{}, fmt.Errorf("shortcut %q param %q: %w", name, key, err)
 		}
 		set[i] = key
+		if start := strings.LastIndex(target.Params[i].Help, " ("); start >= 0 && strings.HasSuffix(target.Params[i].Help, ")") {
+			parts := strings.Split(target.Params[i].Help[start+2:len(target.Params[i].Help)-1], ", ")
+			if len(parts) >= 2 && parts[0] == target.Params[i].In && parts[1] == "required" {
+				target.Params[i].Help = target.Params[i].Help[:start] + " (" + strings.Join(append(parts[:1], parts[2:]...), ", ") + ")"
+			}
+		}
 		target.Params[i].Default = value
 		target.Params[i].Required = false
 		target.Params[i].Context = ""

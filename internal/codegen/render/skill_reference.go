@@ -33,10 +33,26 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 		fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", mod.State.ResolvedSHA)
 	}
 	b.WriteString("\n")
+	shortcutSection := false
 	for _, spec := range mod.Specs {
 		if spec.Hidden && len(spec.Shortcuts) > 0 {
-			writeShortcuts(&b, cli, spec)
-			b.WriteString("\n")
+			if !shortcutSection {
+				b.WriteString("## Shortcuts\n\n")
+				shortcutSection = true
+			}
+			for _, shortcut := range spec.Shortcuts {
+				fmt.Fprintf(&b, "### `%s %s`\n\n", cli, shortcut.Use)
+				if spec.Short != "" {
+					fmt.Fprintf(&b, "- Summary: %s\n", oneLine(spec.Short))
+				}
+				fmt.Fprintf(&b, "- HTTP: `%s %s`\n", spec.Method, spec.PathTpl)
+				fmt.Fprintf(&b, "- Auth: %s\n", authSummary(spec.Security))
+				fmt.Fprintf(&b, "- Body: %s\n", bodySummary(spec.RequestBody))
+				if preset := shortcutPreset(spec, shortcut); preset != "" {
+					fmt.Fprintf(&b, "- Preset: %s\n", preset)
+				}
+				b.WriteString("\n")
+			}
 		}
 	}
 	if len(specs) == 0 {
