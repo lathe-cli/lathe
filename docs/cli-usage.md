@@ -160,6 +160,13 @@ when contexts exist; `set` is added only for entries with `local_set: true`.
 A selector operation persists its declared context only after successful
 completion.
 
+Nested `contexts` lists describe possible active-context fallback. Workflow
+step mappings suppress context metadata for the supplied parameter. Runtime
+schema mappings suppress it only for literals and references guaranteed by a
+required parameter flag or a nonempty default. Optional references and required
+body fields supplied through JSON retain fallback metadata.
+This refines metadata without changing the catalog schema or execution.
+
 ### Generated Skill
 
 ```yaml

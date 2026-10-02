@@ -60,7 +60,7 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 				},
 				ResponsePath: binding.ResponsePath,
 				Params:       cloneCatalogMap(binding.Params),
-				Contexts:     catalogContextBindings(binding.Operation.Params),
+				Contexts:     catalogContextBindings(binding.Operation.Params, catalogRuntimeSchemaMappings(spec, binding.Params)),
 			}
 		}
 	}
@@ -96,7 +96,7 @@ func catalogWorkflowCommand(spec WorkflowSpec, path []string) CatalogCommand {
 				DefaultHostname: step.Operation.DefaultHostname,
 			},
 			When:     catalogWorkflowConditions(step.When),
-			Contexts: catalogContextBindings(step.Operation.Params),
+			Contexts: catalogContextBindings(step.Operation.Params, step.Params),
 		}
 		if step.Operation.SetContext != nil {
 			catalogStep.SetsContext = &CatalogContextSet{Name: step.Operation.SetContext.Name, FromParam: step.Operation.SetContext.Param}
@@ -183,9 +183,32 @@ func catalogContextBinding(param ParamSpec) *CatalogContextBinding {
 	return &CatalogContextBinding{Name: param.Context, Env: info.Env, Precedence: precedence}
 }
 
-func catalogContextBindings(params []ParamSpec) []CatalogContextBinding {
+func catalogRuntimeSchemaMappings(target CommandSpec, mappings map[string]string) map[string]string {
+	guaranteed := make(map[string]string, len(mappings))
+	for key, value := range mappings {
+		if name, ref := runtimeSchemaReference(value); ref {
+			index, ok := runtimeParamIndex(target.Params, name)
+			if !ok || (!requiredFlagParam(target.Params[index], target.RequestBody != nil) && target.Params[index].Default == "") {
+				continue
+			}
+		}
+		guaranteed[key] = value
+	}
+	return guaranteed
+}
+
+func catalogContextBindings(params []ParamSpec, mappings map[string]string) []CatalogContextBinding {
 	out := make([]CatalogContextBinding, 0)
 	for _, param := range params {
+		if _, mapped := mappings[param.Name]; mapped {
+			continue
+		}
+		if _, mapped := mappings[param.Flag]; mapped {
+			continue
+		}
+		if _, mapped := mappings[boundParamKey(param)]; mapped {
+			continue
+		}
 		if binding := catalogContextBinding(param); binding != nil {
 			out = append(out, *binding)
 		}
