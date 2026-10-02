@@ -165,7 +165,9 @@ step mappings suppress context metadata for the supplied parameter. Runtime
 schema mappings suppress it only for literals and references guaranteed by a
 required parameter flag or a nonempty default. Optional references and required
 body fields supplied through JSON retain fallback metadata.
-This refines metadata without changing the catalog schema or execution.
+Omitted parameter flags leave schema-source context fallback available; explicit
+values, including empty strings, zero, and false, override it. The catalog schema
+is unchanged.
 
 ### Generated Skill
 

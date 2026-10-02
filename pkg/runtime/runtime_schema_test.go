@@ -1,9 +1,12 @@
 package runtime
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 
@@ -11,6 +14,73 @@ import (
 
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
+
+func TestBuild_RuntimeSchemaContextFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		location string
+		goType   string
+		fallback string
+		args     []string
+		want     string
+	}{
+		{name: "optional omitted", location: InQuery, goType: "string", want: "stored"},
+		{name: "optional explicit", location: InQuery, goType: "string", args: []string{"--target-ws", "explicit"}, want: "explicit"},
+		{name: "explicit empty", location: InQuery, goType: "string", args: []string{"--target-ws="}},
+		{name: "default", location: InQuery, goType: "string", fallback: "default", want: "default"},
+		{name: "required body via JSON", location: InBody, goType: "string", want: "stored"},
+		{name: "required variable via JSON", location: InVariable, goType: "string", want: "stored"},
+		{name: "explicit false", location: InQuery, goType: "bool", args: []string{"--target-ws=false"}, want: "false"},
+		{name: "explicit zero", location: InQuery, goType: "int64", args: []string{"--target-ws=0"}, want: "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			queries := make(chan string, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/schema" {
+					queries <- r.URL.Query().Get("workspace_id")
+					fmt.Fprint(w, `{"schema":{"type":"object"}}`)
+					return
+				}
+				fmt.Fprint(w, `{}`)
+			}))
+			defer srv.Close()
+			config.Bind(&config.Manifest{
+				CLI:      config.CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR"},
+				Contexts: map[string]config.ContextInfo{"workspace": {}},
+			})
+			t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+			hosts, err := config.LoadHosts()
+			testutil.NoError(t, err)
+			hosts.Set(srv.URL, config.HostEntry{Contexts: map[string]string{"workspace": "stored"}})
+			testutil.NoError(t, hosts.Save())
+			bodyPath := t.TempDir() + "/body.json"
+			testutil.NoError(t, os.WriteFile(bodyPath, []byte(`{"target_ws":"from-json"}`), 0o600))
+			spec := CommandSpec{
+				Group: "Apps", Use: "run", Method: "POST", PathTpl: "/run", Security: &SecurityHint{Public: true},
+				Params: []ParamSpec{{Name: "target_ws", Flag: "target-ws", In: tc.location, GoType: tc.goType, Default: tc.fallback, Required: tc.location != InQuery}},
+				RequestBody: &RequestBody{MediaType: "application/json", RuntimeSchema: &RuntimeSchemaSpec{
+					Operation:    CommandSpec{Method: "GET", PathTpl: "/schema", Security: &SecurityHint{Public: true}, Params: []ParamSpec{{Name: "workspace_id", Flag: "workspace-id", In: InQuery, GoType: "string", Context: "workspace"}}, Output: OutputHints{ResponseMediaType: "application/json"}},
+					ResponsePath: "schema", Params: map[string]string{"workspace_id": "${params.target_ws}"},
+				}},
+			}
+			root := newRootWithModuleGroup()
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(io.Discard)
+			root.PersistentFlags().String("hostname", srv.URL, "")
+			root.PersistentFlags().StringP("output", "o", "raw", "")
+			mustBuild(t, root, "demo", []CommandSpec{spec})
+			root.SetArgs(append([]string{"demo", "apps", "run", "-f", bodyPath}, tc.args...))
+			testutil.NoError(t, root.Execute())
+			select {
+			case got := <-queries:
+				testutil.Require(t, got == tc.want, "schema workspace = %q, want %q", got, tc.want)
+			default:
+				t.Fatal("schema request missing")
+			}
+		})
+	}
+}
 
 func TestInvokeOperation_RuntimeSchema(t *testing.T) {
 	var schemaHits atomic.Int32
