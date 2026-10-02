@@ -306,7 +306,11 @@ entries and most unmatched parameter entries are ignored. An `argument` entry
 for an unknown parameter fails validation.
 
 `ignore: true` removes a command. `hidden: true` keeps it out of normal help,
-search, and catalog output; `--include-hidden` can still inspect it.
+search, and catalog output; `--include-hidden` can still inspect it. Root
+shortcuts remain visible and executable even when their canonical command is
+hidden. Those shortcuts have their own catalog entries and appear in generated
+Skill guidance. Fully hidden groups and modules stay executable but are omitted
+from help; a group with any visible command remains visible.
 
 ### Multipart Input
 

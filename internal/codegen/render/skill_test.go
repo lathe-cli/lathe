@@ -359,3 +359,13 @@ func readFile(t *testing.T, root string, path string) string {
 	testutil.Require(t, err == nil, "read %s: %v", path, err)
 	return string(data)
 }
+
+func TestModuleReference_HiddenCommandShortcut(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "demo"}}
+	module := SkillModule{Source: &sourceconfig.Source{Name: "identity"}, Specs: []runtime.CommandSpec{{
+		Group: "Identity", Use: "whoami", Hidden: true,
+		Shortcuts: []runtime.CommandShortcut{{Use: "whoami"}},
+	}}}
+	got := renderModuleReference(manifest, module, false)
+	testutil.Require(t, strings.Contains(got, "`demo whoami`") && !strings.Contains(got, "demo identity identity whoami"), "shortcut-only reference = %s", got)
+}

@@ -228,3 +228,46 @@ func TestBuild_RejectsAliasThatShadowsCanonicalCommand(t *testing.T) {
 	})
 	testutil.Require(t, err != nil && strings.Contains(err.Error(), "alias"), "Build error = %v, want normalized group alias conflict", err)
 }
+
+func TestBuild_ShortcutOnlyVisibility(t *testing.T) {
+	for _, flat := range []bool{false, true} {
+		root := newRootWithModuleGroup()
+		spec := CommandSpec{Group: "Identity", Use: "whoami", Short: "Inspect current identity", OperationID: "whoami", Method: "GET", PathTpl: "/whoami", Hidden: true, Shortcuts: []CommandShortcut{{Use: "whoami"}}}
+		var err error
+		parent := root
+		path := []string{"identity", "whoami"}
+		if flat {
+			err = BuildFlat(root, "demo", []CommandSpec{spec})
+		} else {
+			err = Build(root, "demo", []CommandSpec{spec})
+			parent = mustFindChild(t, root, "demo")
+			path = append([]string{"demo"}, path...)
+			testutil.Check(t, parent.Hidden, "fully hidden service remained visible")
+		}
+		testutil.NoError(t, err)
+		group := mustFindChild(t, parent, "identity")
+		shortcut := mustFindChild(t, root, "whoami")
+		testutil.Check(t, group.Hidden && !shortcut.Hidden, "group hidden = %v, shortcut hidden = %v", group.Hidden, shortcut.Hidden)
+		canonical := mustFindChild(t, group, "whoami")
+		testutil.Check(t, canonical.Hidden && canonical.RunE != nil && shortcut.RunE != nil, "canonical or shortcut cannot execute")
+		catalog := BuildCatalog(root, CatalogOptions{})
+		testutil.Require(t, len(catalog.Commands) == 1 && reflect.DeepEqual(catalog.Commands[0].Path, []string{"whoami"}), "visible catalog = %#v", catalog.Commands)
+		entry, ok := FindCatalogCommand(root, []string{"whoami"}, CatalogOptions{})
+		testutil.Check(t, ok && !entry.Hidden && entry.OperationID == spec.OperationID, "shortcut detail = %#v, found = %v", entry, ok)
+		_, ok = FindCatalogCommand(root, path, CatalogOptions{})
+		testutil.Check(t, !ok, "hidden canonical command was exposed")
+		_, ok = FindCatalogCommand(root, path, CatalogOptions{IncludeHidden: true})
+		testutil.Check(t, ok, "hidden canonical command became inaccessible")
+		testutil.Check(t, len(SearchCatalog(root, "whoami", SearchOptions{})) == 1, "shortcut missing from search")
+	}
+}
+
+func TestBuild_MixedVisibilityGroup(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{
+		{Group: "Identity", Use: "secret", Hidden: true},
+		{Group: "Identity", Use: "whoami"},
+	})
+	service := mustFindChild(t, root, "demo")
+	testutil.Require(t, !service.Hidden && !mustFindChild(t, service, "identity").Hidden, "mixed group or service was hidden")
+}

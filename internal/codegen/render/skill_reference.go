@@ -33,8 +33,14 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 		fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", mod.State.ResolvedSHA)
 	}
 	b.WriteString("\n")
+	for _, spec := range mod.Specs {
+		if spec.Hidden && len(spec.Shortcuts) > 0 {
+			writeShortcuts(&b, cli, spec)
+			b.WriteString("\n")
+		}
+	}
 	if len(specs) == 0 {
-		b.WriteString("No visible generated commands. Use `commands --include-hidden --json` if hidden commands are relevant.\n")
+		b.WriteString("No visible grouped commands. Discover root shortcuts with `commands --json`; use `commands --include-hidden --json` if hidden commands are relevant.\n")
 		return b.String()
 	}
 	groups := groupSpecs(specs)
