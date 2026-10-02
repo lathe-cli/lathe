@@ -129,8 +129,19 @@ func readSSE(r io.Reader, handle func(string, []byte) error) error {
 		data = data[:0]
 		return err
 	}
+	firstLine := true
 	for {
 		line, err := readLine()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("read sse stream: %w", err)
+		}
+		if firstLine {
+			line = strings.TrimPrefix(line, "\ufeff")
+			firstLine = false
+		}
 		if line == "" {
 			if dispatchErr := dispatch(); dispatchErr != nil {
 				return dispatchErr
@@ -144,12 +155,6 @@ func readSSE(r io.Reader, handle func(string, []byte) error) error {
 			case "data":
 				data = append(data, []byte(value))
 			}
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return dispatch()
-			}
-			return fmt.Errorf("read sse stream: %w", err)
 		}
 	}
 }

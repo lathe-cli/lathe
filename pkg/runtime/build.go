@@ -32,14 +32,16 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) error {
 	}
 	svc := helpCommand(service, service+" API")
 	svc.GroupID = ModuleGroupID
+	svc.Hidden = len(groups) > 0
 	for _, group := range groups {
+		svc.Hidden = svc.Hidden && group.Hidden
 		svc.AddCommand(group)
 	}
 	if err := ValidateShortcuts(specs, rootCommandNames(root, svc)); err != nil {
 		return err
 	}
 	root.AddCommand(svc)
-	return mountShortcuts(root, specs)
+	return mountShortcuts(root, service, specs)
 }
 
 func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
@@ -63,7 +65,7 @@ func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
 		return err
 	}
 	root.AddCommand(groups...)
-	return mountShortcuts(root, specs)
+	return mountShortcuts(root, service, specs)
 }
 
 func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) {
@@ -82,6 +84,7 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 		g, ok := groups[s.Group]
 		if !ok {
 			g = helpCommand(strings.ToLower(s.Group), groupShort)
+			g.Hidden = true
 			groups[s.Group] = g
 			ordered = append(ordered, g)
 		} else if g.Long != groupShort {
@@ -96,6 +99,7 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 			commandPaths[path] = c
 		}
 		AttachCatalogCommand(c, service, s)
+		g.Hidden = g.Hidden && c.Hidden
 		g.AddCommand(c)
 	}
 	return ordered, nil
@@ -114,7 +118,7 @@ func helpCommand(use, short string) *cobra.Command {
 	}
 }
 
-func mountShortcuts(root *cobra.Command, specs []CommandSpec) error {
+func mountShortcuts(root *cobra.Command, service string, specs []CommandSpec) error {
 	for _, spec := range specs {
 		for _, shortcut := range spec.Shortcuts {
 			target, err := shortcutSpec(spec, shortcut)
@@ -123,6 +127,9 @@ func mountShortcuts(root *cobra.Command, specs []CommandSpec) error {
 			}
 			cmd := buildCmd(target)
 			cmd.GroupID = ModuleGroupID
+			if spec.Hidden {
+				AttachCatalogCommand(cmd, service, target)
+			}
 			root.AddCommand(cmd)
 		}
 	}
@@ -177,6 +184,7 @@ func shortcutSpec(spec CommandSpec, shortcut CommandShortcut) (CommandSpec, erro
 		return CommandSpec{}, err
 	}
 	target := spec
+	target.Hidden = false
 	target.Use = name
 	target.Aliases = nil
 	target.Shortcuts = nil
@@ -194,6 +202,12 @@ func shortcutSpec(spec CommandSpec, shortcut CommandShortcut) (CommandSpec, erro
 			return CommandSpec{}, fmt.Errorf("shortcut %q param %q: %w", name, key, err)
 		}
 		set[i] = key
+		if start := strings.LastIndex(target.Params[i].Help, " ("); start >= 0 && strings.HasSuffix(target.Params[i].Help, ")") {
+			parts := strings.Split(target.Params[i].Help[start+2:len(target.Params[i].Help)-1], ", ")
+			if len(parts) >= 2 && parts[0] == target.Params[i].In && parts[1] == "required" {
+				target.Params[i].Help = target.Params[i].Help[:start] + " (" + strings.Join(append(parts[:1], parts[2:]...), ", ") + ")"
+			}
+		}
 		target.Params[i].Default = value
 		target.Params[i].Required = false
 		target.Params[i].Context = ""

@@ -373,3 +373,15 @@ func TestModuleReference_GroupDescriptionMarkdown(t *testing.T) {
 	got := renderModuleReference(manifest, module, true)
 	testutil.Require(t, strings.Contains(got, "- Description: ``` Manage users\n\n### `demo users list`"), "description must not open a code fence: %s", got)
 }
+
+func TestModuleReference_HiddenCommandShortcut(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "demo"}}
+	module := SkillModule{Source: &sourceconfig.Source{Name: "identity"}, Specs: []runtime.CommandSpec{{
+		Group: "Identity", Use: "whoami", Hidden: true, Short: "Inspect current identity", Method: "GET", PathTpl: "/whoami", Security: &runtime.SecurityHint{Public: true},
+		Shortcuts: []runtime.CommandShortcut{{Use: "whoami"}},
+	}}}
+	got := renderModuleReference(manifest, module, false)
+	for _, want := range []string{"## Shortcuts", "### `demo whoami`", "- Summary: Inspect current identity", "- HTTP: `GET /whoami`", "- Auth: public", "- Body: none"} {
+		testutil.Check(t, strings.Contains(got, want), "shortcut reference missing %q: %s", want, got)
+	}
+}

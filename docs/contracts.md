@@ -88,6 +88,11 @@ if `dry_run.mode` is `http_preview`; if preview is unavailable, obtain
 explicit user confirmation before execution. Generated Skill files explain
 this loop but never override the catalog.
 
+Search supports keyword containment for uncased-script text such as Chinese,
+Japanese, and Thai, including combining marks. These matches score below
+exact tokens, prefixes, and English stems. Latin infix matches remain excluded;
+no language configuration is required.
+
 ## Verify report
 
 `<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a

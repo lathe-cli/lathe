@@ -160,6 +160,15 @@ when contexts exist; `set` is added only for entries with `local_set: true`.
 A selector operation persists its declared context only after successful
 completion.
 
+Nested `contexts` lists describe possible active-context fallback. Workflow
+step mappings suppress context metadata for the supplied parameter. Runtime
+schema mappings suppress it only for literals and references guaranteed by a
+required parameter flag or a nonempty default. Optional references and required
+body fields supplied through JSON retain fallback metadata.
+Omitted parameter flags leave schema-source context fallback available; explicit
+values, including empty strings, zero, and false, override it. The catalog schema
+is unchanged.
+
 ### Generated Skill
 
 ```yaml
@@ -315,7 +324,11 @@ entries and most unmatched parameter entries are ignored. An `argument` entry
 for an unknown parameter fails validation.
 
 `ignore: true` removes a command. `hidden: true` keeps it out of normal help,
-search, and catalog output; `--include-hidden` can still inspect it.
+search, and catalog output; `--include-hidden` can still inspect it. Root
+shortcuts remain visible and executable even when their canonical command is
+hidden. Those shortcuts have their own catalog entries and appear in generated
+Skill guidance. Fully hidden groups and modules stay executable but are omitted
+from help; a group with any visible command remains visible.
 
 ### Multipart Input
 
@@ -445,6 +458,10 @@ Reducers are `first`, `last`, `concat`, and `append`. JSON/YAML returns one
 collected document, raw output preserves wire events, and `--stream` prints the
 configured live field in the default output mode. A pause is a successful
 terminal outcome; a workflow stops before its next step.
+
+SSE collection ignores one leading UTF-8 BOM and dispatches events only after
+a blank line. An incomplete final event is discarded at EOF; CRLF, CR, and LF
+line endings are supported.
 
 ## Generate and Build
 

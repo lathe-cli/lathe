@@ -40,6 +40,12 @@ func newSearchFixture(t *testing.T) *cobra.Command {
 		{Group: "Subscriptions", Use: "cancel-subscription", Short: "Cancel a subscription", OperationID: "cancelSubscription", Method: "DELETE", PathTpl: "/subscriptions/{id}"},
 		{Group: "Subscriptions", Use: "list-subscriptions", Short: "List subscriptions", OperationID: "listSubscriptions", Method: "GET", PathTpl: "/subscriptions"},
 	})
+	mustBuild(t, root, "global", []CommandSpec{
+		{Group: "Clusters", Use: "list-clusters", Short: "获取集群列表", OperationID: "listClusters", Method: "GET", PathTpl: "/clusters"},
+		{Group: "Nodes", Use: "list-nodes", Short: "ノード一覧を取得", OperationID: "listNodes", Method: "GET", PathTpl: "/nodes"},
+		{Group: "Servers", Use: "list-servers", Short: "ดูรายการเซิร์ฟเวอร์", OperationID: "listServers", Method: "GET", PathTpl: "/servers"},
+		{Group: "Accounts", Use: "list-accounts", Short: "查看账户列表", OperationID: "listAccounts", Method: "GET", PathTpl: "/accounts"},
+	})
 	return root
 }
 
@@ -69,6 +75,11 @@ var relevanceCases = []relevanceCase{
 	{"inflected", "listing invoices", "billing invoices list-invoices"},
 	{"inflected", "canceled subscription", "billing subscriptions cancel-subscription"},
 	{"inflected", "creating tokens", "core tokens create-token"},
+
+	{"non-Latin", "集群", "global clusters list-clusters"},
+	{"non-Latin", "ノード", "global nodes list-nodes"},
+	{"non-Latin", "เซิร์ฟเวอร์", "global servers list-servers"},
+	{"non-Latin", "账户", "global accounts list-accounts"},
 
 	{"noisy", "get user by id please", "core users get-user"},
 	{"noisy", "show_user stray", "core users get-user"},
@@ -216,4 +227,28 @@ func TestSearchCatalog_SearchTermsSurfaceCommand(t *testing.T) {
 		}
 		testutil.Require(t, synonym > 0 && synonym < direct, "synonym score %d must be positive and below direct identity score %d", synonym, direct)
 	}
+}
+
+func TestSearchCatalog_NonLatinTokenPrecision(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{
+		{Group: "Clusters", Use: "list", Short: "列出集群信息", Method: "GET", PathTpl: "/clusters"},
+		{Group: "Other", Use: "show", Short: "集群", Method: "GET", PathTpl: "/other"},
+		{Group: "Other", Use: "inspect", OperationID: "inspect集群metadata", Method: "GET", PathTpl: "/inspect"},
+		{Group: "Other", Use: "detail", Method: "GET", PathTpl: "/detail", Params: []ParamSpec{{Name: "scope", Flag: "scope", In: InQuery, GoType: "string", Help: "集群"}}},
+		{Group: "Devices", Use: "list", Short: "获取 GPU设备配置", Method: "GET", PathTpl: "/devices"},
+	})
+	results := SearchCatalog(root, "集群", SearchOptions{})
+	testutil.Require(t, len(results) == 4 && strings.Join(results[0].Command.Path, " ") == "demo other show" && strings.Join(results[1].Command.Path, " ") == "demo other detail" && results[1].Score > results[2].Score, "exact token did not outrank containment: %#v", results)
+	paths := searchPaths(root, "设备")
+	testutil.Require(t, len(paths) == 1 && paths[0] == "demo devices list", "mixed script = %v", paths)
+	paths = searchPaths(root, "不存在")
+	testutil.Require(t, len(paths) == 0, "non-Latin no-match = %v", paths)
+}
+
+func TestSearchCatalog_CamelCaseWithCombiningMark(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{Group: "Cafes", Use: "inspect", OperationID: "getCafe\u0301Menu", Method: "GET", PathTpl: "/cafes"}})
+	paths := searchPaths(root, "menu")
+	testutil.Require(t, len(paths) == 1 && paths[0] == "demo cafes inspect", "camelCase suffix after combining mark = %v", paths)
 }
