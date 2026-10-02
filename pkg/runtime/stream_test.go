@@ -120,3 +120,34 @@ func TestCollectStream_RejectsMissingRequiredStop(t *testing.T) {
 		t.Fatalf("error = %v, classified = %#v", err, classified)
 	}
 }
+
+func TestReadSSE_StreamBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "leading BOM data", input: "\ufeffdata: first\n\n", want: []string{"first"}},
+		{name: "leading BOM event", input: "\ufeffevent: chunk\ndata: first\n\n", want: []string{"chunk:first"}},
+		{name: "only one BOM", input: "\ufeff\ufeffdata: ignored\n\ndata: second\n\n", want: []string{"second"}},
+		{name: "later BOM", input: "data: first\n\n\ufeffdata: ignored\n\n", want: []string{"first"}},
+		{name: "unterminated data", input: "data: incomplete"},
+		{name: "no blank line LF", input: "data: incomplete\n"},
+		{name: "no blank line CR", input: "data: incomplete\r"},
+		{name: "no blank line CRLF", input: "data: incomplete\r\n"},
+		{name: "completed then incomplete", input: "data: first\n\ndata: incomplete\n", want: []string{"first"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			err := readSSE(strings.NewReader(tc.input), func(event string, data []byte) error {
+				value := string(data)
+				if event != "" {
+					value = event + ":" + value
+				}
+				got = append(got, value)
+				return nil
+			})
+			testutil.Require(t, err == nil && reflect.DeepEqual(got, tc.want), "events = %#v, want %#v; error = %v", got, tc.want, err)
+		})
+	}
+}
