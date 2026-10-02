@@ -437,6 +437,10 @@ collected document, raw output preserves wire events, and `--stream` prints the
 configured live field in the default output mode. A pause is a successful
 terminal outcome; a workflow stops before its next step.
 
+SSE collection ignores one leading UTF-8 BOM and dispatches events only after
+a blank line. An incomplete final event is discarded at EOF; CRLF, CR, and LF
+line endings are supported.
+
 ## Generate and Build
 
 ```sh
