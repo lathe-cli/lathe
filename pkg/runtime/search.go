@@ -42,13 +42,11 @@ func SearchCatalog(root *cobra.Command, query string, opts SearchOptions) []Sear
 	return results
 }
 
-// matchKind orders the lexical layers from most to least precise. A query token
-// scores against a field through its best layer only, so a stem match can never
-// outrank a real token match on the same field.
 type matchKind int
 
 const (
 	matchNone matchKind = iota
+	matchSubstring
 	matchStemPrefix
 	matchStemExact
 	matchPrefix
@@ -136,6 +134,7 @@ func scoreCatalogCommand(view searchView, tokens []string, stems []string, fullQ
 	score := 0
 	matches := 0
 	identity := false
+	uncasedMatch := false
 	for i, token := range tokens {
 		best := 0
 		// Whether the token identifies the command is independent of which field
@@ -148,7 +147,9 @@ func scoreCatalogCommand(view searchView, tokens []string, stems []string, fullQ
 			}
 		}
 		for _, field := range view.descriptive {
-			best = max(best, scoreField(field, token, stems[i]))
+			value := scoreField(field, token, stems[i])
+			uncasedMatch = uncasedMatch || (value > 0 && hasUncasedLetter(token))
+			best = max(best, value)
 		}
 		if best == 0 {
 			continue
@@ -156,9 +157,7 @@ func scoreCatalogCommand(view searchView, tokens []string, stems []string, fullQ
 		matches++
 		score += best
 	}
-	// A single identifying hit is enough to surface a command; a description or
-	// flag hit is too weak on its own and needs corroboration from a second token.
-	if matches == 0 || (!identity && matches < 2) {
+	if matches == 0 || (!identity && !uncasedMatch && matches < 2) {
 		return 0, false
 	}
 	// Covering more of the query beats scoring higher on part of it: "creating
@@ -204,7 +203,14 @@ func matchToken(candidate string, candidateStem string, token string, stem strin
 	if len(stem) >= minStemPrefixMatchLen && strings.HasPrefix(candidateStem, stem) {
 		return matchStemPrefix
 	}
+	if strings.Contains(candidate, token) && hasUncasedLetter(token) {
+		return matchSubstring
+	}
 	return matchNone
+}
+
+func hasUncasedLetter(token string) bool {
+	return strings.ContainsFunc(token, func(r rune) bool { return unicode.Is(unicode.Lo, r) })
 }
 
 func scaleWeight(weight int, kind matchKind) int {
@@ -217,6 +223,8 @@ func scaleWeight(weight int, kind matchKind) int {
 		return weight * 45 / 100
 	case matchStemPrefix:
 		return weight * 28 / 100
+	case matchSubstring:
+		return weight * 10 / 100
 	default:
 		return 0
 	}
@@ -278,12 +286,15 @@ func normalizeSearchText(s string) string {
 	b.Grow(len(s))
 	var prev rune
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		letterOrDigit := unicode.IsLetter(r) || unicode.IsDigit(r)
+		if letterOrDigit || unicode.IsMark(r) {
 			if b.Len() > 0 && unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
 				b.WriteByte(' ')
 			}
 			b.WriteRune(unicode.ToLower(r))
-			prev = r
+			if letterOrDigit {
+				prev = r
+			}
 			continue
 		}
 		if b.Len() > 0 {
