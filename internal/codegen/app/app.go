@@ -22,10 +22,11 @@ type App struct {
 
 // Module is one generated command module and how it mounts on the root command.
 type Module struct {
-	Source  string
-	CLIName string
-	Flat    bool
-	Specs   []runtime.CommandSpec
+	Source     string
+	CLIName    string
+	Flat       bool
+	Specs      []runtime.CommandSpec
+	Provenance runtime.SourceProvenance
 }
 
 // Skill is the optional generated Skill directory output.
@@ -111,13 +112,15 @@ func validateCommandContexts(manifest *config.Manifest, spec runtime.CommandSpec
 // Write renders every collected output.
 func (a *App) Write() error {
 	mounts := make([]render.ModuleMount, 0, len(a.Modules))
+	sources := make([]runtime.SourceProvenance, 0, len(a.Modules))
 	for _, m := range a.Modules {
 		if err := render.RenderModule(m.Source, m.CLIName, m.Specs, nil); err != nil {
 			return err
 		}
 		mounts = append(mounts, render.ModuleMount{Name: m.Source, Flat: m.Flat})
+		sources = append(sources, m.Provenance)
 	}
-	opts := render.ModulesGenOptions{}
+	opts := render.ModulesGenOptions{Sources: sources}
 	if a.Skill != nil && a.Skill.Bundle {
 		opts.SkillBundle = &render.SkillBundleMount{Root: render.SkillDirName(a.Manifest.CLI.Name)}
 	}

@@ -91,6 +91,24 @@ func TestVerifyState_RejectsStaleTag(t *testing.T) {
 	testutil.Check(t, strings.Contains(err.Error(), "pinned_tag"), "error should mention pinned_tag mismatch: %v", err)
 }
 
+func TestVerifyState_RejectsChangedRepoURL(t *testing.T) {
+	dir := t.TempDir()
+	testutil.NoError(t, SaveState(dir, &State{
+		Source:      "demo",
+		Backend:     "swagger",
+		SyncedFrom:  "v1.2.3",
+		RepoURL:     "https://example.com/acme.git",
+		ResolvedSHA: fakeSHA,
+	}))
+	src := gitSource()
+	src.RepoURL = "https://user:token@example.com/acme.git"
+	testutil.NoError(t, VerifyState(dir, src))
+	src.RepoURL = "https://example.com/fork.git"
+	err := VerifyState(dir, src)
+	testutil.Require(t, err != nil, "VerifyState accepted a different repo_url")
+	testutil.Check(t, !strings.Contains(err.Error(), "fork"), "error should not echo config repo_url: %v", err)
+}
+
 func TestVerifyState_RejectsMissingFile(t *testing.T) {
 	dir := t.TempDir() // empty
 	err := VerifyState(dir, gitSource())

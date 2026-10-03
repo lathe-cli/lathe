@@ -48,8 +48,13 @@ go mod init example.com/acme   # skip when go.mod exists
 lathe bootstrap
 go mod tidy
 go build -o bin/acmectl ./cmd/acmectl
+bin/acmectl __lathe verify
 bin/acmectl __lathe verify --json
 ```
+
+`__lathe verify` prints a human summary of CLI version, schema versions, and
+compiled source provenance. `--json` emits the versioned report; read
+`provenance` for schema versions and per-source revision.
 
 ## `cli.yaml`
 

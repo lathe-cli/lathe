@@ -209,6 +209,16 @@ paths:
 			t.Fatalf("expected %s: %v", path, err)
 		}
 	}
+
+	shaOut, err := exec.Command("git", "-C", upstream, "rev-parse", "HEAD").Output()
+	testutil.Require(t, err == nil, "git rev-parse: %v", err)
+	sha := strings.TrimSpace(string(shaOut))
+	modulesGen := readCodegenFile(t, "internal/generated/modules_gen.go")
+	moduleRef := readCodegenFile(t, "skills/acmectl/references/modules/acme.md")
+	testutil.Require(t, !strings.Contains(modulesGen, upstream), "modules_gen.go leaked upstream path %q:\n%s", upstream, modulesGen)
+	testutil.Require(t, !strings.Contains(moduleRef, upstream), "module reference leaked upstream path %q:\n%s", upstream, moduleRef)
+	testutil.Require(t, strings.Contains(modulesGen, sha), "modules_gen.go missing resolved sha %q:\n%s", sha, modulesGen)
+	testutil.Require(t, strings.Contains(moduleRef, sha), "module reference missing resolved sha %q:\n%s", sha, moduleRef)
 }
 
 func TestRunBootstrapLocalPathSyncsAndGenerates(t *testing.T) {
@@ -245,11 +255,20 @@ paths:
 	state, err := os.ReadFile(".cache/specs-sync/acme/sync-state.yaml")
 	testutil.Require(t, err == nil, "read sync state: %v", err)
 	testutil.Require(t, strings.Contains(string(state), "source_kind: local") && strings.Contains(string(state), "synced_from: "+localPath), "sync state = %s, want local source path %q", state, localPath)
-	for _, path := range []string{"internal/generated/acme/acme_gen.go", "skills/acmectl/SKILL.md"} {
+	for _, path := range []string{
+		"internal/generated/acme/acme_gen.go",
+		"internal/generated/modules_gen.go",
+		"skills/acmectl/SKILL.md",
+		"skills/acmectl/references/modules/acme.md",
+	} {
 		data, err := os.ReadFile(path)
 		testutil.Require(t, err == nil, "read %s: %v", path, err)
 		testutil.Require(t, !strings.Contains(string(data), localPath), "%s encoded local path %q", path, localPath)
 	}
+	modulesGen := strings.Join(strings.Fields(readCodegenFile(t, "internal/generated/modules_gen.go")), " ")
+	testutil.Require(t, strings.Contains(modulesGen, `Kind: "local"`) && strings.Contains(modulesGen, `Reproducible: false`), "modules_gen.go missing local provenance:\n%s", modulesGen)
+	moduleRef := readCodegenFile(t, "skills/acmectl/references/modules/acme.md")
+	testutil.Require(t, strings.Contains(moduleRef, "Reproducible: no"), "module reference missing local reproducibility:\n%s", moduleRef)
 
 	writeCodegenFile(t, "other/openapi.yaml", `openapi: "3.0.3"
 paths: {}
