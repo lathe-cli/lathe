@@ -41,10 +41,10 @@ var modulesTmpl = template.Must(template.New("modules").Parse(`// Code generated
 package generated
 
 import (
+	latheruntime "github.com/lathe-cli/lathe/pkg/runtime"
 {{- if .SkillBundle}}
 	lathekitup "github.com/lathe-cli/kitup/go"
 	lathekitupcobra "github.com/lathe-cli/kitup/go-cobra"
-	latheruntime "github.com/lathe-cli/lathe/pkg/runtime"
 {{- end}}
 	"github.com/spf13/cobra"
 
@@ -59,11 +59,18 @@ import (
 {{- end}}
 )
 
+var latheSourceProvenance = []latheruntime.SourceProvenance{
+{{- range .Sources}}
+	{ID: {{printf "%q" .ID}}, Backend: {{printf "%q" .Backend}}, Kind: {{printf "%q" .Kind}}, RepoURL: {{printf "%q" .RepoURL}}, PinnedTag: {{printf "%q" .PinnedTag}}, ResolvedSHA: {{printf "%q" .ResolvedSHA}}, Reproducible: {{.Reproducible}}},
+{{- end}}
+}
+
 func Mount(root *cobra.Command) error {
 	return MountModules(root)
 }
 
 func MountModules(root *cobra.Command) error {
+	latheruntime.AttachSourceProvenance(root, latheSourceProvenance)
 {{- range .Modules}}
 	if err := {{.Name}}.{{if .Flat}}MountFlat{{else}}Mount{{end}}(root); err != nil {
 		return err

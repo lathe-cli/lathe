@@ -117,12 +117,28 @@ no language configuration is required.
 ## Verify report
 
 `<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a
-versioned report and exits non-zero if any check fails. It validates the root
-help contract, catalog serialization and flags, and an isolated auth-status
-probe. Capability-specific checks are added only when compiled in:
+versioned report and exits non-zero if any check fails. Report version is 2.
+It validates the root help contract, catalog serialization and flags, and an
+isolated auth-status probe. Capability-specific checks are added only when
+compiled in:
 
 - `skill_install` for `skill.bundle`
 - `workflow_contract` for `workflow.dsl`
+
+`provenance.schema_version` is the generator/runtime contract
+(`runtime.SchemaVersion`). `provenance.catalog_schema_version` is
+`runtime.CatalogSchemaVersion`. `provenance.sources` is compiled from
+`specs/sources.yaml` and sync-state at codegen. `repo_url` is sanitized:
+passwords, HTTP user info, query, and fragment are stripped; SSH user names
+are kept; filesystem URLs are omitted.
+Local sources have `kind` `local` and `reproducible` false, and never include
+a path or SHA. Empty `sources` means the binary was generated before
+provenance existed; it is not a verify failure. A git source is reproducible
+only when both a public `repo_url` and a resolved SHA are recorded and it has no
+`git` proto dependency, whose tag is not resolved to a recorded SHA; sync-state
+records the sanitized `repo_url`, and codegen rejects a state whose recorded
+`repo_url` differs from the configured one. Generated code from earlier releases still mounts
+without regeneration.
 
 ## Structured errors
 

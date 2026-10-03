@@ -112,7 +112,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 
 	testutil.NoError(t, RenderSkillDirectory(filepath.Join(dir, "skills", "acmectl"), manifest, []SkillModule{{
 		Source: source,
-		State:  &specsync.State{Source: "users", Backend: "openapi3", SyncedFrom: "v1.0.0", ResolvedSHA: "abc123"},
+		State:  &specsync.State{Source: "users", Backend: "openapi3", SyncedFrom: "v1.0.0", RepoURL: "https://example.com/acme.git", ResolvedSHA: "abc123"},
 		Specs:  merged,
 	}}))
 
@@ -133,6 +133,8 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"error.code",
 		"exit 0",
 		"auth context status -o json",
+		"acmectl __lathe verify --json",
+		"provenance",
 	} {
 		testutil.Check(t, strings.Contains(skill, want), "SKILL.md missing %q", want)
 	}
@@ -155,7 +157,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 
 	module := readFile(t, dir, "skills/acmectl/references/modules/users.md")
 	for _, want := range []string{
-		"Repository: https://example.com/acme.git",
+		"Repository: `https://example.com/acme.git`",
 		"Resolved SHA: `abc123`",
 		"## Accounts",
 		"`acmectl accounts create-user`",
@@ -181,6 +183,30 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	testutil.Require(t, !strings.Contains(module, "Example: `acmectl users accounts create-user"), "module reference kept stale namespaced example:\n%s", module)
 	testutil.Require(t, !strings.Contains(module, "delete-user") && !strings.Contains(module, "Raw summary"), "module reference leaked hidden command or raw overlay content:\n%s", module)
 	testutil.Require(t, !strings.Contains(module, "**INJECT**"), "module reference contains injected parameter content:\n%s", module)
+}
+
+func TestRenderModuleReference_SanitizesRepoURL(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
+	module := SkillModule{
+		Source: &sourceconfig.Source{
+			Name:      "users",
+			RepoURL:   "https://user:secret@example.com/acme.git?token=x#frag",
+			PinnedTag: "v1.0.0",
+			Backend:   sourceconfig.BackendOpenAPI3,
+			OpenAPI3:  &sourceconfig.OpenAPI3Config{Files: []string{"openapi.yaml"}},
+		},
+		State: &specsync.State{RepoURL: "https://example.com/acme.git", ResolvedSHA: "abc123"},
+		Specs: []runtime.CommandSpec{{Group: "Users", Use: "list", Method: "GET"}},
+	}
+	got := renderModuleReference(manifest, module, true)
+	for _, want := range []string{
+		"Repository: `https://example.com/acme.git`",
+		"Source kind: `git`",
+		"Reproducible: yes",
+	} {
+		testutil.Require(t, strings.Contains(got, want), "module reference missing %q\n%s", want, got)
+	}
+	testutil.Require(t, !strings.Contains(got, "secret") && !strings.Contains(got, "token="), "module reference leaked credentials:\n%s", got)
 }
 
 func TestRenderModuleReference_FormatsExamples(t *testing.T) {

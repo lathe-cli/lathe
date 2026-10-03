@@ -60,6 +60,7 @@ func Sync(cfg *sourceconfig.Config, opts Options) error {
 			Source:      src.Name,
 			Backend:     src.Backend,
 			SyncedFrom:  src.PinnedTag,
+			RepoURL:     sourceconfig.PublicRepoURL(src.RepoURL),
 			ResolvedSHA: sha,
 		}
 		if src.LocalPath != "" {

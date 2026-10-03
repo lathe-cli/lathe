@@ -42,6 +42,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	}
 	b.WriteString("## Maintenance Commands\n\n")
 	fmt.Fprintf(&b, "- `%s --version` or `%s -v`: print CLI build version.\n", cli, cli)
+	fmt.Fprintf(&b, "- `%s __lathe verify --json`: verify the compiled contract and read `provenance` (schema versions and per-source revision; `reproducible=false` marks local sources). The binary's report wins over this Skill.\n", cli)
 	if manifest.Update.GitHub != nil {
 		fmt.Fprintf(&b, "- `%s update`: update this CLI from configured GitHub Releases. Run only when the user explicitly asks to update `%s`; it may replace the current executable. Use `--yes` only when explicitly authorized.\n", cli, cli)
 	}
