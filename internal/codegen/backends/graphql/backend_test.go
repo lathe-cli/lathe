@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/validator"
 	"github.com/vektah/gqlparser/v2/validator/rules"
 
 	"github.com/lathe-cli/lathe/internal/codegen/normalize"
@@ -414,8 +416,8 @@ type App { id: ID! }
 	input := schema.Properties["input"]
 	testutil.Require(t, reflect.DeepEqual(input.Required, []string{"name", "members"}), "input required = %#v", input.Required)
 	members := input.Properties["members"]
-	testutil.Require(t, members != nil && members.Type == "array" && members.Items != nil, "members schema = %+v, want array item schema", members)
-	testutil.Require(t, reflect.DeepEqual(members.Items.Required, []string{"email"}), "member required = %#v", members.Items.Required)
+	testutil.Require(t, members != nil && len(members.AnyOf) == 2 && members.AnyOf[0].Type == "array" && members.AnyOf[0].Items != nil, "members schema = %+v, want array item schema", members)
+	testutil.Require(t, reflect.DeepEqual(members.AnyOf[0].Items.Required, []string{"email"}), "member required = %#v", members.AnyOf[0].Items.Required)
 }
 
 func TestParse_FailsClosedOnQueryMutationNameCollision(t *testing.T) {
@@ -433,4 +435,35 @@ func TestParse_FailsClosedWhenPolicyMatchesNothing(t *testing.T) {
 	_, err := parseSDL(t, consoleSDL, []string{"nonexistent"}, nil)
 	testutil.Require(t, err != nil, "expected error when the expose policy matches no operations")
 	testutil.Check(t, strings.Contains(err.Error(), "no operations matched"), "error = %v, want to mention no operations matched", err)
+}
+
+func TestGeneratedBodySchemaPreservesGraphQLInputs(t *testing.T) {
+	const sdl = `
+scalar JSON
+input Input { required: String!, optional: String }
+type Query { probe(first: Int, input: Input, values: [Int], id: ID, custom: JSON): String }
+`
+	mod, err := parseSDL(t, sdl, []string{"probe"}, nil)
+	testutil.NoError(t, err)
+	schema := gqlparser.MustLoadSchema(&ast.Source{Input: sdl})
+	query := gqlparser.MustLoadQueryWithRules(schema, queryDocument(t, mod.Operations[0]), rules.NewDefaultRules())
+	spec := normalize.Normalize(mod)[0]
+	for _, body := range []string{
+		`{"first":null,"input":null,"values":null,"id":null,"custom":null}`,
+		`{"input":{"required":"ok","optional":null},"values":[1,null,2]}`,
+		`{"values":7,"id":7,"custom":{"nested":true}}`,
+	} {
+		var variables map[string]any
+		decoder := json.NewDecoder(strings.NewReader(body))
+		decoder.UseNumber()
+		testutil.NoError(t, decoder.Decode(&variables))
+		_, err := validator.VariableValues(schema, query.Operations[0], variables)
+		testutil.NoError(t, err)
+		_, err = runtime.InvokeOperation(context.Background(), spec, runtime.OperationInput{HasFile: true, FileBody: []byte(body)}, runtime.OperationOptions{Hostname: "http://127.0.0.1:1", DryRun: true})
+		testutil.NoError(t, err)
+	}
+	for _, body := range []string{`{"first":true}`, `{"input":{"required":null}}`, `{"input":{"optional":"ok"}}`} {
+		_, err := runtime.InvokeOperation(context.Background(), spec, runtime.OperationInput{HasFile: true, FileBody: []byte(body)}, runtime.OperationOptions{Hostname: "http://127.0.0.1:1", DryRun: true})
+		testutil.Require(t, err != nil, "invalid GraphQL body accepted: %s", body)
+	}
 }

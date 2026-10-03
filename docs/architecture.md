@@ -111,6 +111,7 @@ sequenceDiagram
     Command->>Context: resolve explicit flag, env, stored context
     Command->>Host: select hostname and credentials
     Command->>Body: build path, query, headers, form, and body
+    Command->>Schema: validate compiled JSON body structure
     opt body.runtime_schema
         Command->>Schema: fetch and validate JSON Schema
     end

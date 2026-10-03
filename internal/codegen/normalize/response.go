@@ -358,7 +358,7 @@ func compatibleResponseSchema(op rawir.RawOperation, defs map[string]*rawir.RawS
 				return nil
 			}
 		}
-		current := runtimeSchema(response.Schema, defs, map[string]bool{})
+		current := runtimeSchema(response.Schema, defs, map[string]bool{}, false)
 		if schema == nil {
 			schema = response.Schema
 			normalized = current

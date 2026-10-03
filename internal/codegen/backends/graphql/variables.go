@@ -68,25 +68,37 @@ func (g *generator) variableSchema(typ *ast.Type, onPath map[string]bool) *rawir
 		return nil
 	}
 	if typ.Elem != nil {
-		return &rawir.RawSchema{Type: "array", Items: g.variableSchema(typ.Elem, onPath)}
+		item := g.variableSchema(typ.Elem, onPath)
+		return &rawir.RawSchema{Nullable: !typ.NonNull, AnyOf: []*rawir.RawSchema{{Type: "array", Items: item}, item}}
 	}
 	def := g.schema.Types[typ.Name()]
 	if def == nil {
-		return &rawir.RawSchema{Type: "string"}
+		return &rawir.RawSchema{Nullable: !typ.NonNull}
 	}
 	if def.IsLeafType() {
-		return &rawir.RawSchema{Type: scalarType(typ)}
+		schema := &rawir.RawSchema{Nullable: !typ.NonNull}
+		if def.Kind == ast.Enum {
+			schema.Type = "string"
+		} else {
+			switch typ.Name() {
+			case "String", "Int", "Float", "Boolean":
+				schema.Type = scalarType(typ)
+			case "ID":
+				schema.AnyOf = []*rawir.RawSchema{{Type: "string"}, {Type: "integer"}}
+			}
+		}
+		return schema
 	}
 	if def.Kind != ast.InputObject {
-		return &rawir.RawSchema{Type: "object"}
+		return &rawir.RawSchema{Type: "object", Nullable: !typ.NonNull}
 	}
 	if onPath[def.Name] {
-		return &rawir.RawSchema{Type: "object"}
+		return &rawir.RawSchema{Type: "object", Nullable: !typ.NonNull}
 	}
 
 	next := maps.Clone(onPath)
 	next[def.Name] = true
-	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
+	schema := &rawir.RawSchema{Type: "object", Nullable: !typ.NonNull, Properties: map[string]*rawir.RawSchema{}}
 	for _, field := range def.Fields {
 		fieldSchema := g.variableSchema(field.Type, next)
 		if fieldSchema != nil {

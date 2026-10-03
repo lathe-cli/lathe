@@ -139,6 +139,18 @@ The raw response body is never emitted in any layer.
 
 A configured stream pause is a successful terminal outcome and exits `0`.
 
+## Static request-body validation
+
+A compiled JSON `body.schema` enables local structural validation for commands,
+workflows, public operation invocation, and HTTP dry-run previews. Invalid JSON,
+supported type mismatches, and missing required fields fail before transport
+with `usage` / exit `2`; error details contain body paths rather than body values.
+The supported subset and template-payload boundary are documented in
+[CLI usage](cli-usage.md#static-body-schema). Generated `SchemaVersion` is 18: regenerate modules before linking the new
+runtime so GraphQL coercion and ProtoJSON input metadata are current. Old
+modules fail mounting with a regeneration instruction. `CatalogSchemaVersion`
+remains 25 because the catalog shape is unchanged.
+
 ## Host provenance
 
 `auth status -o json` reports `hostname`, `source`, `selected`, and `hosts`;

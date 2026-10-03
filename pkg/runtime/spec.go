@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 17
+const SchemaVersion = 18
 
 type CommandSpec struct {
 	Group           string

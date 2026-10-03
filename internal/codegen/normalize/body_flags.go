@@ -149,6 +149,14 @@ func jsonBodyFlagGoType(schema *runtime.SchemaSpec) (string, error) {
 	if schema == nil {
 		return "", fmt.Errorf("schema is required")
 	}
+	if schema.Type == "" && len(schema.AnyOf) == 2 && len(schema.OneOf) == 0 && len(schema.AllOf) == 0 {
+		first, second := schema.AnyOf[0], schema.AnyOf[1]
+		if first != nil && second != nil &&
+			(first.Type == "string" && second.Type == "integer" ||
+				second.Type == "string" && (first.Type == "integer" || first.Type == "number")) {
+			return jsonBodyFlagGoType(first)
+		}
+	}
 	if err := rejectUnsupportedJSONBodySchema(schema, false); err != nil {
 		return "", err
 	}
