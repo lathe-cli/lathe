@@ -31,7 +31,8 @@
       "DefaultColumns": null,
       "ResponseMediaType": "application/pdf",
       "Pagination": null,
-      "Streaming": null
+      "Streaming": null,
+      "Binary": true
     },
     "Security": null
   }

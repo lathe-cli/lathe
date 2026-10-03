@@ -146,10 +146,31 @@ workflows, public operation invocation, and HTTP dry-run previews. Invalid JSON,
 supported type mismatches, and missing required fields fail before transport
 with `usage` / exit `2`; error details contain body paths rather than body values.
 The supported subset and template-payload boundary are documented in
-[CLI usage](cli-usage.md#static-body-schema). Generated `SchemaVersion` is 18: regenerate modules before linking the new
-runtime so GraphQL coercion and ProtoJSON input metadata are current. Old
-modules fail mounting with a regeneration instruction. `CatalogSchemaVersion`
-remains 25 because the catalog shape is unchanged.
+[CLI usage](cli-usage.md#static-body-schema). SchemaVersion 18 added GraphQL
+coercion and ProtoJSON input metadata. `CatalogSchemaVersion` stayed 25 for
+that change because the catalog shape was unchanged.
+
+Binary downloads add `output.binary.flag`. The flag is required unless the
+invocation is a dry-run: `--<output.binary.flag> <new-file>` writes a new file,
+and `-` writes the raw bytes to stdout. The command refuses a path that already
+exists, including a directory or symlink, and does not send the request. A
+missing or unwritable directory is also usage and sends no request; the detail
+includes the path-free system error. The final file appears only after a
+complete 2xx response and is mode `0600`. When the declared type is specific,
+an unexpected JSON (`application/json`, `*+json`) or `text/html` Content-Type
+fails before any response byte is written. Declared `application/octet-stream`,
+`*/*`, or a wildcard accepts the object's real type. Ctrl-C (SIGINT)
+and non-2xx responses leave no output file. A process killed by another signal
+may leave a hidden `.<name>.*.part` file next to the target. A failure while
+publishing the file, after the response completed, is `general` / exit 1: the
+request was sent and the output file is not written. Generated `SchemaVersion`
+is 19 and `CatalogSchemaVersion` is 26: regenerate modules before linking the
+new runtime. Old modules fail mounting with a regeneration instruction.
+Workflow steps cannot consume binary responses. `runtime.InvokeOperation`
+still buffers the response body; streaming applies to the generated command
+path. An OpenAPI operation with a 2xx response that declares its own JSON or
+event/ndjson media type is not binary. Swagger `produces` does not apply that
+block.
 
 ## Host provenance
 

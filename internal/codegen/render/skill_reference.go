@@ -446,7 +446,7 @@ func bodySummary(body *runtime.RequestBody) string {
 }
 
 func outputSummary(out runtime.OutputHints) string {
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	if out.ListPath != "" {
 		parts = append(parts, "list path `"+out.ListPath+"`")
 	}
@@ -468,6 +468,9 @@ func outputSummary(out runtime.OutputHints) string {
 			}
 		}
 		parts = append(parts, streaming)
+	}
+	if out.Binary {
+		parts = append(parts, "binary response: write with --output-file <new-path> or - for stdout (exact flag in output.binary.flag)")
 	}
 	return strings.Join(parts, "; ")
 }

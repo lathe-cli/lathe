@@ -192,6 +192,9 @@ func verifyCatalogEntry(root *cobra.Command, m *config.Manifest, entry runtime.C
 	if err := verifyCatalogContract(entry); err != nil {
 		return fmt.Errorf("%q %w", path, err)
 	}
+	if entry.Output.Binary != nil && cmd.Flags().Lookup(entry.Output.Binary.Flag) == nil {
+		return fmt.Errorf("%q catalog binary requires missing --%s flag", path, entry.Output.Binary.Flag)
+	}
 	if entry.DryRun != nil && entry.DryRun.Mode == runtime.DryRunHTTPPreview {
 		if runtime.WiredDryRunFlag(cmd) != entry.DryRun.Flag {
 			return fmt.Errorf("%q catalog dry_run is not wired to the operation runner", path)

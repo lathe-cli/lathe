@@ -58,6 +58,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			spec.Output.DefaultColumns = defaultColumns(itemRef, mod.Schemas)
 		}
 		spec.Output.ResponseMediaType = deriveResponseMediaType(op)
+		spec.Output.Binary = binaryResponse(op, spec.Output.ResponseMediaType, mod.Schemas)
 		spec.Output.Pagination = derivePagination(op, mod.Schemas)
 		spec.Output.Streaming = deriveStreaming(op)
 		applyRawOutputHints(&spec, op.Output)

@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 25
+const CatalogSchemaVersion = 26
 
 const DefaultSearchLimit = 20
 
@@ -205,6 +205,11 @@ type CatalogOutput struct {
 	ResponseMediaType string                  `json:"response_media_type,omitempty"`
 	Pagination        *CatalogPagination      `json:"pagination,omitempty"`
 	Streaming         *CatalogStreaming       `json:"streaming,omitempty"`
+	Binary            *CatalogBinaryOutput    `json:"binary,omitempty"`
+}
+
+type CatalogBinaryOutput struct {
+	Flag string `json:"flag"`
 }
 
 type CatalogPagination struct {

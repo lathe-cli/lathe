@@ -10,6 +10,82 @@ import (
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
+func TestNormalize_BinaryResponses(t *testing.T) {
+	fileSchema := &rawir.RawSchema{Type: "string", Format: "binary"}
+	cases := []struct {
+		name      string
+		response  *rawir.RawResponse
+		responses map[string]*rawir.RawResponse
+		produces  []string
+		schemas   map[string]*rawir.RawSchema
+		want      bool
+	}{
+		{name: "octet-stream", response: &rawir.RawResponse{MediaType: "application/octet-stream"}, want: true},
+		{name: "image/png", response: &rawir.RawResponse{MediaType: "image/png"}, want: true},
+		{name: "image/svg+xml", response: &rawir.RawResponse{MediaType: "image/svg+xml"}, want: false},
+		{
+			name:     "vnd.ms-excel format binary",
+			response: &rawir.RawResponse{MediaType: "application/vnd.ms-excel", Schema: &rawir.RawSchema{Ref: rawir.RefPrefix + "File"}},
+			schemas:  map[string]*rawir.RawSchema{"File": fileSchema},
+			want:     true,
+		},
+		{name: "vnd.ms-excel no schema", response: &rawir.RawResponse{MediaType: "application/vnd.ms-excel"}, want: false},
+		{name: "json format binary", response: &rawir.RawResponse{MediaType: "application/json", Schema: fileSchema}, want: false},
+		{name: "text/event-stream", response: &rawir.RawResponse{MediaType: "text/event-stream"}, want: false},
+		{
+			name:     "swagger octet-stream type file",
+			response: &rawir.RawResponse{Schema: &rawir.RawSchema{Type: "file"}},
+			produces: []string{"application/octet-stream"},
+			want:     true,
+		},
+		{
+			name:     "swagger produces pdf and json type file",
+			response: &rawir.RawResponse{Schema: &rawir.RawSchema{Type: "file"}},
+			produces: []string{"application/pdf", "application/json"},
+			want:     true,
+		},
+		{name: "text/csv", response: &rawir.RawResponse{MediaType: "text/csv"}, want: false},
+		{
+			name: "200 pdf and 202 json",
+			responses: map[string]*rawir.RawResponse{
+				"200": {MediaType: "application/pdf", Schema: fileSchema},
+				"202": {MediaType: "application/json", Schema: &rawir.RawSchema{Type: "object"}},
+			},
+			want: false,
+		},
+		{
+			name: "200 pdf and 202 ndjson",
+			responses: map[string]*rawir.RawResponse{
+				"200": {MediaType: "application/pdf"},
+				"202": {MediaType: "application/x-ndjson"},
+			},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			responses := tc.responses
+			if responses == nil {
+				responses = map[string]*rawir.RawResponse{"200": tc.response}
+			}
+			got := Normalize(&rawir.RawModule{
+				Name:    "demo",
+				Schemas: tc.schemas,
+				Operations: []rawir.RawOperation{{
+					Group:       "Reports",
+					OperationID: "Reports_Download",
+					Method:      "GET",
+					Path:        "/reports",
+					Produces:    tc.produces,
+					Responses:   responses,
+				}},
+			})
+			testutil.Require(t, len(got) == 1, "specs = %d", len(got))
+			testutil.Require(t, got[0].Output.Binary == tc.want, "Binary = %v, want %v", got[0].Output.Binary, tc.want)
+		})
+	}
+}
+
 func TestNormalize_SuccessResponseHints(t *testing.T) {
 	listSchema := func(listPath string) *rawir.RawSchema {
 		return &rawir.RawSchema{
