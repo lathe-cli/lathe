@@ -59,6 +59,9 @@ func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 		}
 		return OperationResult{DryRun: &out, Outcome: OperationOutcomeCompleted}, nil
 	}
+	if !securitySatisfied(s.Security, clientOpts.Auth, path, clientOpts.Headers) {
+		return OperationResult{}, unsatisfiedSecurityError(opts.Hostname, s.Security)
+	}
 	if s.RequestBody != nil && s.RequestBody.RuntimeSchema != nil {
 		if err := validateRuntimeSchemaBody(ctx, s, input, body, opts); err != nil {
 			return OperationResult{}, err

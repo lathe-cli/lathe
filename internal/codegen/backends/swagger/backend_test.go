@@ -11,6 +11,7 @@ import (
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestParse_Golden(t *testing.T) {
@@ -83,6 +84,40 @@ func TestParse_SecuritySemantics(t *testing.T) {
 			testutil.Require(t, security != nil && security.Public == tc.wantPublic && reflect.DeepEqual(security.Scopes, tc.wantScopes), "security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
 		})
 	}
+}
+
+func TestParse_SecurityRequirements(t *testing.T) {
+	input := `{
+	  "swagger": "2.0",
+	  "securityDefinitions": {
+	    "basicAuth": {"type": "basic", "description": "omit"},
+	    "apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}
+	  },
+	  "paths": {
+	    "/or": {"get": {"operationId": "Or_Get", "security": [{"basicAuth": []}, {"apiKey": ["read"]}], "responses": {"200": {}}}},
+	    "/and": {"get": {"operationId": "And_Get", "security": [{"apiKey": [], "basicAuth": []}], "responses": {"200": {}}}}
+	  }
+	}`
+	got := map[string]*runtime.SecurityHint{}
+	for _, spec := range normalize.Normalize(parseInput(t, input, ".json")) {
+		got[spec.OperationID] = spec.Security
+	}
+	basic := runtime.SecurityScheme{Name: "basicAuth", Type: "http", Scheme: "basic"}
+	apiKey := runtime.SecurityScheme{Name: "apiKey", Type: "apiKey", In: "header", Param: "X-API-Key"}
+	apiKeyRead := apiKey
+	apiKeyRead.Scopes = []string{"read"}
+	wantOR := &runtime.SecurityHint{
+		Scopes: []string{"read"},
+		Requirements: []runtime.SecurityRequirement{
+			{Schemes: []runtime.SecurityScheme{basic}},
+			{Schemes: []runtime.SecurityScheme{apiKeyRead}},
+		},
+	}
+	wantAND := &runtime.SecurityHint{Requirements: []runtime.SecurityRequirement{{
+		Schemes: []runtime.SecurityScheme{apiKey, basic},
+	}}}
+	testutil.Require(t, reflect.DeepEqual(got["Or_Get"], wantOR), "or = %#v", got["Or_Get"])
+	testutil.Require(t, reflect.DeepEqual(got["And_Get"], wantAND), "and = %#v", got["And_Get"])
 }
 
 func TestParse_PreservesBodySchemaMetadata(t *testing.T) {

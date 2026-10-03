@@ -368,9 +368,13 @@ func securityScopes() *rawir.RawModule {
 				{Name: "id", In: "path", Required: true, Type: "string"},
 			},
 			Responses: map[string]*rawir.RawResponse{},
-			Security: []rawir.RawSecurityReq{
-				{Scopes: []string{"write:pets", "read:pets"}},
-			},
+			Security: []rawir.RawSecurityReq{{
+				Schemes: []rawir.RawSecurityScheme{{
+					Name:   "petstore_auth",
+					Type:   "oauth2",
+					Scopes: []string{"write:pets", "read:pets"},
+				}},
+			}},
 		}},
 	}
 }

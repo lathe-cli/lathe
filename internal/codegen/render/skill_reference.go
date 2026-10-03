@@ -426,13 +426,36 @@ func legacyCommandPath(cli, module string, spec runtime.CommandSpec, flat bool) 
 }
 
 func authSummary(security *runtime.SecurityHint) string {
+	summary := "required"
 	if security != nil && security.Public {
-		return "public"
+		summary = "public"
+	} else if security != nil && len(security.Scopes) > 0 {
+		scopes := make([]string, len(security.Scopes))
+		for i, scope := range security.Scopes {
+			scopes[i] = "`" + strings.ReplaceAll(oneLine(scope), "`", "'") + "`"
+		}
+		summary = "required; scopes: " + strings.Join(scopes, ", ")
 	}
-	if security != nil && len(security.Scopes) > 0 {
-		return "required; scopes: `" + strings.Join(security.Scopes, "`, `") + "`"
+	if security == nil || len(security.Requirements) == 0 {
+		return summary
 	}
-	return "required"
+	return summary + "; accepts: " + securityAccepts(security)
+}
+
+func securityAccepts(security *runtime.SecurityHint) string {
+	alts := make([]string, len(security.Requirements))
+	for i, req := range security.Requirements {
+		if len(req.Schemes) == 0 {
+			alts[i] = "`anonymous`"
+			continue
+		}
+		parts := make([]string, len(req.Schemes))
+		for j, scheme := range req.Schemes {
+			parts[j] = "`" + strings.ReplaceAll(oneLine(scheme.String()), "`", "'") + "`"
+		}
+		alts[i] = strings.Join(parts, " + ")
+	}
+	return strings.Join(alts, " | ")
 }
 
 func bodySummary(body *runtime.RequestBody) string {

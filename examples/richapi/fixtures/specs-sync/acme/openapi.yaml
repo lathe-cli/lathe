@@ -25,6 +25,9 @@ paths:
       operationId: Users_List
       tags: [Users]
       summary: List users with pagination
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
       parameters:
         - name: page_token
           in: query
@@ -169,6 +172,23 @@ paths:
               schema:
                 type: string
                 format: binary
+  /audit/export:
+    get:
+      operationId: Audit_Export
+      tags: [Audit]
+      summary: Export the audit log
+      security:
+        - bearerAuth: []
+          tenantKey: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
   /events:
     get:
       operationId: Events_Stream
@@ -212,6 +232,14 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    tenantKey:
+      type: apiKey
+      in: header
+      name: X-Tenant-Key
   schemas:
     User:
       type: object

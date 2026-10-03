@@ -392,19 +392,29 @@ func deriveSecurity(op rawir.RawOperation) *runtime.SecurityHint {
 	if op.Security == nil {
 		return nil
 	}
-	if len(op.Security) == 0 {
-		return &runtime.SecurityHint{Public: true}
-	}
+	hint := &runtime.SecurityHint{Public: len(op.Security) == 0}
 	seen := map[string]bool{}
-	var scopes []string
 	for _, req := range op.Security {
-		for _, s := range req.Scopes {
-			if !seen[s] {
-				seen[s] = true
-				scopes = append(scopes, s)
+		var out runtime.SecurityRequirement
+		for _, s := range req.Schemes {
+			out.Schemes = append(out.Schemes, runtime.SecurityScheme{
+				Name:   s.Name,
+				Type:   s.Type,
+				Scheme: s.Scheme,
+				In:     s.In,
+				Param:  s.Param,
+				Scopes: append([]string(nil), s.Scopes...),
+			})
+			for _, scope := range s.Scopes {
+				if !seen[scope] {
+					seen[scope] = true
+					hint.Scopes = append(hint.Scopes, scope)
+				}
 			}
 		}
+		hint.Public = hint.Public || len(out.Schemes) == 0
+		hint.Requirements = append(hint.Requirements, out)
 	}
-	sort.Strings(scopes)
-	return &runtime.SecurityHint{Scopes: scopes}
+	sort.Strings(hint.Scopes)
+	return hint
 }
