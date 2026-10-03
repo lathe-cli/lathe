@@ -80,6 +80,27 @@ an overlay group summary (CatalogSchemaVersion 25). Generated declarations
 reuse `CommandSpec.GroupShort`; SchemaVersion remains 17. Regenerate downstream
 CLIs to pick up source descriptions.
 
+Operation `auth.requirements` preserves OpenAPI security alternatives and
+combinations. Any one requirement entry satisfies the command, and every
+scheme inside an entry is required. An empty entry `{}` allows anonymous
+access and sets `auth.required` to false. Scheme objects carry `name` and,
+when declared, `type`, `scheme`, `in`, `param`, and `scopes`; they never
+carry credential values. `auth.scopes` stays the sorted, deduplicated union
+of those scopes. Workflow entries still aggregate `required` and `scopes`
+and omit `requirements`. Protobuf and GraphQL operations declare none.
+Satisfaction is checked against the resolved request: the stored credential
+plus header and query parameters passed to the command. A bearer
+`Authorization` satisfies `http` bearer, `oauth2`, and `openIdConnect`; basic
+satisfies `http` basic; an `Authorization` value set by an API key credential
+or a parameter satisfies any `http`, `oauth2`, or `openIdConnect` scheme; an
+`apiKey` scheme is satisfied when its `param` header, query parameter, or
+cookie is non-empty (a stored API key is sent in its configured header,
+default `X-API-Key`). Undefined scheme names, mutual TLS, unknown scheme
+types, custom authenticators, and a nil authenticator are left unchecked. A
+request that satisfies no entry fails with `not_authenticated` before it is
+sent, and `error.detail` lists the accepted alternatives.
+(SchemaVersion 19, CatalogSchemaVersion 26). Regenerate downstream CLIs.
+
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
 write vs read from the HTTP method, and do not assume a `--dry-run` flag is
@@ -96,12 +117,28 @@ no language configuration is required.
 ## Verify report
 
 `<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a
-versioned report and exits non-zero if any check fails. It validates the root
-help contract, catalog serialization and flags, and an isolated auth-status
-probe. Capability-specific checks are added only when compiled in:
+versioned report and exits non-zero if any check fails. Report version is 2.
+It validates the root help contract, catalog serialization and flags, and an
+isolated auth-status probe. Capability-specific checks are added only when
+compiled in:
 
 - `skill_install` for `skill.bundle`
 - `workflow_contract` for `workflow.dsl`
+
+`provenance.schema_version` is the generator/runtime contract
+(`runtime.SchemaVersion`). `provenance.catalog_schema_version` is
+`runtime.CatalogSchemaVersion`. `provenance.sources` is compiled from
+`specs/sources.yaml` and sync-state at codegen. `repo_url` is sanitized:
+passwords, HTTP user info, query, and fragment are stripped; SSH user names
+are kept; filesystem URLs are omitted.
+Local sources have `kind` `local` and `reproducible` false, and never include
+a path or SHA. Empty `sources` means the binary was generated before
+provenance existed; it is not a verify failure. A git source is reproducible
+only when both a public `repo_url` and a resolved SHA are recorded and it has no
+`git` proto dependency, whose tag is not resolved to a recorded SHA; sync-state
+records the sanitized `repo_url`, and codegen rejects a state whose recorded
+`repo_url` differs from the configured one. Generated code from earlier releases still mounts
+without regeneration.
 
 ## Structured errors
 
@@ -137,6 +174,10 @@ The raw response body is never emitted in any layer.
 | `not_authenticated` | 4 |
 | `canceled` | 130 |
 
+`not_authenticated` is also returned before any request when the stored
+credential and request parameters satisfy no declared security requirement. `error.detail` then
+lists the accepted alternatives from spec metadata only.
+
 A configured stream pause is a successful terminal outcome and exits `0`.
 
 ## Static request-body validation
@@ -146,9 +187,10 @@ workflows, public operation invocation, and HTTP dry-run previews. Invalid JSON,
 supported type mismatches, and missing required fields fail before transport
 with `usage` / exit `2`; error details contain body paths rather than body values.
 The supported subset and template-payload boundary are documented in
-[CLI usage](cli-usage.md#static-body-schema). SchemaVersion 18 added GraphQL
-coercion and ProtoJSON input metadata. `CatalogSchemaVersion` stayed 25 for
-that change because the catalog shape was unchanged.
+[CLI usage](cli-usage.md#static-body-schema). SchemaVersion 18 added this
+validation, including GraphQL coercion and ProtoJSON input metadata.
+Regenerate modules before linking a newer runtime. Old modules fail mounting
+with a regeneration instruction.
 
 Binary downloads add `output.binary.flag`. The flag is required unless the
 invocation is a dry-run: `--<output.binary.flag> <new-file>` writes a new file,
@@ -164,7 +206,7 @@ and non-2xx responses leave no output file. A process killed by another signal
 may leave a hidden `.<name>.*.part` file next to the target. A failure while
 publishing the file, after the response completed, is `general` / exit 1: the
 request was sent and the output file is not written. Generated `SchemaVersion`
-is 19 and `CatalogSchemaVersion` is 26: regenerate modules before linking the
+is 20 and `CatalogSchemaVersion` is 27: regenerate modules before linking the
 new runtime. Old modules fail mounting with a regeneration instruction.
 Workflow steps cannot consume binary responses. `runtime.InvokeOperation`
 still buffers the response body; streaming applies to the generated command

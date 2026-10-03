@@ -32,6 +32,28 @@ func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
 	testutil.Check(t, strings.Contains(got, "variables") && strings.Contains(got, "--set"), "bodySummary = %q, want merge-path guidance", got)
 }
 
+func TestAuthSummary_SecurityRequirements(t *testing.T) {
+	got := authSummary(&runtime.SecurityHint{
+		Scopes: []string{"users`write"},
+		Requirements: []runtime.SecurityRequirement{
+			{},
+			{Schemes: []runtime.SecurityScheme{
+				{Name: "bearer`Auth", Type: "http", Scheme: "bearer"},
+				{Name: "tenantKey", Type: "apiKey", In: "header", Param: "X-Tenant-Key"},
+			}},
+		},
+	})
+	for _, want := range []string{
+		"required; scopes: `users'write`",
+		"accepts:",
+		"`anonymous`",
+		"`bearer'Auth (http bearer)`",
+		"`tenantKey (apiKey header X-Tenant-Key)`",
+	} {
+		testutil.Require(t, strings.Contains(got, want), "authSummary = %q, missing %q", got, want)
+	}
+}
+
 func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
 	got := bodySummary(&runtime.RequestBody{Required: true, MediaType: "application/json"})
 	if want := "required; media type `application/json`"; got != want {
@@ -98,7 +120,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 
 	testutil.NoError(t, RenderSkillDirectory(filepath.Join(dir, "skills", "acmectl"), manifest, []SkillModule{{
 		Source: source,
-		State:  &specsync.State{Source: "users", Backend: "openapi3", SyncedFrom: "v1.0.0", ResolvedSHA: "abc123"},
+		State:  &specsync.State{Source: "users", Backend: "openapi3", SyncedFrom: "v1.0.0", RepoURL: "https://example.com/acme.git", ResolvedSHA: "abc123"},
 		Specs:  merged,
 	}}))
 
@@ -122,6 +144,8 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"When `output.binary` is present, success output is raw bytes.",
 		"--<output.binary.flag> <new-path>",
 		"never into the conversation",
+		"acmectl __lathe verify --json",
+		"provenance",
 	} {
 		testutil.Check(t, strings.Contains(skill, want), "SKILL.md missing %q", want)
 	}
@@ -144,7 +168,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 
 	module := readFile(t, dir, "skills/acmectl/references/modules/users.md")
 	for _, want := range []string{
-		"Repository: https://example.com/acme.git",
+		"Repository: `https://example.com/acme.git`",
 		"Resolved SHA: `abc123`",
 		"## Accounts",
 		"`acmectl accounts create-user`",
@@ -171,6 +195,30 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	testutil.Require(t, !strings.Contains(module, "Example: `acmectl users accounts create-user"), "module reference kept stale namespaced example:\n%s", module)
 	testutil.Require(t, !strings.Contains(module, "delete-user") && !strings.Contains(module, "Raw summary"), "module reference leaked hidden command or raw overlay content:\n%s", module)
 	testutil.Require(t, !strings.Contains(module, "**INJECT**"), "module reference contains injected parameter content:\n%s", module)
+}
+
+func TestRenderModuleReference_SanitizesRepoURL(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
+	module := SkillModule{
+		Source: &sourceconfig.Source{
+			Name:      "users",
+			RepoURL:   "https://user:secret@example.com/acme.git?token=x#frag",
+			PinnedTag: "v1.0.0",
+			Backend:   sourceconfig.BackendOpenAPI3,
+			OpenAPI3:  &sourceconfig.OpenAPI3Config{Files: []string{"openapi.yaml"}},
+		},
+		State: &specsync.State{RepoURL: "https://example.com/acme.git", ResolvedSHA: "abc123"},
+		Specs: []runtime.CommandSpec{{Group: "Users", Use: "list", Method: "GET"}},
+	}
+	got := renderModuleReference(manifest, module, true)
+	for _, want := range []string{
+		"Repository: `https://example.com/acme.git`",
+		"Source kind: `git`",
+		"Reproducible: yes",
+	} {
+		testutil.Require(t, strings.Contains(got, want), "module reference missing %q\n%s", want, got)
+	}
+	testutil.Require(t, !strings.Contains(got, "secret") && !strings.Contains(got, "token="), "module reference leaked credentials:\n%s", got)
 }
 
 func TestRenderModuleReference_FormatsExamples(t *testing.T) {

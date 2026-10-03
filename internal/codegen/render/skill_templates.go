@@ -42,6 +42,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	}
 	b.WriteString("## Maintenance Commands\n\n")
 	fmt.Fprintf(&b, "- `%s --version` or `%s -v`: print CLI build version.\n", cli, cli)
+	fmt.Fprintf(&b, "- `%s __lathe verify --json`: verify the compiled contract and read `provenance` (schema versions and per-source revision; `reproducible=false` marks local sources). The binary's report wins over this Skill.\n", cli)
 	if manifest.Update.GitHub != nil {
 		fmt.Fprintf(&b, "- `%s update`: update this CLI from configured GitHub Releases. Run only when the user explicitly asks to update `%s`; it may replace the current executable. Use `--yes` only when explicitly authorized.\n", cli, cli)
 	}
@@ -93,7 +94,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	fmt.Fprintf(&b, "- `http.default_hostname`: optional source-level host used after `--hostname`, `$%s`, and the host selected with `auth use`, and before the single-host fallback from `hosts.yml`.\n", manifest.CLI.HostEnv)
 	b.WriteString("- `flags`: CLI flags, parameter location, type, required state, defaults, enum values, format, input modes, and help.\n")
 	b.WriteString("- `body`: request body requirement, media type, and optional `runtime_schema` preflight source, including its active-context prerequisites.\n")
-	b.WriteString("- `auth`: whether auth is required and which scopes are declared.\n")
+	b.WriteString("- `auth`: `required`, declared `scopes`, and `requirements` — any one entry satisfies the command, every scheme inside an entry is required, `{}` allows anonymous access; execution fails with `not_authenticated` before sending when the stored credential plus header and query parameters satisfy no entry.\n")
 	b.WriteString("- `mutation`: `read`, `write`, or `unknown`. Do not infer write vs read from the HTTP method alone. Treat any value other than `read` as requiring preview when `dry_run.mode` is `http_preview`, or explicit user confirmation when preview is unavailable.\n")
 	b.WriteString("- `dry_run`: preview contract. `http_preview` is declared only when the generated runner can preview; use `--<flag>` and print the resolved HTTP request JSON. `unsupported` means the command has no preview, including all workflow commands. A `--dry-run` flag on a custom command is not a preview contract.\n")
 	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
@@ -124,7 +125,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("When `output.binary` is present, success output is raw bytes. Pass `--<output.binary.flag> <new-path>` (it refuses existing paths; choose a path the user approved) or `-` only when piping to another program, never into the conversation. `-o` then affects only error output.\n\n")
 	b.WriteString("On a non-zero exit with JSON or YAML output, read `error.code`, `error.message`, and `error.hint`; optional `error.http` contains only `status`. A configured pause exits zero and is represented by the field mapping in its stream collection policy.\n\n")
 	b.WriteString("## Auth\n\n")
-	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status -o json` before execution and read `hostname` and `source`. Host resolution order: `--hostname` > `$%s` > the selected host (`%s auth use <host>`) > `http.default_hostname` > the single host in `hosts.yml`. When more than one host is logged in and the host was chosen implicitly, the CLI also prints a `current host: <name>` line on stderr; read provenance from `auth status`, not from that line. If no matching host is logged in, stop and ask the user to authenticate.\n", cli, manifest.CLI.HostEnv, cli)
+	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status -o json` before execution and read `hostname` and `source`. Host resolution order: `--hostname` > `$%s` > the selected host (`%s auth use <host>`) > `http.default_hostname` > the single host in `hosts.yml`. When more than one host is logged in and the host was chosen implicitly, the CLI also prints a `current host: <name>` line on stderr; read provenance from `auth status`, not from that line. If no matching host is logged in, stop and ask the user to authenticate. Map that status to declared schemes: bearer satisfies http bearer, oauth2, and openIdConnect; basic satisfies http basic; apikey satisfies an apiKey header whose name is `param`, or any http scheme when stored for the `Authorization` header; header or query parameters passed to the command can supply apiKey schemes.\n", cli, manifest.CLI.HostEnv, cli)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
 		fmt.Fprintf(&b, "For browser-based OAuth login, run `%s auth login --device-auth --hostname <host> --provider <provider>`. The browser opens by default in an interactive terminal; use `--no-browser` for manual login. `auth_type: bearer` in `hosts.yml` is expected after login because API requests use the issued bearer token.\n", cli)
 	}

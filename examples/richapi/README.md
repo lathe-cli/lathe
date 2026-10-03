@@ -22,5 +22,6 @@ The rich API path is useful when validating:
 - Public endpoints with no auth requirement.
 - Streaming response hints.
 - Long-running operation hints.
+- Security alternatives and combinations.
 
 See [CLI Usage](../../docs/cli-usage.md) for the full command sequence and agent loop.

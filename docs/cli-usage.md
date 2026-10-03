@@ -48,8 +48,13 @@ go mod init example.com/acme   # skip when go.mod exists
 lathe bootstrap
 go mod tidy
 go build -o bin/acmectl ./cmd/acmectl
+bin/acmectl __lathe verify
 bin/acmectl __lathe verify --json
 ```
+
+`__lathe verify` prints a human summary of CLI version, schema versions, and
+compiled source provenance. `--json` emits the versioned report; read
+`provenance` for schema versions and per-source revision.
 
 ## `cli.yaml`
 
@@ -380,7 +385,7 @@ preserve nullability; list singleton coercion and ID string/integer inputs use
 union schemas, and custom scalars remain untyped. These shapes do not acquire
 stricter static type validation. Protobuf schemas preserve field nullability,
 numeric and enum string/number alternatives, and well-known ProtoJSON shapes
-such as timestamp strings and arbitrary `Value` JSON. Regenerate modules for `SchemaVersion` 18
+such as timestamp strings and arbitrary `Value` JSON. Regenerate modules for `SchemaVersion` 19
 before upgrading the runtime; older generated modules fail mounting with a
 regeneration instruction.
 
@@ -589,8 +594,8 @@ written. `-o` changes only error rendering. Binary commands do not register
 bin/acmectl reports download --report-id r1 --output-file report.pdf
 ```
 
-Regenerate modules for `SchemaVersion` 19 and refresh catalog consumers for
-`CatalogSchemaVersion` 26.
+Regenerate modules for `SchemaVersion` 20 and refresh catalog consumers for
+`CatalogSchemaVersion` 27.
 
 ## Agent Operation Loop
 
