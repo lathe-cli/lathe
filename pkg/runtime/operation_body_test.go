@@ -292,7 +292,7 @@ func TestBuild_RequiredSetOnlyBodyFieldValidatedLocally(t *testing.T) {
 	err := root.Execute()
 	var le *LatheError
 	testutil.Require(t, errors.As(err, &le), "expected LatheError for missing required set-only field, got %v", err)
-	testutil.Require(t, le.Code == CodeUsage && le.Detail == "missing required: limits", "error = %#v", le)
+	testutil.Require(t, le.Code == CodeUsage && strings.Contains(le.Detail, "limits"), "error = %#v", le)
 
 	root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "create", "--name", "demo", "--set", "limits.rpm=3"})
 	testutil.NoError(t, root.Execute())

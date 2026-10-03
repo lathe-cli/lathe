@@ -368,6 +368,29 @@ commands. The same field cannot be set by a typed flag and `--set`. Explicit
 regenerating modules against the matching runtime and updating catalog consumers
 for the new body-location and array-item enum contract.
 
+### Static Body Schema
+
+JSON request bodies with a compiled `body.schema` are validated locally before
+HTTP execution, including `--file`, `--set`, `--set-str`, typed body flags,
+workflow steps, and `--dry-run`. Validation covers declared object, array, and
+scalar types, nullable values, nested properties/items, required fields, and
+`allOf` constraints from resolved references. Template bodies validate the
+payload at `body.merge_path`, such as GraphQL `variables`. GraphQL schemas
+preserve nullability; list singleton coercion and ID string/integer inputs use
+union schemas, and custom scalars remain untyped. These shapes do not acquire
+stricter static type validation. Regenerate modules for `SchemaVersion` 18
+before upgrading the runtime; older generated modules fail mounting with a
+regeneration instruction.
+
+Failures exit with usage code `2` and identify the body path without including
+body values. Optional omitted bodies, commands without a compiled schema, and
+non-JSON bodies retain their existing behavior.
+
+This is structural validation of the compiled subset, not full JSON Schema or
+OpenAPI validation. Enum, format, `anyOf`, `oneOf`, `additionalProperties`, and
+unresolved references (including recursive reference boundaries) are not
+validated by this preflight. No external references are fetched.
+
 ### Runtime Body Schema
 
 Bind a visible, bodyless, non-streaming `GET` operation in the same module as a
@@ -387,9 +410,8 @@ commands:
 The schema operation uses the same hostname and cannot require stronger auth
 than the target. Normal execution fetches the schema and validates the JSON
 body before the target request. External `$ref` loading is disabled.
-`--dry-run` remains network-free and skips this preflight. Static request-body
-schemas from the API spec remain discovery metadata; they are not runtime
-validators.
+`--dry-run` remains network-free and skips the fetched-schema preflight.
+Static body validation still runs during dry-run.
 
 ### Table Columns
 
