@@ -306,9 +306,8 @@ func TestRenderModulesGen_WithSkillBundle(t *testing.T) {
 	for _, want := range []string{
 		`func Mount(root *cobra.Command) error`,
 		`return MountModules(root)`,
-		`lathekitup "github.com/lathe-cli/kitup/go"`,
-		`lathekitupcobra "github.com/lathe-cli/kitup/go-cobra"`,
-		`latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)`,
+		`lathebundle "github.com/lathe-cli/lathe/pkg/skillbundle"`,
+		`lathebundle.Mount(root, lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root)`,
 		`lathegeneratedskillbundle "example.com/fake/internal/generated/skillbundle"`,
 	} {
 		testutil.Check(t, containsGo(got, want), "output missing %q\n%s", want, got)

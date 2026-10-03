@@ -21,11 +21,6 @@ type skillFlagOptions struct {
 	IncludeSet bool
 }
 
-const (
-	kitupGoDependency      = "github.com/lathe-cli/kitup/go@v0.1.3"
-	kitupGoCobraDependency = "github.com/lathe-cli/kitup/go-cobra@v0.1.3"
-)
-
 func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Manifest, string, render.SkillInclude, error) {
 	manifest, rootConfig, include, err := loadCodegenManifest(manifestPath)
 	if err != nil {
@@ -69,14 +64,21 @@ func resolveSkillOutput(manifestPath string, flags skillFlagOptions) (*config.Ma
 	return manifest, skillDir, include, nil
 }
 
-func pinSkillBundleDependencies(output io.Writer) error {
-	args := []string{"get", kitupGoDependency, kitupGoCobraDependency}
-	fmt.Fprintf(output, "go %s\n", strings.Join(args, " "))
-	cmd := exec.Command("go", args...)
+func tidySkillBundleDependencies(output io.Writer) error {
+	gowork, err := exec.Command("go", "env", "GOWORK").Output()
+	if err != nil {
+		return fmt.Errorf("resolve skill bundle dependencies: %w", err)
+	}
+	if work := strings.TrimSpace(string(gowork)); work != "" && work != "off" {
+		fmt.Fprintf(output, "skipping go mod tidy in workspace %s\n", work)
+		return nil
+	}
+	fmt.Fprintln(output, "go mod tidy")
+	cmd := exec.Command("go", "mod", "tidy")
 	cmd.Stdout = output
 	cmd.Stderr = output
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pin skill bundle dependencies: %w", err)
+		return fmt.Errorf("resolve skill bundle dependencies (keep github.com/lathe-cli/lathe in go.mod at the generator version): %w", err)
 	}
 	return nil
 }

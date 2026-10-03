@@ -17,7 +17,7 @@ See [docs/architecture.md](docs/architecture.md) for package ownership and reque
 - `cmd/lathe` and `internal/lathecmd` orchestrate generation; `internal/sourceconfig`, `internal/specsync`, `internal/codegen/**`, and `internal/overlay` own its pipeline. `internal/projectinit` owns initialization; `internal/latheskill` owns the bundled Lathe Skill.
 - Generated `runtime.CommandSpec` declarations cross into the runtime through `generated.Mount`, alongside compiled workflows and bundled capabilities. `pkg/runtime` must not depend on `internal/codegen/**` or read raw specs, overlays, or sync caches.
 - Overlays are codegen-time inputs that can alter command semantics; compile them into runtime declarations without introducing overlay concepts at runtime.
-- `pkg/config`, `pkg/runtime`, and `pkg/lathe` are downstream-facing, compatibility-sensitive packages. `internal/**` is implementation-only.
+- `pkg/config`, `pkg/runtime`, `pkg/lathe`, and `pkg/skillbundle` are downstream-facing, compatibility-sensitive packages. `internal/**` is implementation-only.
 
 ## Agent contract
 

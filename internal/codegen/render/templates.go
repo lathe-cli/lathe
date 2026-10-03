@@ -41,12 +41,10 @@ var modulesTmpl = template.Must(template.New("modules").Parse(`// Code generated
 package generated
 
 import (
-{{- if .SkillBundle}}
-	lathekitup "github.com/lathe-cli/kitup/go"
-	lathekitupcobra "github.com/lathe-cli/kitup/go-cobra"
-	latheruntime "github.com/lathe-cli/lathe/pkg/runtime"
-{{- end}}
 	"github.com/spf13/cobra"
+{{- if .SkillBundle}}
+	lathebundle "github.com/lathe-cli/lathe/pkg/skillbundle"
+{{- end}}
 
 {{- range .Modules}}
 	{{.Name}} "{{$.Prefix}}{{.Name}}"
@@ -75,11 +73,7 @@ func MountModules(root *cobra.Command) error {
 	}
 {{- end}}
 {{- if .SkillBundle}}
-	latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)
-	root.AddCommand(lathekitupcobra.NewSkillCommand(lathekitupcobra.Options{
-		AppID:  root.Name(),
-		Bundle: lathekitup.FSBundle(lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root),
-	}))
+	lathebundle.Mount(root, lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root)
 {{- end}}
 	return nil
 }

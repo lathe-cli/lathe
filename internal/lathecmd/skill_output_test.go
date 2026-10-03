@@ -60,7 +60,7 @@ skill:
 	}
 }
 
-func TestRunCodegen_SkillBundleGeneratesEmbedAndPinsDeps(t *testing.T) {
+func TestRunCodegen_SkillBundleGeneratesEmbedAndTidiesDeps(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	seedCodegenProject(t, true)
@@ -95,18 +95,41 @@ skill:
 	modulesGen := readCodegenFile(t, "internal/generated/modules_gen.go")
 	for _, want := range []string{
 		`func Mount(root *cobra.Command) error`,
-		`lathekitup.FSBundle(lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root)`,
-		`latheruntime.AttachCapability(root, latheruntime.CapabilitySkillBundle)`,
-		`lathekitupcobra.NewSkillCommand`,
+		`lathebundle.Mount(root, lathegeneratedskillbundle.FS, lathegeneratedskillbundle.Root)`,
 	} {
 		testutil.Require(t, strings.Contains(modulesGen, want), "modules_gen.go missing %q:\n%s", want, modulesGen)
 	}
 	args := readCodegenFile(t, logPath)
-	wantArgs := "get " + kitupGoDependency + " " + kitupGoCobraDependency + "\n"
+	wantArgs := "mod tidy\n"
 	testutil.Require(t, args == wantArgs, "go args = %q, want %q", args, wantArgs)
 	if !strings.Contains(out.String(), "go "+strings.TrimSpace(wantArgs)) {
-		t.Fatalf("output missing go get command:\n%s", out.String())
+		t.Fatalf("output missing go mod tidy command:\n%s", out.String())
 	}
+}
+
+func TestRunCodegen_SkillBundleSkipsTidyInWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, "cli.yaml", `cli:
+  name: acmectl
+  short: Acme CLI
+skill:
+  bundle: true
+`)
+	logPath := filepath.Join(dir, "go-args.txt")
+	bin := filepath.Join(dir, "bin")
+	testutil.NoError(t, os.MkdirAll(bin, 0o755))
+	goScript := filepath.Join(bin, "go")
+	script := "#!/bin/sh\nif [ \"$1\" = env ]; then echo /work/go.work; exit 0; fi\nprintf '%s\\n' \"$*\" > " + strconv.Quote(logPath) + "\n"
+	testutil.NoError(t, os.WriteFile(goScript, []byte(script), 0o755))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	testutil.NoError(t, RunCodegen([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, &out))
+
+	_, err := os.Stat(logPath)
+	testutil.Require(t, os.IsNotExist(err), "go mod tidy ran in workspace mode, stat err = %v", err)
 }
 
 func TestRunCodegen_SkillFlagsOverrideManifestConfig(t *testing.T) {
