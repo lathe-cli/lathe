@@ -73,7 +73,12 @@ type requestBody struct {
 }
 
 type mediaType struct {
-	Schema *schemaNode `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Schema   *schemaNode         `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Encoding map[string]encoding `json:"encoding,omitempty" yaml:"encoding,omitempty"`
+}
+
+type encoding struct {
+	ContentType string `json:"contentType,omitempty" yaml:"contentType,omitempty"`
 }
 
 type response struct {

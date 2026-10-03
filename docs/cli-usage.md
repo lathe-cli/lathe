@@ -332,10 +332,50 @@ from help; a group with any visible command remains visible.
 
 ### Multipart Input
 
-OpenAPI multipart object fields and Swagger `formData` parameters become
-normal command flags. A field with `format: binary` accepts a local file path;
-the runtime opens it and builds the multipart request. These commands do not use
-the JSON body builder's `--file`, `--set`, or `--set-str` flags.
+OpenAPI `multipart/form-data` object properties and Swagger `formData`
+parameters become command flags. These commands do not accept the JSON body
+builder's `--file`, `--set`, or `--set-str` flags.
+
+| Schema | Flag | Wire |
+| --- | --- | --- |
+| `string` with `format: binary`, type absent with `format: binary`, or empty `{}` | one local file path | one file part; `filename` is the base name; default `application/octet-stream` |
+| `string`, `number` | string | one text part; default `text/plain` |
+| `integer` | int64 | one text part; default `text/plain` |
+| `boolean` | bool | one text part; default `text/plain` |
+| object, or type absent with `properties` / `additionalProperties` | JSON text, sent as written | one text part; default `application/json` |
+| array of binary or `{}` | repeatable file paths, comma-separated or repeated | one file part per path, same name; default `application/octet-stream` |
+| array of string or number | repeatable strings, comma-separated or repeated | repeated text parts; default `text/plain` |
+| array of integer or boolean | repeatable int64 or bool values | repeated text parts; default `text/plain` |
+
+`encoding.<property>.contentType` overrides the default for every part of that
+property. It is a comma-separated list of media types or wildcards such as
+`image/*` and `*/*`. Invalid elements are dropped. When several types remain,
+the runtime picks the first element equal to the sniffed type, otherwise the
+first matching wildcard (and emits the sniffed type), otherwise the first
+concrete type, otherwise `application/octet-stream`. File parts always send
+`Content-Type`. Text parts send it only when the selected type is not exactly
+`text/plain`. OpenAPI binary parts with no `encoding.contentType` send
+`application/octet-stream`. Swagger `type: file` cannot declare a part type.
+When that part's content type is empty, the runtime uses the file extension
+and otherwise sends `application/octet-stream`.
+
+A property written as one `allOf` entry around a `$ref` uses the referenced
+schema and keeps the wrapper description. A body may omit `type: object` when
+it has `properties` or `additionalProperties`. An `allOf` of object schemas,
+including a `$ref` to that `allOf`, is merged into one set of part flags.
+
+Optional properties whose shape cannot be represented — an array of objects,
+an array of arrays, a property that is `oneOf` or `anyOf` only, or an
+unresolved reference — are omitted and listed in the catalog as
+`body.unsupported_fields`. That list is per property, not a dump of a
+top-level composition. A required property of that shape fails codegen. A
+multipart body whose top-level schema is still not an object after that merge
+— `oneOf`, `anyOf`, a non-object type, or an unresolved schema — fails
+codegen whether or not the body is required. A required object body with no
+supported part fails the same way. Ignore that command in an overlay
+(`ignore: true`) or change the spec. `readOnly` properties are not sent and
+are not listed. File paths that contain commas need CSV quoting on `[]string`
+flags. Object parts are not checked as JSON before they are sent.
 
 ### JSON Body Flags
 

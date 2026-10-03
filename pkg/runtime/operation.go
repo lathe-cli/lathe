@@ -130,7 +130,7 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	q := url.Values{}
 	hdrs := map[string]string{}
 	form := url.Values{}
-	files := map[string]string{}
+	files := map[string][]string{}
 	vars := map[string]any{}
 	for _, p := range s.Params {
 		if p.In == InBody || (p.In != InPath && !operationChanged(input, p)) {
@@ -150,10 +150,16 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 		case InVariable:
 			vars[p.Name] = v
 		case InFormData:
+			vs := operationStringValues(v)
+			if vs == nil {
+				vs = []string{operationStringValue(v)}
+			}
 			if p.Format == "binary" {
-				files[p.Name] = operationStringValue(v)
+				files[p.Name] = append(files[p.Name], vs...)
 			} else {
-				form.Set(p.Name, operationStringValue(v))
+				for _, value := range vs {
+					form.Add(p.Name, value)
+				}
 			}
 		default:
 			if p.In == InQuery && isSensitiveStringParam(p) {

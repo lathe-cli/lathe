@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/backends/document"
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
@@ -150,7 +151,19 @@ func convertOp(op *operation, method, path string, pathParams []parameter, globa
 
 	if op.RequestBody != nil {
 		mediaType, schema := contentSchema(op.RequestBody.Content, true)
-		out.RequestBody = &rawir.RawRequestBody{Required: op.RequestBody.Required, MediaType: mediaType, Schema: schema}
+		body := &rawir.RawRequestBody{Required: op.RequestBody.Required, MediaType: mediaType, Schema: schema}
+		if media, ok := op.RequestBody.Content[mediaType]; ok {
+			for name, enc := range media.Encoding {
+				if strings.TrimSpace(enc.ContentType) == "" {
+					continue
+				}
+				if body.PartContentTypes == nil {
+					body.PartContentTypes = map[string]string{}
+				}
+				body.PartContentTypes[name] = enc.ContentType
+			}
+		}
+		out.RequestBody = body
 	}
 	for code, resp := range op.Responses {
 		mediaType, schema := contentSchema(resp.Content, false)

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 18
+const SchemaVersion = 19
 
 type CommandSpec struct {
 	Group           string
@@ -60,20 +60,21 @@ type CommandShortcut struct {
 }
 
 type ParamSpec struct {
-	Name       string
-	Flag       string
-	Aliases    []string `json:",omitempty"`
-	Argument   string   `json:",omitempty"`
-	In         string
-	GoType     string
-	Help       string
-	Required   bool
-	Default    string
-	Enum       []string
-	ItemEnum   []string `json:",omitempty"`
-	Format     string
-	Deprecated bool
-	Context    string `json:",omitempty"`
+	Name        string
+	Flag        string
+	Aliases     []string `json:",omitempty"`
+	Argument    string   `json:",omitempty"`
+	In          string
+	GoType      string
+	Help        string
+	Required    bool
+	Default     string
+	Enum        []string
+	ItemEnum    []string `json:",omitempty"`
+	Format      string
+	ContentType string `json:",omitempty"`
+	Deprecated  bool
+	Context     string `json:",omitempty"`
 }
 
 const (
@@ -92,9 +93,10 @@ type RequestBody struct {
 	Schema        *SchemaSpec        `json:",omitempty"`
 	RuntimeSchema *RuntimeSchemaSpec `json:",omitempty"`
 
-	Template      string   `json:",omitempty"`
-	MergePath     string   `json:",omitempty"`
-	SetOnlyFields []string `json:",omitempty"`
+	Template          string   `json:",omitempty"`
+	MergePath         string   `json:",omitempty"`
+	SetOnlyFields     []string `json:",omitempty"`
+	UnsupportedFields []string `json:",omitempty"`
 }
 
 type RuntimeSchemaSpec struct {

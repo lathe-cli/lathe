@@ -425,6 +425,53 @@ func runTestCodegen(args ...string) error {
 	return RunCodegen(append([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, args...), &bytes.Buffer{})
 }
 
+func TestRunCodegen_RequiredMultipartFieldFailsUntilIgnored(t *testing.T) {
+	t.Chdir(t.TempDir())
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /uploads:
+    post:
+      operationId: Uploads_Create
+      tags: [Uploads]
+      summary: Create upload
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: OK
+  /health:
+    get:
+      operationId: System_Health
+      tags: [System]
+      summary: Health
+      responses:
+        "200":
+          description: OK
+`)
+
+	err := runTestCodegen()
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "items"), "expected required multipart field error, got %v", err)
+	if _, statErr := os.Stat("internal/generated"); !os.IsNotExist(statErr) {
+		t.Fatalf("codegen should fail before writing generated code, stat err = %v", statErr)
+	}
+
+	writeCodegenFile(t, "overlays/acme.yaml", "commands:\n  create:\n    ignore: true\n")
+	testutil.NoError(t, runTestCodegen("-overlay", "overlays"))
+	generated := readCodegenFile(t, "internal/generated/acme/acme_gen.go")
+	testutil.Require(t, strings.Contains(generated, "System_Health") && !strings.Contains(generated, "Uploads_Create"), "generated = %s", generated)
+}
+
 func TestRunCodegen_RegroupUsesUnreferencedTag(t *testing.T) {
 	t.Chdir(t.TempDir())
 	seedCodegenProject(t, true)

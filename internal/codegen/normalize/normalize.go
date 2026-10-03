@@ -47,9 +47,12 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 				Template:  op.RequestBody.Template,
 				MergePath: op.RequestBody.MergePath,
 			}
-			bodyParams := multipartBodyParams(op.RequestBody, mod.Schemas)
+			bodyParams, unsupported := multipartBodyParams(op.RequestBody, mod.Schemas)
 			disambiguateMultipartParamFlags(spec.Params, bodyParams)
 			spec.Params = append(spec.Params, bodyParams...)
+			if len(unsupported) > 0 {
+				spec.RequestBody.UnsupportedFields = unsupported
+			}
 		}
 		normalizeParamFlags(spec.Params)
 		lp, itemRef := deriveList(op, mod.Schemas)

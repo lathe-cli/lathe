@@ -1,18 +1,25 @@
 package openapi3
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/app"
 	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
 	"github.com/lathe-cli/lathe/pkg/runtime"
+	"github.com/spf13/cobra"
 )
 
 func TestParse_Golden(t *testing.T) {
@@ -252,8 +259,8 @@ func TestParse_MultipartBodyFields(t *testing.T) {
 	spec := parseNormalized(t, input)[0]
 	testutil.Require(t, spec.RequestBody != nil && spec.RequestBody.MediaType == "multipart/form-data", "request body = %#v", spec.RequestBody)
 	want := map[string]runtime.ParamSpec{
-		"formData:file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary"},
-		"formData:purpose": {Name: "purpose", Flag: "body-purpose", In: runtime.InFormData, GoType: "string", Help: "purpose (formData)"},
+		"formData:file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary", ContentType: "application/octet-stream"},
+		"formData:purpose": {Name: "purpose", Flag: "body-purpose", In: runtime.InFormData, GoType: "string", Help: "purpose (formData)", ContentType: "text/plain"},
 		"query:purpose":    {Name: "purpose", Flag: "purpose", In: runtime.InQuery, GoType: "string", Help: "purpose (query)"},
 	}
 	testutil.Require(t, len(spec.Params) == len(want), "params = %#v", spec.Params)
@@ -471,5 +478,358 @@ func TestParse_TagDescriptions(t *testing.T) {
 			}
 			testutil.Require(t, spec.GroupShort == want, "%s: group %q description = %q, want %q", tc.ext, spec.Group, spec.GroupShort, want)
 		}
+	}
+}
+
+func TestParse_MultipartPartShapes(t *testing.T) {
+	spec := parseNormalized(t, `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "Uploads_Create",
+        "tags": ["Uploads"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "blob": {},
+                  "amount": {"type": "number"},
+                  "enabled": {"type": "boolean"},
+                  "counts": {"type": "array", "items": {"type": "integer"}},
+                  "flags": {"type": "array", "items": {"type": "boolean"}},
+                  "labels": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}},
+                  "caption": {"type": "string"},
+                  "id": {"type": "string", "readOnly": true},
+                  "nested": {"type": "array", "items": {"type": "object"}},
+                  "ghost": {"$ref": "#/components/schemas/Missing"},
+                  "ghosts": {"type": "array", "items": {"$ref": "#/components/schemas/Missing"}}
+                }
+              },
+              "encoding": {"caption": {"contentType": "text/markdown,\r\nX-Evil: 1"}}
+            }
+          }
+        },
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}`)[0]
+	got := map[string]runtime.ParamSpec{}
+	for _, param := range spec.Params {
+		got[param.Name] = param
+	}
+	testutil.Require(t, got["blob"].GoType == "string" && got["blob"].Format == "binary" && got["blob"].ContentType == "application/octet-stream", "blob = %#v", got["blob"])
+	testutil.Require(t, got["amount"].GoType == "string" && got["amount"].ContentType == "text/plain", "amount = %#v", got["amount"])
+	testutil.Require(t, got["enabled"].GoType == "bool" && got["enabled"].ContentType == "text/plain", "enabled = %#v", got["enabled"])
+	testutil.Require(t, got["counts"].GoType == "[]int64" && got["counts"].ContentType == "text/plain", "counts = %#v", got["counts"])
+	testutil.Require(t, got["flags"].GoType == "[]bool" && got["flags"].ContentType == "text/plain", "flags = %#v", got["flags"])
+	testutil.Require(t, got["labels"].GoType == "[]string" && reflect.DeepEqual(got["labels"].ItemEnum, []string{"a", "b"}), "labels = %#v", got["labels"])
+	testutil.Require(t, got["caption"].ContentType == "text/markdown", "caption = %#v", got["caption"])
+	testutil.Require(t, got["id"].Name == "" && got["nested"].Name == "" && got["ghost"].Name == "" && got["ghosts"].Name == "", "excluded params = %#v", got)
+	testutil.Require(t, reflect.DeepEqual(spec.RequestBody.UnsupportedFields, []string{"ghost", "ghosts", "nested"}), "unsupported = %#v", spec.RequestBody.UnsupportedFields)
+}
+
+func TestParse_MultipartEncodingReachesWireAndCatalog(t *testing.T) {
+	spec := parseNormalized(t, `{
+  "openapi": "3.0.3",
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "Uploads_Create",
+        "tags": ["Uploads"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": {"type": "string", "format": "binary"},
+                  "avatar": {"type": "string", "format": "binary"},
+                  "attachments": {"type": "array", "items": {"type": "string", "format": "binary"}},
+                  "tags": {"type": "array", "items": {"type": "string"}},
+                  "meta": {"type": "object", "properties": {"k": {"type": "integer"}}},
+                  "note": {"type": "string"},
+                  "count": {"type": "integer"},
+                  "extra": {"type": "array", "items": {"type": "object"}},
+                  "id": {"type": "string", "readOnly": true}
+                }
+              },
+              "encoding": {
+                "avatar": {"contentType": "image/png"},
+                "attachments": {"contentType": "image/png, image/jpeg"},
+                "note": {"contentType": "text/markdown"}
+              }
+            }
+          }
+        },
+        "responses": {"201": {"description": "created"}}
+      }
+    }
+  }
+}`)[0]
+	testutil.Require(t, reflect.DeepEqual(spec.RequestBody.UnsupportedFields, []string{"extra"}), "unsupported = %#v", spec.RequestBody.UnsupportedFields)
+
+	dir := t.TempDir()
+	photo := filepath.Join(dir, "photo.png")
+	png := filepath.Join(dir, "a.png")
+	jpeg := filepath.Join(dir, "b.jpg")
+	pngMagic := []byte("\x89PNG\r\n\x1a\nphoto")
+	testutil.NoError(t, os.WriteFile(photo, pngMagic, 0o644))
+	testutil.NoError(t, os.WriteFile(png, pngMagic, 0o644))
+	testutil.NoError(t, os.WriteFile(jpeg, []byte("\xff\xd8\xffjpeg"), 0o644))
+
+	var gotContentType string
+	var gotParts []multipartWirePart
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		parts, err := readMultipartWireParts(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		gotParts = parts
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	_, err := runtime.InvokeOperation(context.Background(), spec, runtime.OperationInput{Values: map[string]any{
+		"file":        photo,
+		"avatar":      png,
+		"attachments": []string{png, jpeg},
+		"tags":        []string{"a", "b"},
+		"meta":        `{"k":1}`,
+		"note":        "# hi",
+		"count":       int64(3),
+	}}, runtime.OperationOptions{Hostname: srv.URL})
+	testutil.NoError(t, err)
+	testutil.Require(t, strings.HasPrefix(gotContentType, "multipart/form-data; boundary="), "Content-Type = %q", gotContentType)
+
+	byName := map[string][]multipartWirePart{}
+	for _, part := range gotParts {
+		byName[part.Name] = append(byName[part.Name], part)
+	}
+	file := byName["file"]
+	testutil.Require(t, len(file) == 1 && file[0].Filename == "photo.png" && file[0].ContentType == "application/octet-stream" && file[0].Disposition == "form-data; name=\"file\"; filename=\"photo.png\"", "file = %#v", file)
+	avatar := byName["avatar"]
+	testutil.Require(t, len(avatar) == 1 && avatar[0].ContentType == "image/png", "avatar = %#v", avatar)
+	attachments := byName["attachments"]
+	testutil.Require(t, len(attachments) == 2 && attachments[0].ContentType == "image/png" && attachments[1].ContentType == "image/jpeg", "attachments = %#v", attachments)
+	tags := byName["tags"]
+	testutil.Require(t, len(tags) == 2 && tags[0].Body == "a" && tags[1].Body == "b" && tags[0].ContentType == "" && tags[1].ContentType == "", "tags = %#v", tags)
+	meta := byName["meta"]
+	testutil.Require(t, len(meta) == 1 && meta[0].ContentType == "application/json" && meta[0].Body == `{"k":1}` && meta[0].Disposition == "form-data; name=\"meta\"", "meta = %#v", meta)
+	note := byName["note"]
+	testutil.Require(t, len(note) == 1 && note[0].ContentType == "text/markdown" && note[0].Body == "# hi", "note = %#v", note)
+	count := byName["count"]
+	testutil.Require(t, len(count) == 1 && count[0].Body == "3" && count[0].ContentType == "", "count = %#v", count)
+	testutil.Require(t, byName["extra"] == nil && byName["id"] == nil, "parts = %#v", byName)
+
+	root := &cobra.Command{Use: "demo"}
+	testutil.NoError(t, runtime.Build(root, "demo", []runtime.CommandSpec{spec}))
+	catalog, ok := runtime.FindCatalogCommand(root, []string{"demo", "uploads", "create"}, runtime.CatalogOptions{})
+	testutil.Require(t, ok, "catalog command missing")
+	raw, err := json.Marshal(catalog)
+	testutil.NoError(t, err)
+	var doc struct {
+		Flags []struct {
+			Flag        string `json:"flag"`
+			ContentType string `json:"content_type"`
+		} `json:"flags"`
+		Body struct {
+			Unsupported []string `json:"unsupported_fields"`
+		} `json:"body"`
+	}
+	testutil.NoError(t, json.Unmarshal(raw, &doc))
+	contentTypes := map[string]string{}
+	for _, flag := range doc.Flags {
+		contentTypes[flag.Flag] = flag.ContentType
+	}
+	testutil.Require(t, contentTypes["file"] == "application/octet-stream" && contentTypes["avatar"] == "image/png" && contentTypes["attachments"] == "image/png, image/jpeg" && contentTypes["tags"] == "text/plain" && contentTypes["meta"] == "application/json" && contentTypes["note"] == "text/markdown" && contentTypes["count"] == "text/plain", "content types = %#v", contentTypes)
+	testutil.Require(t, contentTypes["extra"] == "" && contentTypes["id"] == "", "excluded flags present: %#v", contentTypes)
+	testutil.Require(t, reflect.DeepEqual(doc.Body.Unsupported, []string{"extra"}), "catalog unsupported = %#v json %s", doc.Body.Unsupported, raw)
+}
+
+type multipartWirePart struct {
+	Name        string
+	Filename    string
+	ContentType string
+	Disposition string
+	Body        string
+}
+
+func readMultipartWireParts(r *http.Request) ([]multipartWirePart, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, err
+	}
+	var parts []multipartWirePart
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return parts, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		disposition := part.Header.Get("Content-Disposition")
+		body, err := io.ReadAll(part)
+		_ = part.Close()
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, multipartWirePart{Name: part.FormName(), Filename: part.FileName(), ContentType: part.Header.Get("Content-Type"), Disposition: disposition, Body: string(body)})
+	}
+}
+
+func TestParse_MultipartSupportableShapes(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  map[string]runtime.ParamSpec
+	}{
+		{
+			name: "allOf ref property",
+			input: `{
+  "openapi": "3.0.3",
+  "components": {"schemas": {"Purpose": {"type": "string", "enum": ["avatar", "banner"]}}},
+  "paths": {"/uploads": {"post": {
+    "operationId": "Uploads_Create",
+    "tags": ["Uploads"],
+    "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {
+      "type": "object",
+      "required": ["file", "purpose"],
+      "properties": {
+        "file": {"type": "string", "format": "binary"},
+        "purpose": {"description": "Why the file is uploaded", "allOf": [{"$ref": "#/components/schemas/Purpose"}]}
+      }
+    }}}},
+    "responses": {"200": {"description": "ok"}}
+  }}}
+}`,
+			want: map[string]runtime.ParamSpec{
+				"file":    {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary", ContentType: "application/octet-stream"},
+				"purpose": {Name: "purpose", Flag: "purpose", In: runtime.InFormData, GoType: "string", Help: "Why the file is uploaded (formData, required, one of: avatar|banner)", Required: true, Enum: []string{"avatar", "banner"}, ContentType: "text/plain"},
+			},
+		},
+		{
+			name: "properties without type",
+			input: `{
+  "openapi": "3.0.3",
+  "paths": {"/uploads": {"post": {
+    "operationId": "Uploads_Create",
+    "tags": ["Uploads"],
+    "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {
+      "required": ["file"],
+      "properties": {
+        "file": {"type": "string", "format": "binary"},
+        "note": {"type": "string"}
+      }
+    }}}},
+    "responses": {"200": {"description": "ok"}}
+  }}}
+}`,
+			want: map[string]runtime.ParamSpec{
+				"file": {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary", ContentType: "application/octet-stream"},
+				"note": {Name: "note", Flag: "note", In: runtime.InFormData, GoType: "string", Help: "note (formData)", ContentType: "text/plain"},
+			},
+		},
+		{
+			name: "allOf objects",
+			input: `{
+  "openapi": "3.0.3",
+  "paths": {"/uploads": {"post": {
+    "operationId": "Uploads_Create",
+    "tags": ["Uploads"],
+    "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"allOf": [
+      {"type": "object", "required": ["file"], "properties": {"file": {"type": "string", "format": "binary"}}},
+      {"type": "object", "properties": {"note": {"type": "string"}}}
+    ]}}}},
+    "responses": {"200": {"description": "ok"}}
+  }}}
+}`,
+			want: map[string]runtime.ParamSpec{
+				"file": {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary", ContentType: "application/octet-stream"},
+				"note": {Name: "note", Flag: "note", In: runtime.InFormData, GoType: "string", Help: "note (formData)", ContentType: "text/plain"},
+			},
+		},
+		{
+			name: "ref to allOf objects",
+			input: `{
+  "openapi": "3.0.3",
+  "components": {"schemas": {
+    "FilePart": {"type": "object", "required": ["file"], "properties": {"file": {"type": "string", "format": "binary"}}},
+    "NotePart": {"type": "object", "properties": {"note": {"type": "string"}}},
+    "Upload": {"allOf": [{"$ref": "#/components/schemas/FilePart"}, {"$ref": "#/components/schemas/NotePart"}]}
+  }},
+  "paths": {"/uploads": {"post": {
+    "operationId": "Uploads_Create",
+    "tags": ["Uploads"],
+    "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"$ref": "#/components/schemas/Upload"}}}},
+    "responses": {"200": {"description": "ok"}}
+  }}}
+}`,
+			want: map[string]runtime.ParamSpec{
+				"file": {Name: "file", Flag: "file", In: runtime.InFormData, GoType: "string", Help: "file (formData, required, binary, local file path)", Required: true, Format: "binary", ContentType: "application/octet-stream"},
+				"note": {Name: "note", Flag: "note", In: runtime.InFormData, GoType: "string", Help: "note (formData)", ContentType: "text/plain"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := parseNormalized(t, tc.input)[0]
+			got := map[string]runtime.ParamSpec{}
+			for _, param := range spec.Params {
+				if param.In == runtime.InFormData {
+					got[param.Name] = param
+				}
+			}
+			testutil.Require(t, reflect.DeepEqual(got, tc.want), "params = %#v, want %#v", got, tc.want)
+			testutil.Require(t, len(spec.RequestBody.UnsupportedFields) == 0, "unsupported = %#v", spec.RequestBody.UnsupportedFields)
+			testutil.NoError(t, (&app.App{Modules: []app.Module{{CLIName: "demo", Specs: []runtime.CommandSpec{spec}}}}).Validate())
+		})
+	}
+}
+
+func TestParse_MultipartUnrepresentableBody(t *testing.T) {
+	cases := []struct {
+		name    string
+		schema  string
+		wantErr string
+	}{
+		{name: "optional oneOf", schema: `{"oneOf":[{"type":"object","properties":{"file":{"type":"string","format":"binary"}}},{"type":"object","properties":{"note":{"type":"string"}}}]}`, wantErr: "ignore the command"},
+		{name: "optional non-object", schema: `{"type":"string"}`, wantErr: "ignore the command"},
+		{name: "optional empty object", schema: `{"type":"object"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := parseNormalized(t, `{
+  "openapi": "3.0.3",
+  "paths": {"/uploads": {"post": {
+    "operationId": "Uploads_Create",
+    "tags": ["Uploads"],
+    "requestBody": {"content": {"multipart/form-data": {"schema": `+tc.schema+`}}},
+    "responses": {"200": {"description": "ok"}}
+  }}}
+}`)[0]
+			for _, param := range spec.Params {
+				testutil.Require(t, param.In != runtime.InFormData, "form param %#v", param)
+			}
+			testutil.Require(t, len(spec.RequestBody.UnsupportedFields) == 0, "unsupported = %#v", spec.RequestBody.UnsupportedFields)
+			err := (&app.App{Modules: []app.Module{{CLIName: "demo", Specs: []runtime.CommandSpec{spec}}}}).Validate()
+			if tc.wantErr == "" {
+				testutil.NoError(t, err)
+				return
+			}
+			testutil.Require(t, err != nil && strings.Contains(err.Error(), `command "create"`) && strings.Contains(err.Error(), tc.wantErr), "error = %v", err)
+		})
 	}
 }

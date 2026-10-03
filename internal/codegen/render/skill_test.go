@@ -161,6 +161,31 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	testutil.Require(t, !strings.Contains(module, "**INJECT**"), "module reference contains injected parameter content:\n%s", module)
 }
 
+func TestRenderModuleReference_MultipartUnsupportedProperties(t *testing.T) {
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "petstore"}}
+	module := SkillModule{
+		Source: &sourceconfig.Source{Name: "pets"},
+		Specs: []runtime.CommandSpec{{
+			Group:   "Uploads",
+			Use:     "create",
+			Method:  "POST",
+			PathTpl: "/uploads",
+			RequestBody: &runtime.RequestBody{
+				MediaType:         "multipart/form-data",
+				UnsupportedFields: []string{"extra", "x`\n**INJECT**"},
+			},
+			Params: []runtime.ParamSpec{
+				{Name: "avatar", Flag: "avatar", In: runtime.InFormData, GoType: "string", Format: "binary", ContentType: "image/png", Help: "avatar"},
+				{Name: "note", Flag: "note", In: runtime.InFormData, GoType: "string", ContentType: "text/plain", Help: "note"},
+			},
+		}},
+	}
+	got := renderModuleReference(manifest, module, true)
+	testutil.Require(t, strings.Contains(got, "- Unsupported properties: `extra`, `x' **INJECT**` cannot be sent by this command."), "unsupported line missing:\n%s", got)
+	testutil.Require(t, strings.Contains(got, "part content type `image/png`"), "content type missing:\n%s", got)
+	testutil.Require(t, !strings.Contains(got, "text/plain"), "default text content type listed:\n%s", got)
+}
+
 func TestRenderModuleReference_FormatsExamples(t *testing.T) {
 	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
 	module := SkillModule{

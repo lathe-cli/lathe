@@ -71,6 +71,24 @@ that received no typed flag (nested object properties); they remain settable
 through `--set`, `--set-str`, or `--file` (SchemaVersion 16,
 CatalogSchemaVersion 23).
 
+Multipart commands expose `flags[].content_type`, the effective part media
+type. A single concrete type is sent as declared. A comma-separated list or
+wildcard is resolved per part: the first element equal to the sniffed media
+type, otherwise the first matching `type/*` or `*/*` (sending the sniffed
+type), otherwise the first concrete element, otherwise
+`application/octet-stream`. An empty file-part content type, which is how
+Swagger 2 `type: file` is represented, uses the file extension and then
+`application/octet-stream`. OpenAPI 3 binary properties set an explicit
+default, so a declared encoding or `application/octet-stream` wins over the
+extension. Text parts omit the part header when the selected type is exactly
+`text/plain`. `body.unsupported_fields` lists optional multipart properties
+that were not given a flag. It does not describe a top-level `oneOf` or
+`anyOf`. Codegen fails when one of those properties is required, when a
+required object body has no supported part, or when the top-level multipart
+schema is not an object even if the body is optional. An overlay
+`ignore: true` on that command is the remedy (SchemaVersion 19,
+CatalogSchemaVersion 26).
+
 Table output may declare per-column `column_alignments` (`left` or `right`).
 Currency `column_formats` default to right alignment unless overridden
 (SchemaVersion 17, CatalogSchemaVersion 24).
@@ -146,10 +164,11 @@ workflows, public operation invocation, and HTTP dry-run previews. Invalid JSON,
 supported type mismatches, and missing required fields fail before transport
 with `usage` / exit `2`; error details contain body paths rather than body values.
 The supported subset and template-payload boundary are documented in
-[CLI usage](cli-usage.md#static-body-schema). Generated `SchemaVersion` is 18: regenerate modules before linking the new
-runtime so GraphQL coercion and ProtoJSON input metadata are current. Old
-modules fail mounting with a regeneration instruction. `CatalogSchemaVersion`
-remains 25 because the catalog shape is unchanged.
+[CLI usage](cli-usage.md#static-body-schema). SchemaVersion 18 added compiled
+JSON body validation so GraphQL coercion and ProtoJSON input metadata travel
+with the module. Regenerate modules before linking a newer runtime; old
+modules fail mounting with a regeneration instruction. That change left the
+catalog shape at CatalogSchemaVersion 25.
 
 ## Host provenance
 

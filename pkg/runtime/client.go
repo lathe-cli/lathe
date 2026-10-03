@@ -112,8 +112,9 @@ func doRawFull(ctx context.Context, hostname, method, path string, body any, opt
 type responseConsumer func(io.Reader) ([]byte, error)
 
 type multipartForm struct {
-	Fields url.Values
-	Files  map[string]string
+	Fields       url.Values
+	Files        map[string][]string
+	ContentTypes map[string]string
 }
 
 func doRawFullConsume(ctx context.Context, hostname, method, path string, body any, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
@@ -174,8 +175,9 @@ func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
 	sort.Strings(fieldNames)
 	for _, name := range fieldNames {
 		for _, value := range form.Fields[name] {
-			if err := w.WriteField(name, value); err != nil {
-				return nil, "", fmt.Errorf("write multipart field %q: %w", name, err)
+			contentType := partContentType(form.ContentTypes[name], "text/plain", []byte(value))
+			if err := writeMultipartText(w, name, value, contentType); err != nil {
+				return nil, "", err
 			}
 		}
 	}
@@ -185,32 +187,136 @@ func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
 	}
 	sort.Strings(fileNames)
 	for _, name := range fileNames {
-		path := form.Files[name]
-		data, err := ReadBody(path)
-		if err != nil {
-			return nil, "", fmt.Errorf("read multipart file %q: %w", path, err)
-		}
-		header := make(textproto.MIMEHeader)
-		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
-			"name": name, "filename": filepath.Base(path),
-		}))
-		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		header.Set("Content-Type", contentType)
-		part, partErr := w.CreatePart(header)
-		if partErr == nil {
-			_, partErr = part.Write(data)
-		}
-		if partErr != nil {
-			return nil, "", fmt.Errorf("write multipart file %q: %w", path, partErr)
+		for _, path := range form.Files[name] {
+			data, err := ReadBody(path)
+			if err != nil {
+				return nil, "", fmt.Errorf("read multipart file %q: %w", path, err)
+			}
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", contentDisposition(name, filepath.Base(path)))
+			header.Set("Content-Type", filePartContentType(form.ContentTypes[name], path, data))
+			part, partErr := w.CreatePart(header)
+			if partErr == nil {
+				_, partErr = part.Write(data)
+			}
+			if partErr != nil {
+				return nil, "", fmt.Errorf("write multipart file %q: %w", path, partErr)
+			}
 		}
 	}
 	if err := w.Close(); err != nil {
 		return nil, "", fmt.Errorf("close multipart body: %w", err)
 	}
 	return body.Bytes(), w.FormDataContentType(), nil
+}
+
+func writeMultipartText(w *multipart.Writer, name, value, contentType string) error {
+	if contentType == "text/plain" {
+		if err := w.WriteField(name, value); err != nil {
+			return fmt.Errorf("write multipart field %q: %w", name, err)
+		}
+		return nil
+	}
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", contentDisposition(name, ""))
+	header.Set("Content-Type", contentType)
+	part, err := w.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("write multipart field %q: %w", name, err)
+	}
+	if _, err := part.Write([]byte(value)); err != nil {
+		return fmt.Errorf("write multipart field %q: %w", name, err)
+	}
+	return nil
+}
+
+func filePartContentType(declared, path string, data []byte) string {
+	if strings.TrimSpace(declared) == "" {
+		if contentType := mime.TypeByExtension(filepath.Ext(path)); contentType != "" {
+			return contentType
+		}
+		return "application/octet-stream"
+	}
+	return partContentType(declared, "application/octet-stream", data)
+}
+
+func contentDisposition(name, filename string) string {
+	disposition := fmt.Sprintf("form-data; name=\"%s\"", escapeQuotes(name))
+	if filename != "" {
+		disposition += fmt.Sprintf("; filename=\"%s\"", escapeQuotes(filename))
+	}
+	return disposition
+}
+
+func escapeQuotes(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\r", "%0D", "\n", "%0A").Replace(s)
+}
+
+func partContentType(declared, emptyFallback string, data []byte) string {
+	elements := splitMediaTypes(declared)
+	if len(elements) == 0 {
+		return emptyFallback
+	}
+	if len(elements) == 1 {
+		if mediaType := mediaTypeValue(elements[0]); mediaType != "" && !strings.Contains(mediaType, "*") {
+			return elements[0]
+		}
+	}
+	sniffedRaw := http.DetectContentType(data)
+	sniffed := mediaTypeValue(sniffedRaw)
+	for _, element := range elements {
+		mediaType := mediaTypeValue(element)
+		if mediaType != "" && mediaType == sniffed && !strings.Contains(mediaType, "*") {
+			return element
+		}
+	}
+	for _, element := range elements {
+		if wildcardMatches(mediaTypeValue(element), sniffed) {
+			return sniffedRaw
+		}
+	}
+	for _, element := range elements {
+		mediaType := mediaTypeValue(element)
+		if mediaType != "" && !strings.Contains(mediaType, "*") {
+			return element
+		}
+	}
+	return "application/octet-stream"
+}
+
+func splitMediaTypes(declared string) []string {
+	if strings.TrimSpace(declared) == "" {
+		return nil
+	}
+	parts := strings.Split(declared, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func mediaTypeValue(value string) string {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil {
+		return ""
+	}
+	return mediaType
+}
+
+func wildcardMatches(pattern, concrete string) bool {
+	if pattern == "" || concrete == "" || !strings.Contains(pattern, "*") {
+		return false
+	}
+	if pattern == "*/*" {
+		return true
+	}
+	patternType, patternSub, ok := strings.Cut(pattern, "/")
+	concreteType, _, concreteOK := strings.Cut(concrete, "/")
+	return ok && concreteOK && patternSub == "*" && patternType == concreteType
 }
 
 func isMultipartMediaType(contentType string) bool {
