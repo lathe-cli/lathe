@@ -13,9 +13,18 @@ func supportsJSONBodyBuilder(mediaType string) bool {
 	return mt == "" || mt == "application/json" || strings.HasSuffix(mt, "+json")
 }
 
-func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, files map[string]string, vars map[string]any) (any, error) {
-	if len(files) > 0 || (isMultipartMediaType(requestBodyMediaType(s)) && (len(form) > 0 || s.RequestBody.Required && hasFormDataParams(s.Params))) {
-		return multipartForm{Fields: form, Files: files}, nil
+func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, files map[string][]string, vars map[string]any) (any, error) {
+	if isMultipartMediaType(requestBodyMediaType(s)) {
+		if input.HasFile || len(input.BodySets) > 0 || len(input.BodyStringSets) > 0 {
+			return nil, NewError(CodeUsage, ExitUsage, "multipart request bodies accept only part flags", "run the command with --help and correct the arguments", nil)
+		}
+		if len(form) == 0 && len(files) == 0 && (s.RequestBody == nil || !s.RequestBody.Required) {
+			return nil, nil
+		}
+		return multipartForm{Fields: form, Files: files, ContentTypes: formDataContentTypes(s.Params)}, nil
+	}
+	if len(files) > 0 {
+		return multipartForm{Fields: form, Files: files, ContentTypes: formDataContentTypes(s.Params)}, nil
 	}
 	if len(form) > 0 {
 		return form, nil
@@ -78,6 +87,20 @@ func hasFormDataParams(params []ParamSpec) bool {
 		}
 	}
 	return false
+}
+
+func formDataContentTypes(params []ParamSpec) map[string]string {
+	var out map[string]string
+	for _, param := range params {
+		if param.In != InFormData || param.ContentType == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[param.Name] = param.ContentType
+	}
+	return out
 }
 
 func validateRequiredVariableParams(s CommandSpec, body any) error {

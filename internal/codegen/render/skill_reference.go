@@ -115,6 +115,10 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					if len(p.ItemEnum) > 0 {
 						enum = ", items one of: " + strings.Join(p.ItemEnum, "|")
 					}
+					contentType := ""
+					if notable := notablePartContentType(p); notable != "" {
+						contentType = ", part content type `" + strings.ReplaceAll(oneLine(notable), "`", "'") + "`"
+					}
 					deprecated := ""
 					if p.Deprecated {
 						deprecated = ", deprecated"
@@ -132,9 +136,16 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 						position++
 						input = fmt.Sprintf("argument %d `[%s]` or `--%s`", position, p.Argument, p.Flag)
 					}
-					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s): %s\n", input, p.In, req, def, format, enum, deprecated, oneLine(stripHelpMeta(p.Help)))
+					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s%s): %s\n", input, p.In, req, def, format, enum, contentType, deprecated, oneLine(stripHelpMeta(p.Help)))
 				}
 
+			}
+			if spec.RequestBody != nil && len(spec.RequestBody.UnsupportedFields) > 0 {
+				quoted := make([]string, len(spec.RequestBody.UnsupportedFields))
+				for i, name := range spec.RequestBody.UnsupportedFields {
+					quoted[i] = "`" + strings.ReplaceAll(oneLine(name), "`", "'") + "`"
+				}
+				fmt.Fprintf(&b, "- Unsupported properties: %s cannot be sent by this command.\n", strings.Join(quoted, ", "))
 			}
 			if out := outputSummary(spec.Output); out != "" {
 				fmt.Fprintf(&b, "- Output: %s\n", out)
@@ -456,6 +467,18 @@ func securityAccepts(security *runtime.SecurityHint) string {
 		alts[i] = strings.Join(parts, " + ")
 	}
 	return strings.Join(alts, " | ")
+}
+
+func notablePartContentType(param runtime.ParamSpec) string {
+	if param.In != runtime.InFormData {
+		return ""
+	}
+	switch param.ContentType {
+	case "", "text/plain", "application/octet-stream", "application/json":
+		return ""
+	default:
+		return param.ContentType
+	}
 }
 
 func bodySummary(body *runtime.RequestBody) string {

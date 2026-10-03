@@ -150,7 +150,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	for i := range s.Params {
 		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
 	}
-	if s.RequestBody != nil && !hasFormDataParams(s.Params) {
+	if s.RequestBody != nil && !hasFormDataParams(s.Params) && !isMultipartMediaType(s.RequestBody.MediaType) {
 		bodyFileFlag = controlFlagName(cmd, "file")
 		bodySetFlag := controlFlagName(cmd, "set")
 		bodyStringSetFlag := controlFlagName(cmd, "set-str")

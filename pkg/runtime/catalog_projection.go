@@ -45,12 +45,13 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 	}
 	if spec.RequestBody != nil {
 		cmd.Body = &CatalogBody{
-			Required:      spec.RequestBody.Required,
-			MediaType:     spec.RequestBody.MediaType,
-			Schema:        spec.RequestBody.Schema,
-			Template:      spec.RequestBody.Template,
-			MergePath:     spec.RequestBody.MergePath,
-			SetOnlyFields: append([]string(nil), spec.RequestBody.SetOnlyFields...),
+			Required:          spec.RequestBody.Required,
+			MediaType:         spec.RequestBody.MediaType,
+			Schema:            spec.RequestBody.Schema,
+			Template:          spec.RequestBody.Template,
+			MergePath:         spec.RequestBody.MergePath,
+			SetOnlyFields:     append([]string(nil), spec.RequestBody.SetOnlyFields...),
+			UnsupportedFields: append([]string(nil), spec.RequestBody.UnsupportedFields...),
 		}
 		if binding := spec.RequestBody.RuntimeSchema; binding != nil {
 			cmd.Body.RuntimeSchema = &CatalogRuntimeSchema{
@@ -163,6 +164,7 @@ func catalogFlags(params []ParamSpec) []CatalogFlag {
 			Enum:          append([]string(nil), p.Enum...),
 			ItemEnum:      append([]string(nil), p.ItemEnum...),
 			Format:        p.Format,
+			ContentType:   p.ContentType,
 			InputModes:    inputModes,
 			Deprecated:    p.Deprecated,
 			Help:          p.Help,

@@ -1,8 +1,8 @@
 package runtime
 
 import (
+	"context"
 	"io"
-	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,8 +84,7 @@ func TestBuild_MultipartSendsFileAndFields(t *testing.T) {
 	testutil.Require(t, got.err == nil, "parse multipart: %v", got.err)
 	testutil.Check(t, strings.HasPrefix(got.contentType, "multipart/form-data; boundary="), "Content-Type = %q", got.contentType)
 	testutil.Check(t, got.filename == "sample.png" && got.fileType == "image/png" && got.fileBody == "file-content", "file = filename %q, type %q, body %q", got.filename, got.fileType, got.fileBody)
-	disposition, dispositionParams, err := mime.ParseMediaType(got.disposition)
-	testutil.Check(t, err == nil && disposition == "form-data" && dispositionParams["name"] == "file" && dispositionParams["filename"] == "sample.png", "Content-Disposition = %q: %v", got.disposition, err)
+	testutil.Check(t, got.disposition == "form-data; name=\"file\"; filename=\"sample.png\"", "Content-Disposition = %q", got.disposition)
 	testutil.Check(t, got.queryValue == "query" && got.bodyValue == "body", "purpose = query %q, body %q", got.queryValue, got.bodyValue)
 }
 
@@ -104,4 +103,85 @@ func TestBuild_MultipartFileErrorPrecedesAuth(t *testing.T) {
 
 	err := root.Execute()
 	testutil.Require(t, err != nil && ClassifyError(err).Code == CodeUsage && strings.Contains(err.Error(), "read multipart file"), "error = %v, want local multipart usage error before auth", err)
+}
+
+func TestMultipartPartContentTypeSelection(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nrest")
+	text := []byte("hello")
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		binary      bool
+		body        []byte
+		wantType    string
+		wantHeader  bool
+	}{
+		{name: "wildcard png", contentType: "image/*", binary: true, body: png, wantType: "image/png", wantHeader: true},
+		{name: "wildcard text", contentType: "image/*", binary: true, body: text, wantType: "application/octet-stream", wantHeader: true},
+		{name: "list text bytes", contentType: "image/png, image/jpeg", binary: true, body: text, wantType: "image/png", wantHeader: true},
+		{name: "json text", contentType: "application/json", body: []byte(`{"k":1}`), wantType: "application/json", wantHeader: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			param := ParamSpec{Name: "part", Flag: "part", In: InFormData, GoType: "string", Required: true, ContentType: tc.contentType}
+			value := any(string(tc.body))
+			if tc.binary {
+				param.Format = "binary"
+				path := t.TempDir() + "/part.bin"
+				testutil.NoError(t, os.WriteFile(path, tc.body, 0o600))
+				value = path
+			}
+			var gotType string
+			var gotHeader bool
+			var gotDisposition string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reader, err := r.MultipartReader()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				part, err := reader.NextPart()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				gotHeader = part.Header.Get("Content-Type") != ""
+				gotType = part.Header.Get("Content-Type")
+				gotDisposition = part.Header.Get("Content-Disposition")
+				if err := part.Close(); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer srv.Close()
+
+			_, err := InvokeOperation(context.Background(), CommandSpec{
+				Method:      http.MethodPost,
+				PathTpl:     "/uploads",
+				Params:      []ParamSpec{param},
+				RequestBody: &RequestBody{Required: true, MediaType: "multipart/form-data"},
+			}, OperationInput{Values: map[string]any{"part": value}}, OperationOptions{Hostname: srv.URL})
+			testutil.NoError(t, err)
+			testutil.Require(t, gotHeader == tc.wantHeader && gotType == tc.wantType, "header %v type %q, want header %v type %q", gotHeader, gotType, tc.wantHeader, tc.wantType)
+			wantDisposition := "form-data; name=\"part\""
+			if tc.binary {
+				wantDisposition = "form-data; name=\"part\"; filename=\"part.bin\""
+			}
+			testutil.Require(t, gotDisposition == wantDisposition, "disposition = %q, want %q", gotDisposition, wantDisposition)
+		})
+	}
+}
+
+func TestInvokeOperation_MultipartRejectsJSONBodyFile(t *testing.T) {
+	_, err := InvokeOperation(context.Background(), CommandSpec{
+		Method:      http.MethodPost,
+		PathTpl:     "/uploads",
+		RequestBody: &RequestBody{Required: true, MediaType: "multipart/form-data"},
+	}, OperationInput{HasFile: true, FileBody: []byte(`{}`)}, OperationOptions{Hostname: "http://127.0.0.1:1", DryRun: true})
+	testutil.Require(t, err != nil && ClassifyError(err).Code == CodeUsage && ClassifyError(err).ExitCode == ExitUsage && strings.Contains(err.Error(), "multipart request bodies accept only part flags"), "error = %v", err)
+}
+
+func TestContentDispositionEscapesHeaderBreaks(t *testing.T) {
+	got := contentDisposition("a\"\r\nX-Evil: 1", "f\\\n.png")
+	testutil.Require(t, got == `form-data; name="a\"%0D%0AX-Evil: 1"; filename="f\\%0A.png"`, "Content-Disposition = %q", got)
 }

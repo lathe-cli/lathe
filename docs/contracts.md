@@ -71,6 +71,24 @@ that received no typed flag (nested object properties); they remain settable
 through `--set`, `--set-str`, or `--file` (SchemaVersion 16,
 CatalogSchemaVersion 23).
 
+Multipart commands expose `flags[].content_type`, the effective part media
+type. A single concrete type is sent as declared. A comma-separated list or
+wildcard is resolved per part: the first element equal to the sniffed media
+type, otherwise the first matching `type/*` or `*/*` (sending the sniffed
+type), otherwise the first concrete element, otherwise
+`application/octet-stream`. An empty file-part content type, which is how
+Swagger 2 `type: file` is represented, uses the file extension and then
+`application/octet-stream`. OpenAPI 3 binary properties set an explicit
+default, so a declared encoding or `application/octet-stream` wins over the
+extension. Text parts omit the part header when the selected type is exactly
+`text/plain`. `body.unsupported_fields` lists optional multipart properties
+that were not given a flag. It does not describe a top-level `oneOf` or
+`anyOf`. Codegen fails when one of those properties is required, when a
+required object body has no supported part, or when the top-level multipart
+schema is not an object even if the body is optional. An overlay
+`ignore: true` on that command is the remedy (SchemaVersion 22,
+CatalogSchemaVersion 29).
+
 Table output may declare per-column `column_alignments` (`left` or `right`).
 Currency `column_formats` default to right alignment unless overridden
 (SchemaVersion 17, CatalogSchemaVersion 24).

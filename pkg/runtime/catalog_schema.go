@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 28
+const CatalogSchemaVersion = 29
 
 const DefaultSearchLimit = 20
 
@@ -150,13 +150,14 @@ func CatalogSchemaDocument() CatalogSchema {
 }
 
 type CatalogBody struct {
-	Required      bool                  `json:"required"`
-	MediaType     string                `json:"media_type,omitempty"`
-	Schema        *SchemaSpec           `json:"schema,omitempty"`
-	RuntimeSchema *CatalogRuntimeSchema `json:"runtime_schema,omitempty"`
-	Template      string                `json:"template,omitempty"`
-	MergePath     string                `json:"merge_path,omitempty"`
-	SetOnlyFields []string              `json:"set_only_fields,omitempty"`
+	Required          bool                  `json:"required"`
+	MediaType         string                `json:"media_type,omitempty"`
+	Schema            *SchemaSpec           `json:"schema,omitempty"`
+	RuntimeSchema     *CatalogRuntimeSchema `json:"runtime_schema,omitempty"`
+	Template          string                `json:"template,omitempty"`
+	MergePath         string                `json:"merge_path,omitempty"`
+	SetOnlyFields     []string              `json:"set_only_fields,omitempty"`
+	UnsupportedFields []string              `json:"unsupported_fields,omitempty"`
 }
 
 type CatalogRuntimeSchema struct {
@@ -180,6 +181,7 @@ type CatalogFlag struct {
 	Enum          []string               `json:"enum,omitempty"`
 	ItemEnum      []string               `json:"item_enum,omitempty"`
 	Format        string                 `json:"format,omitempty"`
+	ContentType   string                 `json:"content_type,omitempty"`
 	InputModes    []string               `json:"input_modes,omitempty"`
 	Deprecated    bool                   `json:"deprecated"`
 	Help          string                 `json:"help,omitempty"`

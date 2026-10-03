@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const SchemaVersion = 21
+const SchemaVersion = 22
 
 type CommandSpec struct {
 	Group           string
@@ -73,6 +73,7 @@ type ParamSpec struct {
 	Enum          []string
 	ItemEnum      []string `json:",omitempty"`
 	Format        string
+	ContentType   string `json:",omitempty"`
 	Deprecated    bool
 	Context       string `json:",omitempty"`
 	Style         string `json:",omitempty"`
@@ -97,9 +98,10 @@ type RequestBody struct {
 	Schema        *SchemaSpec        `json:",omitempty"`
 	RuntimeSchema *RuntimeSchemaSpec `json:",omitempty"`
 
-	Template      string   `json:",omitempty"`
-	MergePath     string   `json:",omitempty"`
-	SetOnlyFields []string `json:",omitempty"`
+	Template          string   `json:",omitempty"`
+	MergePath         string   `json:",omitempty"`
+	SetOnlyFields     []string `json:",omitempty"`
+	UnsupportedFields []string `json:",omitempty"`
 }
 
 type RuntimeSchemaSpec struct {

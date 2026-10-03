@@ -57,6 +57,8 @@ type RawRequestBody struct {
 	MediaType string     `json:",omitempty"`
 	Schema    *RawSchema `json:",omitempty"`
 
+	PartContentTypes map[string]string `json:",omitempty"`
+
 	Template  string `json:",omitempty"`
 	MergePath string `json:",omitempty"`
 }

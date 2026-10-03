@@ -431,3 +431,29 @@ func TestParse_TagDescriptions(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_FileParamContentType(t *testing.T) {
+	spec := normalize.Normalize(parseInput(t, `{
+  "swagger": "2.0",
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "Uploads_Create",
+        "parameters": [
+          {"name": "file", "in": "formData", "type": "file", "required": true},
+          {"name": "note", "in": "formData", "type": "string"}
+        ],
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}`, ".json"))[0]
+	for _, param := range spec.Params {
+		switch param.Name {
+		case "file":
+			testutil.Require(t, param.Format == "binary" && param.ContentType == "", "file = %#v", param)
+		case "note":
+			testutil.Require(t, param.ContentType == "" && param.In == "formData", "note = %#v", param)
+		}
+	}
+}

@@ -6,6 +6,9 @@ package app
 
 import (
 	"fmt"
+	"maps"
+	"mime"
+	"slices"
 
 	"github.com/lathe-cli/lathe/internal/codegen/render"
 	"github.com/lathe-cli/lathe/pkg/config"
@@ -60,6 +63,9 @@ func (a *App) Validate() error {
 			if err := validateCommandContexts(a.Manifest, spec); err != nil {
 				return fmt.Errorf("command %q: %w", spec.Use, err)
 			}
+			if err := validateMultipartBody(spec); err != nil {
+				return fmt.Errorf("command %q: %w", spec.Use, err)
+			}
 		}
 	}
 	for _, workflow := range a.Workflows {
@@ -107,6 +113,82 @@ func validateCommandContexts(manifest *config.Manifest, spec runtime.CommandSpec
 		return fmt.Errorf("context source parameter %q must match exactly one operation parameter", spec.SetContext.Param)
 	}
 	return nil
+}
+
+func validateMultipartBody(spec runtime.CommandSpec) error {
+	if spec.RequestBody == nil || !multipartMediaType(spec.RequestBody.MediaType) {
+		return nil
+	}
+	unsupported := make(map[string]bool, len(spec.RequestBody.UnsupportedFields))
+	for _, name := range spec.RequestBody.UnsupportedFields {
+		unsupported[name] = true
+	}
+	var blocked []string
+	for _, name := range multipartRequiredNames(spec.RequestBody.Schema) {
+		if unsupported[name] {
+			blocked = append(blocked, name)
+		}
+	}
+	if len(blocked) > 0 {
+		return fmt.Errorf("required multipart field %q has no supported part encoding; ignore the command in an overlay or change the spec", blocked[0])
+	}
+	if multipartHasFormData(spec.Params) {
+		return nil
+	}
+	if len(spec.RequestBody.UnsupportedFields) > 0 || multipartObjectSchema(spec.RequestBody.Schema) {
+		if spec.RequestBody.Required {
+			return fmt.Errorf("required multipart body has no supported part encoding; ignore the command in an overlay or change the spec")
+		}
+		return nil
+	}
+	return fmt.Errorf("multipart body has no supported part encoding; ignore the command in an overlay or change the spec")
+}
+
+func multipartRequiredNames(schema *runtime.SchemaSpec) []string {
+	seen := map[string]bool{}
+	var walk func(*runtime.SchemaSpec)
+	walk = func(s *runtime.SchemaSpec) {
+		if s == nil {
+			return
+		}
+		for _, name := range s.Required {
+			seen[name] = true
+		}
+		for _, child := range s.AllOf {
+			walk(child)
+		}
+	}
+	walk(schema)
+	return slices.Sorted(maps.Keys(seen))
+}
+
+func multipartObjectSchema(schema *runtime.SchemaSpec) bool {
+	if schema == nil || len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 || (schema.Type != "" && schema.Type != "object") {
+		return false
+	}
+	if len(schema.AllOf) == 0 {
+		return schema.Type == "object" || len(schema.Properties) > 0 || schema.AdditionalProperties != nil
+	}
+	for _, child := range schema.AllOf {
+		if !multipartObjectSchema(child) {
+			return false
+		}
+	}
+	return true
+}
+
+func multipartHasFormData(params []runtime.ParamSpec) bool {
+	for _, param := range params {
+		if param.In == runtime.InFormData {
+			return true
+		}
+	}
+	return false
+}
+
+func multipartMediaType(mediaType string) bool {
+	parsed, _, err := mime.ParseMediaType(mediaType)
+	return err == nil && parsed == "multipart/form-data"
 }
 
 // Write renders every collected output.
