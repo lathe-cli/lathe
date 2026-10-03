@@ -59,12 +59,15 @@ type operation struct {
 }
 
 type parameter struct {
-	Name        string      `json:"name" yaml:"name"`
-	In          string      `json:"in" yaml:"in"`
-	Required    bool        `json:"required" yaml:"required"`
-	Schema      *schemaNode `json:"schema,omitempty" yaml:"schema,omitempty"`
-	Description string      `json:"description" yaml:"description"`
-	Deprecated  bool        `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Name          string      `json:"name" yaml:"name"`
+	In            string      `json:"in" yaml:"in"`
+	Required      bool        `json:"required" yaml:"required"`
+	Schema        *schemaNode `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Description   string      `json:"description" yaml:"description"`
+	Deprecated    bool        `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Style         string      `json:"style,omitempty" yaml:"style,omitempty"`
+	Explode       *bool       `json:"explode,omitempty" yaml:"explode,omitempty"`
+	AllowReserved bool        `json:"allowReserved,omitempty" yaml:"allowReserved,omitempty"`
 }
 
 type requestBody struct {

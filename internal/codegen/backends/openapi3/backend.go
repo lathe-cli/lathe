@@ -179,16 +179,24 @@ func convertParam(p parameter) rawir.RawParameter {
 		def = document.String(p.Schema.Default)
 		enum = document.Strings(p.Schema.Enum)
 	}
+	var explode *bool
+	if p.Explode != nil {
+		value := *p.Explode
+		explode = &value
+	}
 	return rawir.RawParameter{
-		Name:        p.Name,
-		In:          p.In,
-		Required:    p.Required,
-		Type:        typ,
-		Description: p.Description,
-		Default:     def,
-		Enum:        enum,
-		Format:      format,
-		Deprecated:  p.Deprecated,
+		Name:          p.Name,
+		In:            p.In,
+		Required:      p.Required,
+		Type:          typ,
+		Description:   p.Description,
+		Default:       def,
+		Enum:          enum,
+		Format:        format,
+		Deprecated:    p.Deprecated,
+		Style:         p.Style,
+		Explode:       explode,
+		AllowReserved: p.AllowReserved,
 	}
 }
 

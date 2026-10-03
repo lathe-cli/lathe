@@ -146,10 +146,35 @@ workflows, public operation invocation, and HTTP dry-run previews. Invalid JSON,
 supported type mismatches, and missing required fields fail before transport
 with `usage` / exit `2`; error details contain body paths rather than body values.
 The supported subset and template-payload boundary are documented in
-[CLI usage](cli-usage.md#static-body-schema). Generated `SchemaVersion` is 18: regenerate modules before linking the new
-runtime so GraphQL coercion and ProtoJSON input metadata are current. Old
-modules fail mounting with a regeneration instruction. `CatalogSchemaVersion`
-remains 25 because the catalog shape is unchanged.
+[CLI usage](cli-usage.md#static-body-schema). SchemaVersion 18 is historical: it added this validation so generated modules carried GraphQL coercion and ProtoJSON input metadata. Current modules use SchemaVersion 19 and CatalogSchemaVersion 26; see Parameter serialization. Old modules fail mounting with a regeneration instruction.
+
+## Parameter serialization
+
+Generated requests follow the serialization declared for a supported parameter shape. An absent `style` means the location default: path `simple`, query `form` exploded, header `simple`, cookie `form`. When `style` is present, an absent `explode` means false, except `form`, where it means true. `allowReserved` is honored only for query parameters; elsewhere it is ignored. Codegen stores a style only when the pair differs from that location default (SchemaVersion 19, CatalogSchemaVersion 26).
+
+| in | style | explode | type | wire |
+| --- | --- | --- | --- | --- |
+| path | simple (default) | any | scalar | `url.PathEscape(v)` |
+| path | simple | any | array | `url.PathEscape(a),url.PathEscape(b)` |
+| path | label | false / true | scalar | `.url.PathEscape(v)` |
+| path | label | false / true | array | `.a,b` / `.a.b` |
+| path | matrix | false / true | scalar | `;name=url.PathEscape(v)` |
+| path | matrix | false / true | array | `;name=a,b` / `;name=a;name=b` |
+| query | form (default) | true (default) | scalar or array | `k=v`, `k=a&k=b` |
+| query | form | false | array | `k=a,b` (a comma inside an item is `%2C`) |
+| query | spaceDelimited / pipeDelimited | false | array | `k=a%20b` / `k=a%7Cb` |
+| query | spaceDelimited / pipeDelimited | true | array | `k=a&k=b` |
+| query | any | — | — | `allowReserved: true` leaves `:/?[]@!$'()*,;` literal; `# & = + %` and space stay encoded |
+| header | simple | any | scalar or pre-joined array | verbatim |
+| cookie | form | any | scalar | `name=` plus `url.QueryEscape` with `+` replaced by `%20`, joined into one `Cookie` header with `; ` |
+
+Query pairs are sorted stably by the unescaped key. Values use `url.QueryEscape`, so spaces are `+`, unless `allowReserved` restores the characters above. Path array flags are `[]string`. Header arrays stay strings and are entered already joined. Cookie parameters are appended after authentication cookies and never replace them. Path array parameters changed from `string` to `[]string`; an overlay shortcut preset or context binding on one now fails codegen with `repeated params are not supported` or `context parameter "<name>" must be a string`, and the remedy is to drop that preset or binding or point it at a scalar parameter.
+
+`--dry-run` reveals a cookie pair only when it exactly equals the encoded `name=value` produced by a non-sensitive cookie parameter on that request. A cookie whose name contains `session`, `sid`, or `csrf` is sensitive, and so is any name already treated as a sensitive header or query name. An authentication cookie with the same name as a public cookie parameter is redacted unless its value is identical to the value passed on the command line.
+
+Unsupported shapes fail codegen after overlays are applied. The error names the source, `METHOD /path (operationId)`, parameter name, and location, and tells the author to fix the specification or exclude the operation. An overlay `ignore: true`, or an OpenAPI 3 `expose` list that drops the operation, skips that failure. The operation still normalizes; it is rejected only when the command survives. Unsupported shapes are object parameters, a path style other than `simple`, `label`, or `matrix`, a query style other than `form`, `spaceDelimited`, or `pipeDelimited`, a header style other than `simple`, a cookie style other than `form`, `spaceDelimited` or `pipeDelimited` on a non-array, array cookies, and Swagger `collectionFormat: tsv` (`tabDelimited`).
+
+Swagger 2 array query parameters without `collectionFormat` use the specification default `csv`: one comma-separated value (`k=a,b`) rather than repeated keys. `multi` stays repeated keys. `ssv` and `pipes` on a query map to `spaceDelimited` and `pipeDelimited`. Header arrays are not style-mapped and pass through as strings. Path arrays with `ssv` or `pipes` fail codegen, and the error names the original `collectionFormat`; path `multi` maps to `form` and fails the location check. `tsv` is `tabDelimited` and fails.
 
 ## Host provenance
 

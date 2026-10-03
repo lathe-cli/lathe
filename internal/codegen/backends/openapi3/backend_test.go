@@ -443,6 +443,53 @@ func parseNormalized(t *testing.T, input string) []runtime.CommandSpec {
 	return specs
 }
 
+func TestParse_ParameterSerialization(t *testing.T) {
+	input := `
+openapi: "3.0.3"
+paths:
+  /items/{id}:
+    get:
+      operationId: Items_Get
+      parameters:
+        - name: id
+          in: path
+          required: true
+          style: label
+          explode: false
+          schema:
+            type: string
+        - name: roles
+          in: query
+          style: form
+          explode: false
+          allowReserved: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: tenant
+          in: cookie
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`
+	mod, err := parseInput(t, input, ".yaml", nil)
+	testutil.NoError(t, err)
+	testutil.Require(t, len(mod.Operations) == 1, "operations = %d", len(mod.Operations))
+	byName := map[string]rawir.RawParameter{}
+	for _, param := range mod.Operations[0].Parameters {
+		byName[param.Name] = param
+	}
+	id := byName["id"]
+	testutil.Check(t, id.Style == "label" && id.Explode != nil && !*id.Explode && !id.AllowReserved, "id = %+v", id)
+	roles := byName["roles"]
+	testutil.Check(t, roles.In == "query" && roles.Type == "array" && roles.Style == "form" && roles.Explode != nil && !*roles.Explode && roles.AllowReserved, "roles = %+v", roles)
+	tenant := byName["tenant"]
+	testutil.Check(t, tenant.In == "cookie" && tenant.Type == "string" && tenant.Style == "" && tenant.Explode == nil && !tenant.AllowReserved, "tenant = %+v", tenant)
+}
+
 func TestParse_RejectsOpenAPI31MultiTypeUnion(t *testing.T) {
 	_, err := parseInput(t, openapi31MultiTypeUnionJSON, ".json", nil)
 	testutil.Require(t, err != nil, "Parse succeeded, want unsupported union error")

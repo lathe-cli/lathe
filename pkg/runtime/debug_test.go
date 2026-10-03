@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -34,6 +35,16 @@ func readStderr(t *testing.T, r *os.File) string {
 	var buf bytes.Buffer
 	io.Copy(&buf, r) //nolint:errcheck
 	return buf.String()
+}
+
+func TestRedactDebugQuery_RedactsSemicolonSegments(t *testing.T) {
+	raw := "a=1;access_token=SECRET&token=T2"
+	got := redactDebugQuery(raw, nil)
+	want := "a=1;access_token=" + url.QueryEscape("***") + "&token=" + url.QueryEscape("***")
+	testutil.Check(t, got == want, "got %q", got)
+	testutil.Check(t, !strings.Contains(got, "SECRET") && !strings.Contains(got, "T2"), "leaked %q", got)
+	testutil.Check(t, strings.Contains(got, ";") && strings.Contains(got, "&"), "separators = %q", got)
+	testutil.Check(t, redactDebugQuery("a=1;b=2", nil) == "a=1;b=2", "benign query changed")
 }
 
 func TestDebugTransport_LogsOnlySafeMetadata(t *testing.T) {

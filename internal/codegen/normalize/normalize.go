@@ -35,10 +35,11 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		}
 		for _, pp := range op.Parameters {
 			switch pp.In {
-			case runtime.InPath, runtime.InQuery, runtime.InHeader, runtime.InFormData, runtime.InVariable:
+			case runtime.InPath, runtime.InQuery, runtime.InHeader, runtime.InCookie, runtime.InFormData, runtime.InVariable:
 				spec.Params = append(spec.Params, parameter(pp))
 			}
 		}
+		disambiguateCookieParamFlags(spec.Params)
 		if op.RequestBody != nil {
 			spec.RequestBody = &runtime.RequestBody{
 				Required:  op.RequestBody.Required,

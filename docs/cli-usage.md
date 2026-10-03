@@ -337,6 +337,16 @@ normal command flags. A field with `format: binary` accepts a local file path;
 the runtime opens it and builds the multipart request. These commands do not use
 the JSON body builder's `--file`, `--set`, or `--set-str` flags.
 
+### Parameter Serialization
+
+Path array flags are comma-separated. Each item is escaped on its own, then joined in the path. Header array values are entered already joined, and the runtime copies that string into the header. Cookie flags are sent together in one `Cookie` header, appended after authentication cookies.
+
+Query arrays follow the declared style: repeated keys when the style is exploded, or one delimited value when it is not. `allowReserved` applies only to query parameters.
+
+These shapes fail codegen: object parameters, a style the location does not support, `spaceDelimited` or `pipeDelimited` on a non-array, array cookies, and Swagger `collectionFormat: tsv`. The check runs after overlays. `ignore: true` on that command, or an OpenAPI `expose` list that leaves the operation out, removes the failure. Swagger array query parameters with no `collectionFormat` send one comma-separated value, which is the `csv` default.
+
+Regenerate modules for SchemaVersion 19 and CatalogSchemaVersion 26 before upgrading the runtime. Catalog flags include `style`, `explode`, and `allow_reserved` only when they differ from the location default.
+
 ### JSON Body Flags
 
 Opt in per command to turn a flat JSON object body into typed flags. Default
@@ -380,9 +390,7 @@ preserve nullability; list singleton coercion and ID string/integer inputs use
 union schemas, and custom scalars remain untyped. These shapes do not acquire
 stricter static type validation. Protobuf schemas preserve field nullability,
 numeric and enum string/number alternatives, and well-known ProtoJSON shapes
-such as timestamp strings and arbitrary `Value` JSON. Regenerate modules for `SchemaVersion` 18
-before upgrading the runtime; older generated modules fail mounting with a
-regeneration instruction.
+such as timestamp strings and arbitrary `Value` JSON. SchemaVersion 18 introduced this metadata. Current modules are SchemaVersion 19; regenerate before upgrading the runtime. Older generated modules fail mounting with a regeneration instruction.
 
 Failures exit with usage code `2` and identify the body path without including
 body values. Optional omitted bodies, commands without a compiled schema, and

@@ -260,6 +260,11 @@ func newRequest(ctx context.Context, method, u string, body []byte, contentType 
 		req.Header.Set("Content-Type", contentType)
 	}
 	for k, v := range opts.Headers {
+		if strings.EqualFold(k, "Cookie") {
+			if prev := req.Header.Get("Cookie"); prev != "" {
+				v = prev + "; " + v
+			}
+		}
 		req.Header.Set(k, v)
 	}
 	return req, nil

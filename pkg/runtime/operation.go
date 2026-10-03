@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -127,7 +129,8 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	}
 
 	path := s.PathTpl
-	q := url.Values{}
+	var pairs []queryPair
+	var cookies []string
 	hdrs := map[string]string{}
 	form := url.Values{}
 	files := map[string]string{}
@@ -143,10 +146,12 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 		switch p.In {
 		case InPath:
 			if present {
-				path = strings.Replace(path, "{"+p.Name+"}", url.PathEscape(operationStringValue(v)), 1)
+				path = strings.Replace(path, "{"+p.Name+"}", pathParamValue(p, v), 1)
 			}
 		case InHeader:
 			hdrs[p.Name] = operationStringValue(v)
+		case InCookie:
+			cookies = append(cookies, p.Name+"="+cookieEscape(operationStringValue(v)))
 		case InVariable:
 			vars[p.Name] = v
 		case InFormData:
@@ -162,22 +167,14 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 				}
 				clientOpts.sensitiveQueryParams[strings.ToLower(p.Name)] = true
 			}
-			switch tv := v.(type) {
-			case int64:
-				q.Set(p.Name, strconv.FormatInt(tv, 10))
-			case bool:
-				q.Set(p.Name, strconv.FormatBool(tv))
-			case []string:
-				for _, vv := range tv {
-					q.Add(p.Name, vv)
-				}
-			case string:
-				q.Set(p.Name, tv)
-			}
+			pairs = append(pairs, queryParamPairs(p, v)...)
 		}
 	}
-	if enc := q.Encode(); enc != "" {
-		path = path + "?" + enc
+	if len(cookies) > 0 {
+		hdrs["Cookie"] = strings.Join(cookies, "; ")
+	}
+	if len(pairs) > 0 {
+		path = path + "?" + encodeQueryPairs(pairs)
 	}
 
 	body, err := resolveOperationBody(s, input, form, files, vars)
@@ -202,4 +199,129 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 		clientOpts.Accept = s.Output.ResponseMediaType
 	}
 	return path, body, clientOpts, nil
+}
+
+type queryPair struct {
+	key string
+	raw string
+}
+
+var queryDelimiters = map[string]string{
+	"form":           ",",
+	"spaceDelimited": "%20",
+	"pipeDelimited":  "%7C",
+}
+
+var reservedQueryReplacer = strings.NewReplacer(
+	"%3A", ":",
+	"%2F", "/",
+	"%3F", "?",
+	"%5B", "[",
+	"%5D", "]",
+	"%40", "@",
+	"%21", "!",
+	"%24", "$",
+	"%27", "'",
+	"%28", "(",
+	"%29", ")",
+	"%2A", "*",
+	"%2C", ",",
+	"%3B", ";",
+)
+
+func pathParamValue(p ParamSpec, v any) string {
+	items := pathParamItems(v)
+	escaped := make([]string, len(items))
+	for i, item := range items {
+		escaped[i] = url.PathEscape(item)
+	}
+	switch p.Style {
+	case "label":
+		sep := ","
+		if p.Explode {
+			sep = "."
+		}
+		return "." + strings.Join(escaped, sep)
+	case "matrix":
+		prefix := ";" + url.PathEscape(p.Name) + "="
+		if p.Explode {
+			return prefix + strings.Join(escaped, prefix)
+		}
+		return prefix + strings.Join(escaped, ",")
+	default:
+		return strings.Join(escaped, ",")
+	}
+}
+
+func pathParamItems(v any) []string {
+	switch tv := v.(type) {
+	case []string:
+		return tv
+	default:
+		return []string{operationStringValue(v)}
+	}
+}
+
+func cookieEscape(v string) string {
+	return strings.ReplaceAll(url.QueryEscape(v), "+", "%20")
+}
+
+func reservedQueryEscape(v string) string {
+	return reservedQueryReplacer.Replace(url.QueryEscape(v))
+}
+
+func queryEscape(p ParamSpec, value string) string {
+	if p.AllowReserved {
+		return reservedQueryEscape(value)
+	}
+	return url.QueryEscape(value)
+}
+
+func queryParamPairs(p ParamSpec, v any) []queryPair {
+	switch tv := v.(type) {
+	case []string:
+		return queryArrayPairs(p, tv)
+	case int64:
+		return []queryPair{{key: p.Name, raw: queryEscape(p, strconv.FormatInt(tv, 10))}}
+	case bool:
+		return []queryPair{{key: p.Name, raw: queryEscape(p, strconv.FormatBool(tv))}}
+	case string:
+		return []queryPair{{key: p.Name, raw: queryEscape(p, tv)}}
+	default:
+		return nil
+	}
+}
+
+func queryArrayPairs(p ParamSpec, values []string) []queryPair {
+	if len(values) == 0 {
+		return nil
+	}
+	if p.Style == "" || p.Explode {
+		out := make([]queryPair, len(values))
+		for i, value := range values {
+			out[i] = queryPair{key: p.Name, raw: queryEscape(p, value)}
+		}
+		return out
+	}
+	parts := make([]string, len(values))
+	for i, value := range values {
+		parts[i] = queryEscape(p, value)
+	}
+	return []queryPair{{key: p.Name, raw: strings.Join(parts, queryDelimiters[p.Style])}}
+}
+
+func encodeQueryPairs(pairs []queryPair) string {
+	slices.SortStableFunc(pairs, func(a, b queryPair) int {
+		return cmp.Compare(a.key, b.key)
+	})
+	var b strings.Builder
+	for i, pair := range pairs {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(url.QueryEscape(pair.key))
+		b.WriteByte('=')
+		b.WriteString(pair.raw)
+	}
+	return b.String()
 }

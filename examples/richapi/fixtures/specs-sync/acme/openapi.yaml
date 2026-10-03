@@ -43,6 +43,20 @@ paths:
             type: string
             enum: [active, inactive, suspended]
           description: Filter by status
+        - name: roles
+          in: query
+          description: Role filter
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: tenant
+          in: cookie
+          description: Tenant identifier
+          schema:
+            type: string
       responses:
         "200":
           content:

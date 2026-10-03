@@ -17,6 +17,7 @@ The rich API path is useful when validating:
 
 - Pagination hints.
 - Enum flags.
+- Query and cookie parameter serialization (`roles`, `tenant`).
 - Header parameters.
 - Required and optional JSON request bodies.
 - Public endpoints with no auth requirement.

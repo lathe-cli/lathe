@@ -11,6 +11,26 @@ import (
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
 
+func TestCatalogFlags_SerializationJSON(t *testing.T) {
+	flags := catalogFlags([]ParamSpec{
+		{Name: "id", Flag: "id", In: InPath, GoType: "string"},
+		{Name: "roles", Flag: "roles", In: InQuery, GoType: "[]string", Style: "form", AllowReserved: true},
+		{Name: "tags", Flag: "tags", In: InQuery, GoType: "[]string", Style: "spaceDelimited", Explode: true},
+	})
+	data, err := json.Marshal(flags)
+	testutil.NoError(t, err)
+	var got []map[string]any
+	testutil.NoError(t, json.Unmarshal(data, &got))
+	testutil.Require(t, len(got) == 3, "flags = %s", data)
+	_, hasStyle := got[0]["style"]
+	_, hasExplode := got[0]["explode"]
+	_, hasReserved := got[0]["allow_reserved"]
+	testutil.Check(t, !hasStyle && !hasExplode && !hasReserved, "unset serialization fields = %s", data)
+	testutil.Check(t, got[1]["style"] == "form" && got[1]["allow_reserved"] == true && got[1]["explode"] == nil, "roles = %s", data)
+	testutil.Check(t, got[2]["style"] == "spaceDelimited" && got[2]["explode"] == true && got[2]["allow_reserved"] == nil, "tags = %s", data)
+	testutil.Check(t, got[1]["location"] == InQuery && got[2]["location"] == InQuery, "locations = %s", data)
+}
+
 func TestCatalog_GroupDescription(t *testing.T) {
 	root := newRootWithModuleGroup()
 	mustBuild(t, root, "demo", []CommandSpec{{Group: "Users", GroupShort: "Manage user accounts", Use: "list", Method: "GET"}})
