@@ -145,3 +145,15 @@ func TestStaticBodySchemaContracts(t *testing.T) {
 		t.Fatalf("template schema bypassed: %v", err)
 	}
 }
+
+func TestStaticBodySchemaUnsupportedMetadata(t *testing.T) {
+	spec := CommandSpec{Method: "POST", PathTpl: "/items", RequestBody: &RequestBody{Schema: &SchemaSpec{Type: "object", Required: []string{"enabled", "enabled"}, Properties: map[string]*SchemaSpec{"enabled": {Type: "boolean"}, "file": {Type: "file"}, "unknown": nil}, AllOf: []*SchemaSpec{nil}}}}
+	for _, body := range []string{`{"enabled":true,"file":"data"}`, `{"enabled":false,"unknown":7}`} {
+		_, err := InvokeOperation(context.Background(), spec, OperationInput{HasFile: true, FileBody: []byte(body)}, OperationOptions{Hostname: "http://127.0.0.1:1", DryRun: true})
+		testutil.NoError(t, err)
+	}
+	for _, body := range []string{`{}`, `{"enabled":"yes"}`} {
+		_, err := InvokeOperation(context.Background(), spec, OperationInput{HasFile: true, FileBody: []byte(body)}, OperationOptions{Hostname: "http://127.0.0.1:1", DryRun: true})
+		testutil.Require(t, err != nil, "supported constraints were discarded")
+	}
+}

@@ -43,7 +43,7 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 			spec.RequestBody = &runtime.RequestBody{
 				Required:  op.RequestBody.Required,
 				MediaType: op.RequestBody.MediaType,
-				Schema:    runtimeSchema(op.RequestBody.Schema, mod.Schemas, map[string]bool{}),
+				Schema:    runtimeSchema(op.RequestBody.Schema, mod.Schemas, map[string]bool{}, true),
 				Template:  op.RequestBody.Template,
 				MergePath: op.RequestBody.MergePath,
 			}

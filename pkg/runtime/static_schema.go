@@ -64,6 +64,9 @@ func validateStaticBodySchema(s CommandSpec, body any) error {
 }
 
 func staticBodySchemaDocument(doc map[string]any) map[string]any {
+	if doc == nil {
+		return map[string]any{}
+	}
 	nullable, _ := doc["nullable"].(bool)
 	for key := range doc {
 		switch key {
@@ -72,11 +75,28 @@ func staticBodySchemaDocument(doc map[string]any) map[string]any {
 			delete(doc, key)
 		}
 	}
+	if typ, ok := doc["type"].(string); ok {
+		switch typ {
+		case "object", "array", "string", "integer", "number", "boolean", "null":
+		default:
+			delete(doc, "type")
+		}
+	}
+	if required, ok := doc["required"].([]any); ok {
+		seen := map[string]bool{}
+		unique := make([]any, 0, len(required))
+		for _, item := range required {
+			if name, ok := item.(string); ok && !seen[name] {
+				unique = append(unique, name)
+				seen[name] = true
+			}
+		}
+		doc["required"] = unique
+	}
 	if properties, ok := doc["properties"].(map[string]any); ok {
 		for name, property := range properties {
-			if child, ok := property.(map[string]any); ok {
-				properties[name] = staticBodySchemaDocument(child)
-			}
+			child, _ := property.(map[string]any)
+			properties[name] = staticBodySchemaDocument(child)
 		}
 	}
 	if items, ok := doc["items"].(map[string]any); ok {
@@ -84,9 +104,8 @@ func staticBodySchemaDocument(doc map[string]any) map[string]any {
 	}
 	if allOf, ok := doc["allOf"].([]any); ok {
 		for i, item := range allOf {
-			if child, ok := item.(map[string]any); ok {
-				allOf[i] = staticBodySchemaDocument(child)
-			}
+			child, _ := item.(map[string]any)
+			allOf[i] = staticBodySchemaDocument(child)
 		}
 	}
 	if nullable {

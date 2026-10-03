@@ -74,6 +74,7 @@ type RawSchema struct {
 	Description          string   `json:",omitempty"`
 	Format               string   `json:",omitempty"`
 	Nullable             bool     `json:",omitempty"`
+	ReadOnly             bool     `json:",omitempty"`
 	Enum                 []string `json:",omitempty"`
 	Properties           map[string]*RawSchema
 	Required             []string `json:",omitempty"`

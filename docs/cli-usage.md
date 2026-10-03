@@ -378,7 +378,9 @@ scalar types, nullable values, nested properties/items, required fields, and
 payload at `body.merge_path`, such as GraphQL `variables`. GraphQL schemas
 preserve nullability; list singleton coercion and ID string/integer inputs use
 union schemas, and custom scalars remain untyped. These shapes do not acquire
-stricter static type validation. Regenerate modules for `SchemaVersion` 18
+stricter static type validation. Protobuf schemas preserve field nullability,
+numeric and enum string/number alternatives, and well-known ProtoJSON shapes
+such as timestamp strings and arbitrary `Value` JSON. Regenerate modules for `SchemaVersion` 18
 before upgrading the runtime; older generated modules fail mounting with a
 regeneration instruction.
 
@@ -389,7 +391,10 @@ non-JSON bodies retain their existing behavior.
 This is structural validation of the compiled subset, not full JSON Schema or
 OpenAPI validation. Enum, format, `anyOf`, `oneOf`, `additionalProperties`, and
 unresolved references (including recursive reference boundaries) are not
-validated by this preflight. No external references are fetched.
+validated by this preflight. Unknown type names and absent schema nodes are
+unconstrained; duplicate required names are deduplicated. Read-only properties
+do not become required request fields. Swagger `x-nullable` is preserved.
+No external references are fetched.
 
 ### Runtime Body Schema
 

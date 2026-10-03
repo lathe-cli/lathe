@@ -26,6 +26,7 @@
         "Schema": {
           "Ref": "#/definitions/demo.CreateUserPayload",
           "Type": "",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }
@@ -53,12 +54,14 @@
         "email": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         },
         "name": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }
@@ -72,6 +75,7 @@
         "id": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }

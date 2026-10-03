@@ -56,6 +56,8 @@ type schemaNode struct {
 	Description          string                      `json:"description,omitempty"`
 	Format               string                      `json:"format,omitempty"`
 	Enum                 []any                       `json:"enum,omitempty"`
+	Nullable             bool                        `json:"x-nullable,omitempty"`
+	ReadOnly             bool                        `json:"readOnly,omitempty"`
 	Properties           map[string]*schemaNode      `json:"properties,omitempty"`
 	Required             []string                    `json:"required,omitempty"`
 	Items                *schemaNode                 `json:"items,omitempty"`
@@ -246,6 +248,8 @@ func convertSchema(s *schemaNode) *rawir.RawSchema {
 		Description: s.Description,
 		Format:      s.Format,
 		Enum:        document.Strings(s.Enum),
+		Nullable:    s.Nullable,
+		ReadOnly:    s.ReadOnly,
 	}
 	if len(s.Properties) > 0 {
 		out.Properties = make(map[string]*rawir.RawSchema, len(s.Properties))

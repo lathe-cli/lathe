@@ -147,7 +147,7 @@ supported type mismatches, and missing required fields fail before transport
 with `usage` / exit `2`; error details contain body paths rather than body values.
 The supported subset and template-payload boundary are documented in
 [CLI usage](cli-usage.md#static-body-schema). Generated `SchemaVersion` is 18: regenerate modules before linking the new
-runtime so GraphQL input nullability and coercion metadata are current. Old
+runtime so GraphQL coercion and ProtoJSON input metadata are current. Old
 modules fail mounting with a regeneration instruction. `CatalogSchemaVersion`
 remains 25 because the catalog shape is unchanged.
 

@@ -45,6 +45,7 @@
         "street": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }
@@ -58,12 +59,14 @@
         "address": {
           "Ref": "#/definitions/demo.Address",
           "Type": "",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         },
         "id": {
           "Ref": "",
           "Type": "string",
+          "Nullable": true,
           "Properties": null,
           "Items": null
         }

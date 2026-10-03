@@ -88,9 +88,24 @@
       "Properties": {
         "total": {
           "Ref": "",
-          "Type": "integer",
+          "Type": "",
+          "Nullable": true,
           "Properties": null,
-          "Items": null
+          "Items": null,
+          "AnyOf": [
+            {
+              "Ref": "",
+              "Type": "integer",
+              "Properties": null,
+              "Items": null
+            },
+            {
+              "Ref": "",
+              "Type": "string",
+              "Properties": null,
+              "Items": null
+            }
+          ]
         }
       },
       "Items": null

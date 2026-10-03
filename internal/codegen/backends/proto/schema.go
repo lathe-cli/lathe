@@ -50,6 +50,9 @@ func (idx *index) messageToSchema(entry *messageEntry, out map[string]*rawir.Raw
 		return nil
 	}
 	typeName := entry.name
+	if schema := wellKnownSchema(typeName); schema != nil {
+		return schema
+	}
 	if visiting[typeName] {
 		return &rawir.RawSchema{Ref: rawir.RefPrefix + schemaKey(typeName)}
 	}
@@ -80,6 +83,9 @@ func (idx *index) bodyWildcardSchema(reqMsg *messageEntry, pathParamSet map[stri
 	if reqMsg == nil {
 		return nil
 	}
+	if schema := wellKnownSchema(reqMsg.name); schema != nil {
+		return schema
+	}
 	schema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
 	for _, f := range reqMsg.msg.Field {
 		if pathParamSet[f.GetName()] {
@@ -104,7 +110,7 @@ func (idx *index) fieldToSchema(f *descriptorpb.FieldDescriptorProto, out map[st
 			valueSchema = idx.fieldToSchema(value, out, visiting)
 		}
 		return &rawir.RawSchema{
-			Type: "object",
+			Type: "object", Nullable: true,
 			AdditionalProperties: &rawir.RawAdditionalProperties{
 				Allowed: true,
 				Schema:  valueSchema,
@@ -114,8 +120,10 @@ func (idx *index) fieldToSchema(f *descriptorpb.FieldDescriptorProto, out map[st
 	repeated := f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
 	s := scalarOrMessageSchema(idx, f, out, visiting)
 	if repeated {
-		return &rawir.RawSchema{Type: "array", Items: s}
+		s.Nullable = false
+		return &rawir.RawSchema{Type: "array", Items: s, Nullable: true}
 	}
+	s.Nullable = true
 	return s
 }
 
@@ -123,6 +131,9 @@ func scalarOrMessageSchema(idx *index, f *descriptorpb.FieldDescriptorProto, out
 	switch f.GetType() {
 	case descriptorpb.FieldDescriptorProto_TYPE_MESSAGE:
 		ref := f.GetTypeName()
+		if schema := wellKnownSchema(ref); schema != nil {
+			return schema
+		}
 		target := idx.messages[ref]
 		if target == nil {
 			return &rawir.RawSchema{Type: "object"}
@@ -133,7 +144,7 @@ func scalarOrMessageSchema(idx *index, f *descriptorpb.FieldDescriptorProto, out
 	case descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_TYPE_BYTES:
 		return &rawir.RawSchema{Type: "string"}
 	case descriptorpb.FieldDescriptorProto_TYPE_ENUM:
-		schema := &rawir.RawSchema{Type: "string"}
+		schema := &rawir.RawSchema{AnyOf: []*rawir.RawSchema{{Type: "string"}, {Type: "integer"}}}
 		if enum := idx.enums[f.GetTypeName()]; enum != nil {
 			for _, value := range enum.Value {
 				schema.Enum = append(schema.Enum, value.GetName())
@@ -145,10 +156,33 @@ func scalarOrMessageSchema(idx *index, f *descriptorpb.FieldDescriptorProto, out
 		descriptorpb.FieldDescriptorProto_TYPE_SINT32, descriptorpb.FieldDescriptorProto_TYPE_SINT64,
 		descriptorpb.FieldDescriptorProto_TYPE_FIXED32, descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
 		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32, descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
-		return &rawir.RawSchema{Type: "integer"}
+		return &rawir.RawSchema{AnyOf: []*rawir.RawSchema{{Type: "integer"}, {Type: "string"}}}
 	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT, descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
-		return &rawir.RawSchema{Type: "number"}
+		return &rawir.RawSchema{AnyOf: []*rawir.RawSchema{{Type: "number"}, {Type: "string"}}}
 	default:
 		return &rawir.RawSchema{Type: "string"}
+	}
+}
+
+func wellKnownSchema(name string) *rawir.RawSchema {
+	switch name {
+	case ".google.protobuf.Timestamp", ".google.protobuf.Duration", ".google.protobuf.FieldMask":
+		return &rawir.RawSchema{Type: "string"}
+	case ".google.protobuf.Any", ".google.protobuf.Struct", ".google.protobuf.Empty":
+		return &rawir.RawSchema{Type: "object"}
+	case ".google.protobuf.Value":
+		return &rawir.RawSchema{}
+	case ".google.protobuf.ListValue":
+		return &rawir.RawSchema{Type: "array"}
+	case ".google.protobuf.StringValue", ".google.protobuf.BytesValue":
+		return &rawir.RawSchema{Type: "string", Nullable: true}
+	case ".google.protobuf.BoolValue":
+		return &rawir.RawSchema{Type: "boolean", Nullable: true}
+	case ".google.protobuf.Int32Value", ".google.protobuf.Int64Value", ".google.protobuf.UInt32Value", ".google.protobuf.UInt64Value":
+		return &rawir.RawSchema{Nullable: true, AnyOf: []*rawir.RawSchema{{Type: "integer"}, {Type: "string"}}}
+	case ".google.protobuf.FloatValue", ".google.protobuf.DoubleValue":
+		return &rawir.RawSchema{Nullable: true, AnyOf: []*rawir.RawSchema{{Type: "number"}, {Type: "string"}}}
+	default:
+		return nil
 	}
 }
