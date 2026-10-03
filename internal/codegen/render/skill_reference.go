@@ -1,6 +1,7 @@
 package render
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -19,18 +20,31 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 	fmt.Fprintf(&b, "# Module `%s`\n\n", moduleName(mod))
 	b.WriteString("## Source\n\n")
 	if mod.Source != nil {
-		fmt.Fprintf(&b, "- Backend: `%s`\n", mod.Source.Backend)
+		p := SourceProvenance(mod.Source, mod.State)
+		fmt.Fprintf(&b, "- Backend: `%s`\n", p.Backend)
 		if mod.Source.DefaultHostname != nil {
 			fmt.Fprintf(&b, "- Default hostname: `%s`\n", *mod.Source.DefaultHostname)
 		}
-		fmt.Fprintf(&b, "- Repository: %s\n", valueOrUnknown(mod.Source.RepoURL))
-		fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(mod.Source.PinnedTag))
+		fmt.Fprintf(&b, "- Source kind: `%s`\n", p.Kind)
+		if p.Kind == "git" {
+			fmt.Fprintf(&b, "- Repository: `%s`\n", cmp.Or(p.RepoURL, "unknown"))
+			fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(p.PinnedTag))
+		}
 		for _, line := range sourceInputs(mod.Source) {
 			fmt.Fprintf(&b, "- %s\n", line)
 		}
-	}
-	if mod.State != nil && mod.State.ResolvedSHA != "" {
-		fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", mod.State.ResolvedSHA)
+		if p.Kind == "git" {
+			if p.ResolvedSHA != "" {
+				fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", p.ResolvedSHA)
+			}
+			if p.Reproducible {
+				b.WriteString("- Reproducible: yes\n")
+			} else {
+				b.WriteString("- Reproducible: no\n")
+			}
+		} else {
+			b.WriteString("- Reproducible: no — follows the local working tree; no immutable revision recorded\n")
+		}
 	}
 	b.WriteString("\n")
 	shortcutSection := false

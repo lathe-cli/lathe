@@ -81,7 +81,11 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 	var report verifyReport
 	testutil.NoError(t, json.Unmarshal(stdout.Bytes(), &report))
 	testutil.Require(t, report.OK, "report = %+v", report)
-	testutil.Require(t, report.Version == verifyReportVersion, "version = %d, want %d", report.Version, verifyReportVersion)
+	testutil.Require(t, report.Version == 2, "version = %d, want 2", report.Version)
+	testutil.Require(t, report.Provenance.SchemaVersion == runtime.SchemaVersion, "schema_version = %d, want %d", report.Provenance.SchemaVersion, runtime.SchemaVersion)
+	testutil.Require(t, report.Provenance.CatalogSchemaVersion == runtime.CatalogSchemaVersion, "catalog_schema_version = %d, want %d", report.Provenance.CatalogSchemaVersion, runtime.CatalogSchemaVersion)
+	testutil.Require(t, report.Provenance.Sources != nil && len(report.Provenance.Sources) == 0, "sources = %#v, want empty slice", report.Provenance.Sources)
+	testutil.Require(t, strings.Contains(stdout.String(), `"sources": []`), "json missing empty sources:\n%s", stdout.String())
 	for _, want := range []string{
 		"root_help",
 		"commands_schema",
@@ -194,6 +198,99 @@ func TestRunVerifyGeneratedFailureReturnsJSONOnly(t *testing.T) {
 	testutil.Require(t, !report.OK, "report unexpectedly passed: %+v", report)
 	if !strings.Contains(stdout.String(), "missing --id") {
 		t.Fatalf("report missing flag failure:\n%s", stdout.String())
+	}
+}
+
+func TestRunVerifyGeneratedProvenanceJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(RunOptions{
+		Manifest: []byte("cli:\n  name: myctl\n  short: test cli\n"),
+		Version:  "dev",
+		Commit:   "abc123",
+		Mount: func(root *cobra.Command) error {
+			if err := runtime.Build(root, "demo", []runtime.CommandSpec{{
+				Group:   "Users",
+				Use:     "get-user",
+				Short:   "Get a user",
+				Method:  "GET",
+				PathTpl: "/users/{id}",
+				Params: []runtime.ParamSpec{{
+					Name:     "id",
+					Flag:     "id",
+					In:       runtime.InPath,
+					GoType:   "string",
+					Required: true,
+				}},
+			}}); err != nil {
+				return err
+			}
+			runtime.AttachSourceProvenance(root, []runtime.SourceProvenance{
+				{ID: "pets", Backend: "openapi3", Kind: "git", RepoURL: "https://example.com/petstore.git", PinnedTag: "v1.0.0", ResolvedSHA: "def456", Reproducible: true},
+				{ID: "local", Backend: "openapi3", Kind: "local", Reproducible: false},
+			})
+			return nil
+		},
+	}, []string{"__lathe", "verify", "--json"}, &stdout, &stderr)
+	if code != runtime.ExitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
+	}
+	var report verifyReport
+	testutil.NoError(t, json.Unmarshal(stdout.Bytes(), &report))
+	testutil.Require(t, report.OK && report.Version == 2, "report = %+v", report)
+	testutil.Require(t, report.Provenance.CLI.Name == "myctl", "cli name = %q", report.Provenance.CLI.Name)
+	testutil.Require(t, report.Provenance.CLI.Version == "dev", "cli version = %q", report.Provenance.CLI.Version)
+	testutil.Require(t, report.Provenance.CLI.Commit == "abc123", "cli commit = %q", report.Provenance.CLI.Commit)
+	testutil.Require(t, len(report.Provenance.Sources) == 2, "sources = %#v", report.Provenance.Sources)
+	git := report.Provenance.Sources[0]
+	testutil.Require(t, git.Kind == "git" && git.RepoURL == "https://example.com/petstore.git" && git.ResolvedSHA == "def456" && git.Reproducible, "git source = %+v", git)
+	local := report.Provenance.Sources[1]
+	testutil.Require(t, local.Kind == "local" && local.RepoURL == "" && local.ResolvedSHA == "" && !local.Reproducible, "local source = %+v", local)
+	raw := stdout.String()
+	localJSON := raw[strings.LastIndex(raw, `"id": "local"`):]
+	testutil.Require(t, !strings.Contains(localJSON, `"repo_url"`) && !strings.Contains(localJSON, `"resolved_sha"`), "local source leaked identity fields:\n%s", localJSON)
+}
+
+func TestRunVerifyGeneratedHumanOutput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(RunOptions{
+		Manifest: []byte("cli:\n  name: myctl\n  short: test cli\n"),
+		Version:  "dev",
+		Commit:   "abc123",
+		Mount: func(root *cobra.Command) error {
+			if err := runtime.Build(root, "demo", []runtime.CommandSpec{{
+				Group:   "Users",
+				Use:     "get-user",
+				Short:   "Get a user",
+				Method:  "GET",
+				PathTpl: "/users/{id}",
+				Params: []runtime.ParamSpec{{
+					Name:     "id",
+					Flag:     "id",
+					In:       runtime.InPath,
+					GoType:   "string",
+					Required: true,
+				}},
+			}}); err != nil {
+				return err
+			}
+			runtime.AttachSourceProvenance(root, []runtime.SourceProvenance{
+				{ID: "pets", Backend: "openapi3", Kind: "git", RepoURL: "https://example.com/petstore.git", PinnedTag: "v1.0.0", ResolvedSHA: "def456", Reproducible: true},
+				{ID: "local", Backend: "openapi3", Kind: "local", Reproducible: false},
+			})
+			return nil
+		},
+	}, []string{"__lathe", "verify"}, &stdout, &stderr)
+	if code != runtime.ExitOK {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
+	}
+	got := stdout.String()
+	testutil.Require(t, !json.Valid(bytes.TrimSpace(stdout.Bytes())), "human output was JSON:\n%s", got)
+	for _, want := range []string{
+		"CLI: myctl dev (commit abc123)",
+		"Source pets: openapi3 git https://example.com/petstore.git v1.0.0 @ def456",
+		"not reproducible",
+	} {
+		testutil.Require(t, strings.Contains(got, want), "human output missing %q:\n%s", want, got)
 	}
 }
 

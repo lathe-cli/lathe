@@ -35,6 +35,7 @@ type ModuleMount struct {
 type ModulesGenOptions struct {
 	SkillBundle *SkillBundleMount
 	Workflows   bool
+	Sources     []runtime.SourceProvenance
 }
 
 type SkillBundleMount struct {
@@ -103,7 +104,8 @@ func RenderModulesGenWithOptions(modules []ModuleMount, opts ModulesGenOptions) 
 		Modules     []ModuleMount
 		SkillBundle *SkillBundleMount
 		Workflows   bool
-	}{mp + "/internal/generated/", modules, opts.SkillBundle, opts.Workflows}); err != nil {
+		Sources     []runtime.SourceProvenance
+	}{mp + "/internal/generated/", modules, opts.SkillBundle, opts.Workflows, opts.Sources}); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", ModulesGenFile, len(modules))
