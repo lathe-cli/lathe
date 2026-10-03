@@ -48,8 +48,13 @@ go mod init example.com/acme   # skip when go.mod exists
 lathe bootstrap
 go mod tidy
 go build -o bin/acmectl ./cmd/acmectl
+bin/acmectl __lathe verify
 bin/acmectl __lathe verify --json
 ```
+
+`__lathe verify` prints a human summary of CLI version, schema versions, and
+compiled source provenance. `--json` emits the versioned report; read
+`provenance` for schema versions and per-source revision.
 
 ## `cli.yaml`
 
@@ -345,7 +350,7 @@ Query arrays follow the declared style: repeated keys when the style is exploded
 
 These shapes fail codegen: object parameters, a style the location does not support, `spaceDelimited` or `pipeDelimited` on a non-array, array cookies, and Swagger `collectionFormat: tsv`. The check runs after overlays. `ignore: true` on that command, or an OpenAPI `expose` list that leaves the operation out, removes the failure. Swagger array query parameters with no `collectionFormat` send one comma-separated value, which is the `csv` default.
 
-Regenerate modules for SchemaVersion 19 and CatalogSchemaVersion 26 before upgrading the runtime. Catalog flags include `style`, `explode`, and `allow_reserved` only when they differ from the location default.
+Regenerate modules for SchemaVersion 21 and CatalogSchemaVersion 28 before upgrading the runtime. Catalog flags include `style`, `explode`, and `allow_reserved` only when they differ from the location default.
 
 ### JSON Body Flags
 
@@ -390,7 +395,9 @@ preserve nullability; list singleton coercion and ID string/integer inputs use
 union schemas, and custom scalars remain untyped. These shapes do not acquire
 stricter static type validation. Protobuf schemas preserve field nullability,
 numeric and enum string/number alternatives, and well-known ProtoJSON shapes
-such as timestamp strings and arbitrary `Value` JSON. SchemaVersion 18 introduced this metadata. Current modules are SchemaVersion 19; regenerate before upgrading the runtime. Older generated modules fail mounting with a regeneration instruction.
+such as timestamp strings and arbitrary `Value` JSON. Regenerate modules
+before upgrading the runtime; older generated modules fail mounting with a
+regeneration instruction.
 
 Failures exit with usage code `2` and identify the body path without including
 body values. Optional omitted bodies, commands without a compiled schema, and
@@ -555,6 +562,51 @@ go build -o bin/acmectl ./cmd/acmectl
 bin/acmectl __lathe verify --json
 ```
 
+## Binary Responses
+
+A generated operation is binary when its success response is not JSON and not a
+configured stream, and either every success schema is Swagger `type: file` or
+OpenAPI `type: string, format: binary`, or the media type is
+`application/octet-stream`, `application/pdf`, `application/zip`,
+`application/gzip`, or a top-level `image`, `audio`, `video`, or `font` type
+whose subtype does not end in `+xml`. Any 2xx response that declares its own
+JSON or stream media type (`text/event-stream` or ndjson), including a `202`
+next to a `200` file response, keeps the operation from being binary. Swagger
+`produces` is not applied to each status for that check. Protobuf and
+GraphQL operations are not binary. A response that prefers JSON is not binary.
+`text/csv` without `format: binary` stays text. There is no overlay switch for
+this classification.
+
+Binary commands require `--output-file`, or the renamed flag in
+`output.binary.flag` when a parameter already uses that name. Pass a path that
+does not exist, or `-` to write the raw bytes to stdout. An existing file,
+directory, symlink, or dangling symlink is a usage error and no request is
+sent. A missing or unwritable destination directory is the same kind of usage
+error; its detail includes the system error without the path (`no such file
+or directory`, `permission denied`). The command writes a temporary file in
+the destination directory and publishes it only after a complete 2xx response.
+When the declared type is specific, such as `application/pdf`, `image/png`, or
+`application/zip`, a JSON (`application/json` or `*+json`) or `text/html`
+Content-Type is rejected before any byte is written. Declared
+`application/octet-stream`, `*/*`, or any media type containing a wildcard
+keeps the stored object's type, including JSON and HTML. The final file mode
+is `0600`. Ctrl-C (SIGINT), a non-2xx response, that unexpected media type, or
+a read or write failure removes the temporary file and leaves no output file.
+A process killed by another signal
+may leave a hidden `.<name>.*.part` file next to the target. Publishing the
+file happens after the request completed, so a failure there, including the
+path appearing in the meantime, is a general error: the output file is not
+written. `-o` changes only error rendering. Binary commands do not register
+`--wait`. Workflow steps cannot call a binary operation.
+`runtime.InvokeOperation` still buffers the body.
+
+```sh
+bin/acmectl reports download --report-id r1 --output-file report.pdf
+```
+
+Regenerate modules for `SchemaVersion` 20 and refresh catalog consumers for
+`CatalogSchemaVersion` 27.
+
 ## Agent Operation Loop
 
 ```sh
@@ -581,6 +633,8 @@ Rules:
 7. For a flag with `input_modes`, prefer `--<flag>-env`, `--<flag>-file`, or
    `--<flag>-stdin` for sensitive values.
 8. Branch on structured `error.code` and process exit status, not error prose.
+9. When `output.binary` is present, pass `--<output.binary.flag>` with a new
+   path, or `-` when piping to another program.
 
 Framework commands such as `auth`, `commands`, `completion`, `search`,
 `skill`, `update`, and `__lathe` are documented by `--help`; generated API

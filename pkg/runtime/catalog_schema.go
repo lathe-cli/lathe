@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 26
+const CatalogSchemaVersion = 28
 
 const DefaultSearchLimit = 20
 
@@ -116,8 +116,9 @@ type CatalogHTTP struct {
 }
 
 type CatalogAuth struct {
-	Required bool     `json:"required"`
-	Scopes   []string `json:"scopes,omitempty"`
+	Required     bool                  `json:"required"`
+	Scopes       []string              `json:"scopes,omitempty"`
+	Requirements []SecurityRequirement `json:"requirements,omitempty"`
 }
 
 type CatalogDryRun struct {
@@ -208,6 +209,11 @@ type CatalogOutput struct {
 	ResponseMediaType string                  `json:"response_media_type,omitempty"`
 	Pagination        *CatalogPagination      `json:"pagination,omitempty"`
 	Streaming         *CatalogStreaming       `json:"streaming,omitempty"`
+	Binary            *CatalogBinaryOutput    `json:"binary,omitempty"`
+}
+
+type CatalogBinaryOutput struct {
+	Flag string `json:"flag"`
 }
 
 type CatalogPagination struct {

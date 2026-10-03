@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
-const SchemaVersion = 19
+const SchemaVersion = 21
 
 type CommandSpec struct {
 	Group           string
@@ -162,6 +163,7 @@ type OutputHints struct {
 	ResponseMediaType string
 	Pagination        *PaginationHint
 	Streaming         *StreamingHint
+	Binary            bool `json:",omitempty"`
 }
 
 type ColumnFormat struct {
@@ -214,8 +216,29 @@ type StreamLiveHint struct {
 }
 
 type SecurityHint struct {
-	Public bool
-	Scopes []string
+	Public       bool
+	Scopes       []string
+	Requirements []SecurityRequirement `json:",omitempty"`
+}
+
+type SecurityRequirement struct {
+	Schemes []SecurityScheme `json:"schemes,omitempty"`
+}
+
+type SecurityScheme struct {
+	Name   string   `json:"name"`
+	Type   string   `json:"type,omitempty"`
+	Scheme string   `json:"scheme,omitempty"`
+	In     string   `json:"in,omitempty"`
+	Param  string   `json:"param,omitempty"`
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+func (s SecurityScheme) String() string {
+	if s.Type == "" {
+		return s.Name
+	}
+	return s.Name + " (" + strings.Join(strings.Fields(strings.Join([]string{s.Type, s.Scheme, s.In, s.Param}, " ")), " ") + ")"
 }
 
 type KnownError struct {

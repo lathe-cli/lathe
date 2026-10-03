@@ -259,7 +259,11 @@ func catalogAuth(security *SecurityHint) CatalogAuth {
 	if security == nil {
 		return CatalogAuth{Required: true}
 	}
-	return CatalogAuth{Required: !security.Public, Scopes: append([]string(nil), security.Scopes...)}
+	return CatalogAuth{
+		Required:     !security.Public,
+		Scopes:       append([]string(nil), security.Scopes...),
+		Requirements: append([]SecurityRequirement(nil), security.Requirements...),
+	}
 }
 
 func catalogOutput(output OutputHints) CatalogOutput {

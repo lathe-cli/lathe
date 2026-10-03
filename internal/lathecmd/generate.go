@@ -134,7 +134,7 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 			}
 		}
 		specs = render.RewriteCommandExamples(manifest.CLI.Name, cliName, specs, flat)
-		generated.Modules = append(generated.Modules, app.Module{Source: src.Name, CLIName: cliName, Flat: flat, Specs: specs})
+		generated.Modules = append(generated.Modules, app.Module{Source: src.Name, CLIName: cliName, Flat: flat, Specs: specs, Provenance: render.SourceProvenance(src, state)})
 		if generated.Skill != nil {
 			generated.Skill.Modules = append(generated.Skill.Modules, render.SkillModule{Source: src, State: state, Specs: specs})
 		}

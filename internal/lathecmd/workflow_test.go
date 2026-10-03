@@ -27,6 +27,17 @@ func TestBuildWorkflowSpecs_CarriesConditions(t *testing.T) {
 	testutil.Require(t, len(got[0].Values) == 1 && got[0].Values[0] == "gpu", "values = %#v", got[0].Values)
 }
 
+func TestBuildWorkflowSpecs_RejectsBinaryStep(t *testing.T) {
+	modules := conditionTestModules()
+	modules[0].Specs[0].Output.Binary = true
+	_, err := buildWorkflowSpecs(workflowManifestWithSteps([]config.WorkflowStep{{
+		ID:   "deploy",
+		Uses: "console.Apps_Get",
+	}}), modules, nil)
+	want := `workflow command "deploy" step "deploy": operation "Apps_Get" returns a binary response; workflow steps cannot consume binary responses`
+	testutil.Require(t, err != nil && err.Error() == want, "error = %v", err)
+}
+
 func TestBuildWorkflowSpecs_RejectsBadConditionReferences(t *testing.T) {
 	cases := map[string]struct {
 		steps []config.WorkflowStep

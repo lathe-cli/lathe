@@ -92,7 +92,9 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 		Name:    name,
 		Schemas: map[string]*rawir.RawSchema{},
 	}
+	var schemes map[string]document.SecurityScheme
 	if doc.Components != nil {
+		schemes = doc.Components.SecuritySchemes
 		for k, v := range doc.Components.Schemas {
 			mod.Schemas[k] = convertSchema(v)
 		}
@@ -116,13 +118,13 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 			if pair.op == nil {
 				continue
 			}
-			mod.Operations = append(mod.Operations, convertOp(pair.op, pair.method, path, pathParams, doc.Security))
+			mod.Operations = append(mod.Operations, convertOp(pair.op, pair.method, path, pathParams, doc.Security, schemes))
 		}
 	}
 	return mod
 }
 
-func convertOp(op *operation, method, path string, pathParams []parameter, globalSecurity []map[string][]string) rawir.RawOperation {
+func convertOp(op *operation, method, path string, pathParams []parameter, globalSecurity []map[string][]string, schemes map[string]document.SecurityScheme) rawir.RawOperation {
 	out := rawir.RawOperation{
 		OperationID:    op.OperationID,
 		Summary:        op.Summary,
@@ -163,7 +165,7 @@ func convertOp(op *operation, method, path string, pathParams []parameter, globa
 	if op.Security != nil {
 		sec = *op.Security
 	}
-	out.Security = document.Security(sec)
+	out.Security = document.Security(sec, schemes)
 	return out
 }
 

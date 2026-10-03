@@ -31,7 +31,8 @@ type serverVariable struct {
 }
 
 type components struct {
-	Schemas map[string]*schemaNode `json:"schemas,omitempty" yaml:"schemas,omitempty"`
+	Schemas         map[string]*schemaNode             `json:"schemas,omitempty" yaml:"schemas,omitempty"`
+	SecuritySchemes map[string]document.SecurityScheme `json:"securitySchemes,omitempty" yaml:"securitySchemes,omitempty"`
 }
 
 type pathItem struct {
@@ -147,19 +148,18 @@ func unmarshalAuto(path string, data []byte, v any) error {
 
 func mergeDoc(dst, add *oas3Doc, module, origin string) {
 	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
-	if add.Components != nil && len(add.Components.Schemas) > 0 {
+	if add.Components != nil {
 		if dst.Components == nil {
-			dst.Components = &components{Schemas: map[string]*schemaNode{}}
+			dst.Components = &components{}
 		}
-		for k, v := range add.Components.Schemas {
-			if existing, exists := dst.Components.Schemas[k]; exists {
-				if !document.EqualJSON(existing, v) {
-					fmt.Fprintf(os.Stderr, "warn: %s: diverging schema %q in %s (kept first)\n", module, k, origin)
-				}
-				continue
-			}
-			dst.Components.Schemas[k] = v
+		if dst.Components.Schemas == nil {
+			dst.Components.Schemas = map[string]*schemaNode{}
 		}
+		if dst.Components.SecuritySchemes == nil {
+			dst.Components.SecuritySchemes = map[string]document.SecurityScheme{}
+		}
+		document.MergeNamed(dst.Components.Schemas, add.Components.Schemas, "schema", module, origin)
+		document.MergeNamed(dst.Components.SecuritySchemes, add.Components.SecuritySchemes, "security scheme", module, origin)
 	}
 	for path, item := range add.Paths {
 		if _, exists := dst.Paths[path]; !exists {

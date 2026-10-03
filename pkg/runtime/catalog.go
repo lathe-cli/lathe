@@ -15,10 +15,15 @@ const catalogCapabilitiesAnnotation = "lathe.catalog.capabilities"
 
 const catalogDryRunWiredAnnotation = "lathe.dry_run.wired"
 
+const catalogBinaryOutputAnnotation = "lathe.output.binary"
+
 func AttachCatalogCommand(cmd *cobra.Command, service string, spec CommandSpec) {
 	entry := catalogCommand(service, spec, nil)
 	if flag := WiredDryRunFlag(cmd); flag != "" {
 		entry.DryRun = &CatalogDryRun{Mode: DryRunHTTPPreview, Flag: flag}
+	}
+	if flag := cmd.Annotations[catalogBinaryOutputAnnotation]; flag != "" {
+		entry.Output.Binary = &CatalogBinaryOutput{Flag: flag}
 	}
 	raw, err := json.Marshal(entry)
 	if err != nil {

@@ -31,6 +31,28 @@ func TestCatalogFlags_SerializationJSON(t *testing.T) {
 	testutil.Check(t, got[1]["location"] == InQuery && got[2]["location"] == InQuery, "locations = %s", data)
 }
 
+func TestCatalogAuth_SecurityRequirements(t *testing.T) {
+	root := newRootWithModuleGroup()
+	mustBuild(t, root, "demo", []CommandSpec{{
+		Group: "Items", Use: "get", Method: "GET", PathTpl: "/items",
+		Security: &SecurityHint{
+			Public: true,
+			Requirements: []SecurityRequirement{
+				{},
+				{Schemes: []SecurityScheme{{Name: "bearerAuth", Type: "http", Scheme: "bearer"}}},
+				{Schemes: []SecurityScheme{
+					{Name: "bearerAuth", Type: "http", Scheme: "bearer"},
+					{Name: "apiKeyAuth", Type: "apiKey", In: "header", Param: "X-API-Key"},
+				}},
+			},
+		},
+	}})
+	data, err := json.Marshal(BuildCatalog(root, CatalogOptions{}).Commands[0].Auth)
+	testutil.NoError(t, err)
+	want := `{"required":false,"requirements":[{},{"schemes":[{"name":"bearerAuth","type":"http","scheme":"bearer"}]},{"schemes":[{"name":"bearerAuth","type":"http","scheme":"bearer"},{"name":"apiKeyAuth","type":"apiKey","in":"header","param":"X-API-Key"}]}]}`
+	testutil.Require(t, string(data) == want, "auth = %s", data)
+}
+
 func TestCatalog_GroupDescription(t *testing.T) {
 	root := newRootWithModuleGroup()
 	mustBuild(t, root, "demo", []CommandSpec{{Group: "Users", GroupShort: "Manage user accounts", Use: "list", Method: "GET"}})

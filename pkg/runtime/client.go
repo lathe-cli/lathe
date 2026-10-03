@@ -20,16 +20,17 @@ import (
 )
 
 type ClientOptions struct {
-	Auth        Authenticator
-	RefreshAuth func(context.Context) (Authenticator, error)
-	Transport   http.RoundTripper
-	Insecure    bool
-	Timeout     time.Duration
-	Headers     map[string]string
-	Debug       bool
-	MaxRetries  int
-	UserAgent   string
-	Accept      string
+	Auth               Authenticator
+	RefreshAuth        func(context.Context) (Authenticator, error)
+	Transport          http.RoundTripper
+	Insecure           bool
+	Timeout            time.Duration
+	Headers            map[string]string
+	Debug              bool
+	MaxRetries         int
+	UserAgent          string
+	Accept             string
+	binaryContentGuard bool
 
 	sensitiveQueryParams map[string]bool
 	checkRedirect        func(*http.Request, []*http.Request) error
@@ -295,6 +296,11 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 			Body:        data,
 		}
 	}
+	if opts.binaryContentGuard {
+		if media, reject := rejectBinaryContentType(opts.Accept, resp.Header.Get("Content-Type")); reject {
+			return nil, binaryContentTypeError(media, resp.StatusCode)
+		}
+	}
 	if consume != nil {
 		data, err := consume(resp.Body)
 		if err != nil {
@@ -308,6 +314,41 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 		return nil, newAPIError(fmt.Errorf("read response: %w", err), resp.StatusCode)
 	}
 	return &RawResult{Body: data, StatusCode: resp.StatusCode, Header: resp.Header}, nil
+}
+
+func rejectBinaryContentType(declared, actual string) (string, bool) {
+	got, _, err := mime.ParseMediaType(actual)
+	if err != nil {
+		return "", false
+	}
+	got = strings.ToLower(got)
+	if !jsonOrHTMLMedia(got) || declaredAllowsStoredMedia(declared) {
+		return "", false
+	}
+	want, _, err := mime.ParseMediaType(declared)
+	if err == nil && jsonOrHTMLMedia(strings.ToLower(want)) {
+		return "", false
+	}
+	return got, true
+}
+
+func declaredAllowsStoredMedia(declared string) bool {
+	base, _, err := mime.ParseMediaType(declared)
+	if err != nil {
+		return strings.Contains(declared, "*")
+	}
+	base = strings.ToLower(base)
+	return base == "application/octet-stream" || strings.Contains(base, "*")
+}
+
+func jsonOrHTMLMedia(base string) bool {
+	return base == "text/html" || base == "application/json" || strings.HasSuffix(base, "+json")
+}
+
+func binaryContentTypeError(media string, status int) error {
+	le := newAPIError(errors.New("unexpected response media type"), status)
+	le.Detail = sanitizeErrorDetail("unexpected response media type " + media)
+	return le
 }
 
 func redactClientError(err error, sensitive map[string]bool) error {
