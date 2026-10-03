@@ -25,6 +25,15 @@ type RawOperation struct {
 }
 
 type RawSecurityReq struct {
+	Schemes []RawSecurityScheme
+}
+
+type RawSecurityScheme struct {
+	Name   string
+	Type   string
+	Scheme string
+	In     string
+	Param  string
 	Scopes []string
 }
 

@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 25
+const CatalogSchemaVersion = 26
 
 const DefaultSearchLimit = 20
 
@@ -116,8 +116,9 @@ type CatalogHTTP struct {
 }
 
 type CatalogAuth struct {
-	Required bool     `json:"required"`
-	Scopes   []string `json:"scopes,omitempty"`
+	Required     bool                  `json:"required"`
+	Scopes       []string              `json:"scopes,omitempty"`
+	Requirements []SecurityRequirement `json:"requirements,omitempty"`
 }
 
 type CatalogDryRun struct {

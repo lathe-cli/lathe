@@ -80,6 +80,27 @@ an overlay group summary (CatalogSchemaVersion 25). Generated declarations
 reuse `CommandSpec.GroupShort`; SchemaVersion remains 17. Regenerate downstream
 CLIs to pick up source descriptions.
 
+Operation `auth.requirements` preserves OpenAPI security alternatives and
+combinations. Any one requirement entry satisfies the command, and every
+scheme inside an entry is required. An empty entry `{}` allows anonymous
+access and sets `auth.required` to false. Scheme objects carry `name` and,
+when declared, `type`, `scheme`, `in`, `param`, and `scopes`; they never
+carry credential values. `auth.scopes` stays the sorted, deduplicated union
+of those scopes. Workflow entries still aggregate `required` and `scopes`
+and omit `requirements`. Protobuf and GraphQL operations declare none.
+Satisfaction is checked against the resolved request: the stored credential
+plus header and query parameters passed to the command. A bearer
+`Authorization` satisfies `http` bearer, `oauth2`, and `openIdConnect`; basic
+satisfies `http` basic; an `Authorization` value set by an API key credential
+or a parameter satisfies any `http`, `oauth2`, or `openIdConnect` scheme; an
+`apiKey` scheme is satisfied when its `param` header, query parameter, or
+cookie is non-empty (a stored API key is sent in its configured header,
+default `X-API-Key`). Undefined scheme names, mutual TLS, unknown scheme
+types, custom authenticators, and a nil authenticator are left unchecked. A
+request that satisfies no entry fails with `not_authenticated` before it is
+sent, and `error.detail` lists the accepted alternatives.
+(SchemaVersion 19, CatalogSchemaVersion 26). Regenerate downstream CLIs.
+
 Search is discovery only. Inspect the selected command with `commands show`
 before execution. Read `mutation` and `dry_run` from that JSON; do not infer
 write vs read from the HTTP method, and do not assume a `--dry-run` flag is
@@ -137,6 +158,10 @@ The raw response body is never emitted in any layer.
 | `not_authenticated` | 4 |
 | `canceled` | 130 |
 
+`not_authenticated` is also returned before any request when the stored
+credential and request parameters satisfy no declared security requirement. `error.detail` then
+lists the accepted alternatives from spec metadata only.
+
 A configured stream pause is a successful terminal outcome and exits `0`.
 
 ## Static request-body validation
@@ -146,10 +171,10 @@ workflows, public operation invocation, and HTTP dry-run previews. Invalid JSON,
 supported type mismatches, and missing required fields fail before transport
 with `usage` / exit `2`; error details contain body paths rather than body values.
 The supported subset and template-payload boundary are documented in
-[CLI usage](cli-usage.md#static-body-schema). Generated `SchemaVersion` is 18: regenerate modules before linking the new
-runtime so GraphQL coercion and ProtoJSON input metadata are current. Old
-modules fail mounting with a regeneration instruction. `CatalogSchemaVersion`
-remains 25 because the catalog shape is unchanged.
+[CLI usage](cli-usage.md#static-body-schema). SchemaVersion 18 added this
+validation, including GraphQL coercion and ProtoJSON input metadata.
+Regenerate modules before linking a newer runtime. Old modules fail mounting
+with a regeneration instruction.
 
 ## Host provenance
 

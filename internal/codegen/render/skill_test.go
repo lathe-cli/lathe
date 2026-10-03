@@ -32,6 +32,28 @@ func TestBodySummary_TemplatedEnvelopeGuidesMergePath(t *testing.T) {
 	testutil.Check(t, strings.Contains(got, "variables") && strings.Contains(got, "--set"), "bodySummary = %q, want merge-path guidance", got)
 }
 
+func TestAuthSummary_SecurityRequirements(t *testing.T) {
+	got := authSummary(&runtime.SecurityHint{
+		Scopes: []string{"users`write"},
+		Requirements: []runtime.SecurityRequirement{
+			{},
+			{Schemes: []runtime.SecurityScheme{
+				{Name: "bearer`Auth", Type: "http", Scheme: "bearer"},
+				{Name: "tenantKey", Type: "apiKey", In: "header", Param: "X-Tenant-Key"},
+			}},
+		},
+	})
+	for _, want := range []string{
+		"required; scopes: `users'write`",
+		"accepts:",
+		"`anonymous`",
+		"`bearer'Auth (http bearer)`",
+		"`tenantKey (apiKey header X-Tenant-Key)`",
+	} {
+		testutil.Require(t, strings.Contains(got, want), "authSummary = %q, missing %q", got, want)
+	}
+}
+
 func TestBodySummary_PlainBodyUnchanged(t *testing.T) {
 	got := bodySummary(&runtime.RequestBody{Required: true, MediaType: "application/json"})
 	if want := "required; media type `application/json`"; got != want {

@@ -38,6 +38,20 @@
       "Scopes": [
         "read:pets",
         "write:pets"
+      ],
+      "Requirements": [
+        {
+          "schemes": [
+            {
+              "name": "petstore_auth",
+              "type": "oauth2",
+              "scopes": [
+                "write:pets",
+                "read:pets"
+              ]
+            }
+          ]
+        }
       ]
     }
   }

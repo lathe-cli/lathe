@@ -204,3 +204,16 @@ func missingHostCredentialsError(hostname string, configured []string) error {
 		ErrNotAuthenticated,
 	)
 }
+
+func unsatisfiedSecurityError(hostname string, hint *SecurityHint) error {
+	cli := config.Active().CLI.Name
+	err := NewError(
+		CodeNotAuthenticated,
+		ExitNotAuthenticated,
+		fmt.Sprintf("credentials for host %q satisfy no auth requirement of this command", hostname),
+		fmt.Sprintf("run `%s auth login --hostname <host> --auth-type <type>` with a credential accepted by `commands show <path...> --json` auth.requirements", cli),
+		ErrNotAuthenticated,
+	)
+	err.Detail = sanitizeErrorDetail("accepts: " + securityAcceptance(hint))
+	return err
+}

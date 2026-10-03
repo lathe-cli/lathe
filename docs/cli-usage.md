@@ -380,7 +380,7 @@ preserve nullability; list singleton coercion and ID string/integer inputs use
 union schemas, and custom scalars remain untyped. These shapes do not acquire
 stricter static type validation. Protobuf schemas preserve field nullability,
 numeric and enum string/number alternatives, and well-known ProtoJSON shapes
-such as timestamp strings and arbitrary `Value` JSON. Regenerate modules for `SchemaVersion` 18
+such as timestamp strings and arbitrary `Value` JSON. Regenerate modules for `SchemaVersion` 19
 before upgrading the runtime; older generated modules fail mounting with a
 regeneration instruction.
 
