@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 26
+const CatalogSchemaVersion = 29
 
 const DefaultSearchLimit = 20
 
@@ -116,8 +116,9 @@ type CatalogHTTP struct {
 }
 
 type CatalogAuth struct {
-	Required bool     `json:"required"`
-	Scopes   []string `json:"scopes,omitempty"`
+	Required     bool                  `json:"required"`
+	Scopes       []string              `json:"scopes,omitempty"`
+	Requirements []SecurityRequirement `json:"requirements,omitempty"`
 }
 
 type CatalogDryRun struct {
@@ -168,23 +169,26 @@ type CatalogRuntimeSchema struct {
 }
 
 type CatalogFlag struct {
-	Name        string                 `json:"name"`
-	Flag        string                 `json:"flag"`
-	Aliases     []string               `json:"aliases,omitempty"`
-	Argument    string                 `json:"argument,omitempty"`
-	Position    int                    `json:"position,omitempty"`
-	Location    string                 `json:"location"`
-	Type        string                 `json:"type"`
-	Required    bool                   `json:"required"`
-	Default     string                 `json:"default,omitempty"`
-	Enum        []string               `json:"enum,omitempty"`
-	ItemEnum    []string               `json:"item_enum,omitempty"`
-	Format      string                 `json:"format,omitempty"`
-	ContentType string                 `json:"content_type,omitempty"`
-	InputModes  []string               `json:"input_modes,omitempty"`
-	Deprecated  bool                   `json:"deprecated"`
-	Help        string                 `json:"help,omitempty"`
-	Context     *CatalogContextBinding `json:"context,omitempty"`
+	Name          string                 `json:"name"`
+	Flag          string                 `json:"flag"`
+	Aliases       []string               `json:"aliases,omitempty"`
+	Argument      string                 `json:"argument,omitempty"`
+	Position      int                    `json:"position,omitempty"`
+	Location      string                 `json:"location"`
+	Type          string                 `json:"type"`
+	Required      bool                   `json:"required"`
+	Default       string                 `json:"default,omitempty"`
+	Enum          []string               `json:"enum,omitempty"`
+	ItemEnum      []string               `json:"item_enum,omitempty"`
+	Format        string                 `json:"format,omitempty"`
+	ContentType   string                 `json:"content_type,omitempty"`
+	InputModes    []string               `json:"input_modes,omitempty"`
+	Deprecated    bool                   `json:"deprecated"`
+	Help          string                 `json:"help,omitempty"`
+	Context       *CatalogContextBinding `json:"context,omitempty"`
+	Style         string                 `json:"style,omitempty"`
+	Explode       bool                   `json:"explode,omitempty"`
+	AllowReserved bool                   `json:"allow_reserved,omitempty"`
 }
 
 type CatalogContextBinding struct {
@@ -207,6 +211,11 @@ type CatalogOutput struct {
 	ResponseMediaType string                  `json:"response_media_type,omitempty"`
 	Pagination        *CatalogPagination      `json:"pagination,omitempty"`
 	Streaming         *CatalogStreaming       `json:"streaming,omitempty"`
+	Binary            *CatalogBinaryOutput    `json:"binary,omitempty"`
+}
+
+type CatalogBinaryOutput struct {
+	Flag string `json:"flag"`
 }
 
 type CatalogPagination struct {

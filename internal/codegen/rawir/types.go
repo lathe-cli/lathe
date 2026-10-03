@@ -25,19 +25,31 @@ type RawOperation struct {
 }
 
 type RawSecurityReq struct {
+	Schemes []RawSecurityScheme
+}
+
+type RawSecurityScheme struct {
+	Name   string
+	Type   string
+	Scheme string
+	In     string
+	Param  string
 	Scopes []string
 }
 
 type RawParameter struct {
-	Name        string
-	In          string
-	Required    bool
-	Type        string
-	Description string
-	Default     string
-	Enum        []string
-	Format      string
-	Deprecated  bool
+	Name          string
+	In            string
+	Required      bool
+	Type          string
+	Description   string
+	Default       string
+	Enum          []string
+	Format        string
+	Deprecated    bool
+	Style         string `json:",omitempty"`
+	Explode       *bool  `json:",omitempty"`
+	AllowReserved bool   `json:",omitempty"`
 }
 
 type RawRequestBody struct {

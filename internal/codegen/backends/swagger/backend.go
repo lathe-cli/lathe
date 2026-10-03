@@ -15,11 +15,12 @@ import (
 )
 
 type swaggerDoc struct {
-	Tags        []document.Tag                  `json:"tags"`
-	Produces    []string                        `json:"produces"`
-	Definitions map[string]*schemaNode          `json:"definitions"`
-	Paths       map[string]map[string]operation `json:"paths"`
-	Security    []map[string][]string           `json:"security"`
+	Tags                []document.Tag                     `json:"tags"`
+	Produces            []string                           `json:"produces"`
+	Definitions         map[string]*schemaNode             `json:"definitions"`
+	SecurityDefinitions map[string]document.SecurityScheme `json:"securityDefinitions"`
+	Paths               map[string]map[string]operation    `json:"paths"`
+	Security            []map[string][]string              `json:"security"`
 }
 
 type operation struct {
@@ -34,16 +35,17 @@ type operation struct {
 }
 
 type parameter struct {
-	Name        string      `json:"name"`
-	In          string      `json:"in"`
-	Required    bool        `json:"required"`
-	Type        string      `json:"type"`
-	Format      string      `json:"format,omitempty"`
-	Description string      `json:"description"`
-	Schema      *schemaNode `json:"schema,omitempty"`
-	Default     any         `json:"default,omitempty"`
-	Enum        []any       `json:"enum,omitempty"`
-	Deprecated  bool        `json:"x-deprecated,omitempty"`
+	Name             string      `json:"name"`
+	In               string      `json:"in"`
+	Required         bool        `json:"required"`
+	Type             string      `json:"type"`
+	Format           string      `json:"format,omitempty"`
+	Description      string      `json:"description"`
+	Schema           *schemaNode `json:"schema,omitempty"`
+	Default          any         `json:"default,omitempty"`
+	Enum             []any       `json:"enum,omitempty"`
+	Deprecated       bool        `json:"x-deprecated,omitempty"`
+	CollectionFormat string      `json:"collectionFormat"`
 }
 
 type response struct {
@@ -89,8 +91,9 @@ func (p *schemaAdditionalProperties) UnmarshalJSON(data []byte) error {
 
 func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 	all := &swaggerDoc{
-		Definitions: map[string]*schemaNode{},
-		Paths:       map[string]map[string]operation{},
+		Definitions:         map[string]*schemaNode{},
+		SecurityDefinitions: map[string]document.SecurityScheme{},
+		Paths:               map[string]map[string]operation{},
 	}
 	for _, rel := range src.Swagger.Files {
 		p := filepath.Join(syncDir, rel)
@@ -135,15 +138,8 @@ func applyEffectiveSecurity(doc *swaggerDoc) {
 
 func mergeDoc(dst, add *swaggerDoc, module, origin string) {
 	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
-	for k, v := range add.Definitions {
-		if existing, exists := dst.Definitions[k]; exists {
-			if !document.EqualJSON(existing, v) {
-				fmt.Fprintf(os.Stderr, "warn: %s: diverging definition %q in %s (kept first)\n", module, k, origin)
-			}
-			continue
-		}
-		dst.Definitions[k] = v
-	}
+	document.MergeNamed(dst.Definitions, add.Definitions, "definition", module, origin)
+	document.MergeNamed(dst.SecurityDefinitions, add.SecurityDefinitions, "security scheme", module, origin)
 	for path, methods := range add.Paths {
 		bucket, ok := dst.Paths[path]
 		if !ok {
@@ -178,13 +174,13 @@ func toRawIR(name string, doc *swaggerDoc) *rawir.RawModule {
 			if !ok {
 				continue
 			}
-			mod.Operations = append(mod.Operations, convertOp(op, m, path, doc.Produces, doc.Security))
+			mod.Operations = append(mod.Operations, convertOp(op, m, path, doc.Produces, doc.Security, doc.SecurityDefinitions))
 		}
 	}
 	return mod
 }
 
-func convertOp(op operation, method, path string, docProduces []string, globalSecurity []map[string][]string) rawir.RawOperation {
+func convertOp(op operation, method, path string, docProduces []string, globalSecurity []map[string][]string, schemes map[string]document.SecurityScheme) rawir.RawOperation {
 	out := rawir.RawOperation{
 		OperationID: op.OperationID,
 		Summary:     op.Summary,
@@ -215,7 +211,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, Schema: convertSchema(p.Schema)}
 			continue
 		}
-		out.Parameters = append(out.Parameters, rawir.RawParameter{
+		raw := rawir.RawParameter{
 			Name:        p.Name,
 			In:          p.In,
 			Required:    p.Required,
@@ -225,7 +221,13 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 			Enum:        document.Strings(p.Enum),
 			Format:      p.Format,
 			Deprecated:  p.Deprecated,
-		})
+		}
+		if p.Type == "array" && (p.In == "query" || p.In == "path") {
+			style, explode := swaggerCollection(p.CollectionFormat, p.In)
+			raw.Style = style
+			raw.Explode = &explode
+		}
+		out.Parameters = append(out.Parameters, raw)
 	}
 	for code, resp := range op.Responses {
 		out.Responses[code] = &rawir.RawResponse{Schema: convertSchema(resp.Schema)}
@@ -234,8 +236,35 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 	if op.Security != nil {
 		sec = *op.Security
 	}
-	out.Security = document.Security(sec)
+	out.Security = document.Security(sec, schemes)
 	return out
+}
+
+func swaggerCollection(format, in string) (string, bool) {
+	switch format {
+	case "ssv":
+		if in == "path" {
+			return format, false
+		}
+		return "spaceDelimited", false
+	case "pipes":
+		if in == "path" {
+			return format, false
+		}
+		return "pipeDelimited", false
+	case "tsv":
+		return "tabDelimited", false
+	case "multi":
+		return "form", true
+	default:
+		if format != "" && format != "csv" {
+			return format, false
+		}
+		if in == "query" {
+			return "form", false
+		}
+		return "simple", false
+	}
 }
 
 func convertSchema(s *schemaNode) *rawir.RawSchema {

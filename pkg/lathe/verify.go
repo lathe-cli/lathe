@@ -18,9 +18,23 @@ import (
 )
 
 type verifyReport struct {
-	Version int           `json:"version"`
-	OK      bool          `json:"ok"`
-	Checks  []verifyCheck `json:"checks"`
+	Version    int              `json:"version"`
+	OK         bool             `json:"ok"`
+	Provenance verifyProvenance `json:"provenance"`
+	Checks     []verifyCheck    `json:"checks"`
+}
+
+type verifyProvenance struct {
+	CLI                  verifyCLI                  `json:"cli"`
+	SchemaVersion        int                        `json:"schema_version"`
+	CatalogSchemaVersion int                        `json:"catalog_schema_version"`
+	Sources              []runtime.SourceProvenance `json:"sources"`
+}
+
+type verifyCLI struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Commit  string `json:"commit,omitempty"`
 }
 
 type verifyCheck struct {
@@ -31,7 +45,7 @@ type verifyCheck struct {
 
 type verifyFailedError struct{}
 
-const verifyReportVersion = 1
+const verifyReportVersion = 2
 
 func (verifyFailedError) Error() string {
 	return "generated CLI verify failed"
@@ -42,13 +56,20 @@ func (verifyFailedError) SilentExitCode() int {
 }
 
 func verifyCmd(m *config.Manifest) *cobra.Command {
+	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify generated CLI contract",
 		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			report := verifyGenerated(cmd.Root(), m)
-			if err := writeJSON(cmd, report); err != nil {
+			var err error
+			if jsonOut {
+				err = writeJSON(cmd, report)
+			} else {
+				err = writeVerifyText(cmd, report)
+			}
+			if err != nil {
 				return err
 			}
 			if !report.OK {
@@ -57,12 +78,40 @@ func verifyCmd(m *config.Manifest) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("json", false, "Emit verify JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit verify JSON")
 	return cmd
 }
 
 func verifyGenerated(root *cobra.Command, m *config.Manifest) verifyReport {
-	report := verifyReport{Version: verifyReportVersion, OK: true}
+	version, commit, _ := VersionInfo()
+	if commit == "none" {
+		commit = ""
+	}
+	cliName := ""
+	if m != nil {
+		cliName = m.CLI.Name
+	}
+	if root != nil && root.Name() != "" {
+		cliName = root.Name()
+	}
+	sources := runtime.SourceProvenanceOf(root)
+	if sources == nil {
+		sources = []runtime.SourceProvenance{}
+	}
+	report := verifyReport{
+		Version: verifyReportVersion,
+		OK:      true,
+		Provenance: verifyProvenance{
+			CLI: verifyCLI{
+				Name:    cliName,
+				Version: version,
+				Commit:  commit,
+			},
+			SchemaVersion:        runtime.SchemaVersion,
+			CatalogSchemaVersion: runtime.CatalogSchemaVersion,
+			Sources:              sources,
+		},
+	}
 	catalog := runtime.BuildCatalog(root, catalogOptions(m, false))
 
 	report.add("root_help", verifyRootHelp(root, m.CLI.Name))
@@ -90,6 +139,64 @@ func (r *verifyReport) add(name string, err error) {
 		r.OK = false
 	}
 	r.Checks = append(r.Checks, check)
+}
+
+func writeVerifyText(cmd *cobra.Command, report verifyReport) error {
+	out := cmd.OutOrStdout()
+	cli := report.Provenance.CLI
+	if cli.Commit != "" {
+		fmt.Fprintf(out, "CLI: %s %s (commit %s)\n", cli.Name, cli.Version, cli.Commit)
+	} else {
+		fmt.Fprintf(out, "CLI: %s %s\n", cli.Name, cli.Version)
+	}
+	fmt.Fprintf(out, "Schema: %d (catalog %d)\n", report.Provenance.SchemaVersion, report.Provenance.CatalogSchemaVersion)
+	if len(report.Provenance.Sources) == 0 {
+		fmt.Fprintln(out, "Sources: not recorded; regenerate with current lathe")
+	} else {
+		for _, src := range report.Provenance.Sources {
+			fmt.Fprintln(out, formatVerifySource(src))
+		}
+	}
+	passed, failed := 0, 0
+	for _, check := range report.Checks {
+		if check.OK {
+			passed++
+		} else {
+			failed++
+		}
+	}
+	fmt.Fprintf(out, "Checks: %d passed, %d failed\n", passed, failed)
+	for _, check := range report.Checks {
+		if !check.OK {
+			fmt.Fprintf(out, "  FAIL %s: %s\n", check.Name, check.Error)
+		}
+	}
+	return nil
+}
+
+func formatVerifySource(src runtime.SourceProvenance) string {
+	if src.Kind == "local" {
+		return fmt.Sprintf("Source %s: %s local, not reproducible (follows the local working tree)", src.ID, src.Backend)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Source %s: %s git", src.ID, src.Backend)
+	if src.RepoURL != "" {
+		fmt.Fprintf(&b, " %s", src.RepoURL)
+	} else {
+		b.WriteString(" (repository unknown)")
+	}
+	if src.PinnedTag != "" {
+		fmt.Fprintf(&b, " %s", src.PinnedTag)
+	}
+	if src.ResolvedSHA != "" {
+		fmt.Fprintf(&b, " @ %s", src.ResolvedSHA)
+	}
+	if src.Reproducible {
+		b.WriteString(", reproducible")
+	} else {
+		b.WriteString(", not reproducible")
+	}
+	return b.String()
 }
 
 func verifyRootHelp(root *cobra.Command, cliName string) error {
@@ -191,6 +298,9 @@ func verifyCatalogEntry(root *cobra.Command, m *config.Manifest, entry runtime.C
 	}
 	if err := verifyCatalogContract(entry); err != nil {
 		return fmt.Errorf("%q %w", path, err)
+	}
+	if entry.Output.Binary != nil && cmd.Flags().Lookup(entry.Output.Binary.Flag) == nil {
+		return fmt.Errorf("%q catalog binary requires missing --%s flag", path, entry.Output.Binary.Flag)
 	}
 	if entry.DryRun != nil && entry.DryRun.Mode == runtime.DryRunHTTPPreview {
 		if runtime.WiredDryRunFlag(cmd) != entry.DryRun.Flag {

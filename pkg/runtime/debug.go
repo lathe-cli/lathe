@@ -45,10 +45,26 @@ func redactDebugURL(u *url.URL, sensitive map[string]bool) string {
 }
 
 func redactDebugQuery(raw string, sensitive map[string]bool) string {
-	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == '&' || r == ';' })
+	parts := strings.Split(raw, "&")
 	changed := false
 	for i, part := range parts {
-		name, _, ok := strings.Cut(part, "=")
+		redacted, partChanged := redactDebugQuerySegments(part, sensitive)
+		if partChanged {
+			parts[i] = redacted
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	return strings.Join(parts, "&")
+}
+
+func redactDebugQuerySegments(part string, sensitive map[string]bool) (string, bool) {
+	segments := strings.Split(part, ";")
+	changed := false
+	for i, segment := range segments {
+		name, _, ok := strings.Cut(segment, "=")
 		if !ok {
 			continue
 		}
@@ -57,14 +73,14 @@ func redactDebugQuery(raw string, sensitive map[string]bool) string {
 			decoded = name
 		}
 		if sensitive[strings.ToLower(decoded)] || isSensitiveDebugQueryName(decoded) {
-			parts[i] = name + "=" + url.QueryEscape("***")
+			segments[i] = name + "=" + url.QueryEscape("***")
 			changed = true
 		}
 	}
 	if !changed {
-		return raw
+		return part, false
 	}
-	return strings.Join(parts, "&")
+	return strings.Join(segments, ";"), true
 }
 
 func isSensitiveDebugQueryName(name string) bool {

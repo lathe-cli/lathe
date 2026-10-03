@@ -6,11 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
@@ -109,4 +111,109 @@ func TestBuild_DryRunPrintsResolvedRequestWithoutSending(t *testing.T) {
 	testutil.Require(t, envVar["key"] == "MANUAL_DRY_RUN" && envVar["value"] == "***", "envVar = %#v", envVar)
 	testutil.Require(t, out.Auth.Required && !out.Auth.Public, "auth = %+v", out.Auth)
 	testutil.Require(t, out.Output.ListPath == "data.items" && out.Output.ResponseMediaType == "application/vnd.demo+json" && reflect.DeepEqual(out.Output.DefaultColumns, []string{"id", "name"}), "output = %+v", out.Output)
+}
+
+func TestDryRun_ParameterSerializationMatchesWire(t *testing.T) {
+	isolateRuntime(t)
+	hits := 0
+	var gotPath, gotQuery, gotCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		gotPath = r.URL.EscapedPath()
+		gotQuery = r.URL.RawQuery
+		gotCookie = r.Header.Get("Cookie")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	hosts, err := config.LoadHosts()
+	testutil.NoError(t, err)
+	hosts.Set(srv.URL, config.HostEntry{AuthType: "apikey", APIKey: "sid=s", APIKeyHeader: "Cookie"})
+	testutil.NoError(t, hosts.Save())
+
+	spec := CommandSpec{
+		Group: "Users", Use: "list", Method: "GET", PathTpl: "/users",
+		Security: &SecurityHint{Public: true},
+		Params: []ParamSpec{
+			{Name: "roles", Flag: "roles", In: InQuery, GoType: "[]string", Style: "spaceDelimited"},
+			{Name: "q", Flag: "q", In: InQuery, GoType: "string", AllowReserved: true},
+			{Name: "tenant", Flag: "tenant", In: InCookie, GoType: "string"},
+			{Name: "token", Flag: "token", In: InCookie, GoType: "string"},
+		},
+	}
+	args := []string{"demo", "users", "list", "--hostname", srv.URL, "--roles", "admin,owner", "--q", "a/b:c?d#e&f=g+h", "--tenant", "acme", "--token", "sekret"}
+
+	root := newExecutionRoot("raw")
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	mustBuild(t, root, "demo", []CommandSpec{spec})
+	root.SetArgs(args)
+	testutil.NoError(t, root.Execute())
+	testutil.Require(t, hits == 1, "live hits = %d", hits)
+	testutil.Check(t, gotCookie == "sid=s; tenant=acme; token=sekret", "cookie = %q", gotCookie)
+
+	var stdout bytes.Buffer
+	preview := newExecutionRoot("raw")
+	preview.SetOut(&stdout)
+	preview.SetErr(io.Discard)
+	mustBuild(t, preview, "demo", []CommandSpec{spec})
+	preview.SetArgs(append(append([]string{}, args...), "--dry-run"))
+	testutil.NoError(t, preview.Execute())
+	testutil.Require(t, hits == 1, "dry-run sent a request, hits = %d", hits)
+
+	var out struct {
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+	}
+	testutil.NoError(t, json.Unmarshal(stdout.Bytes(), &out))
+	parsed, err := url.Parse(out.URL)
+	testutil.NoError(t, err)
+	testutil.Check(t, parsed.EscapedPath() == gotPath, "dry-run path = %q, wire = %q", parsed.EscapedPath(), gotPath)
+	testutil.Check(t, parsed.RawQuery == gotQuery, "dry-run query = %q, wire = %q", parsed.RawQuery, gotQuery)
+	testutil.Check(t, gotQuery == "q=a/b:c?d%23e%26f%3Dg%2Bh&roles=admin%20owner", "query = %q", gotQuery)
+	testutil.Check(t, out.Headers["Cookie"] == "sid=***; tenant=acme; token=***", "dry-run cookie = %q", out.Headers["Cookie"])
+	testutil.Check(t, !strings.Contains(stdout.String(), "sekret") && !strings.Contains(stdout.String(), "sid=s"), "dry-run leaked cookie: %s", stdout.String())
+}
+
+func TestDryRun_RedactsAuthCookieSharingPublicName(t *testing.T) {
+	isolateRuntime(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	hosts, err := config.LoadHosts()
+	testutil.NoError(t, err)
+	hosts.Set(srv.URL, config.HostEntry{AuthType: "apikey", APIKey: "tenant=SECRET", APIKeyHeader: "Cookie"})
+	testutil.NoError(t, hosts.Save())
+
+	spec := CommandSpec{
+		Group: "Users", Use: "list", Method: "GET", PathTpl: "/users",
+		Security: &SecurityHint{Public: true},
+		Params: []ParamSpec{
+			{Name: "tenant", Flag: "tenant", In: InCookie, GoType: "string"},
+			{Name: "csrf_token", Flag: "csrf-token", In: InCookie, GoType: "string"},
+			{Name: "session", Flag: "session", In: InCookie, GoType: "string"},
+			{Name: "sid", Flag: "sid", In: InCookie, GoType: "string"},
+			{Name: "color", Flag: "color", In: InCookie, GoType: "string"},
+		},
+	}
+	var stdout bytes.Buffer
+	root := newExecutionRoot("raw")
+	root.SetOut(&stdout)
+	root.SetErr(io.Discard)
+	mustBuild(t, root, "demo", []CommandSpec{spec})
+	root.SetArgs([]string{"demo", "users", "list", "--hostname", srv.URL, "--dry-run", "--tenant", "acme", "--csrf-token", "csrf-secret-value", "--session", "session-secret-value", "--sid", "sid-secret-value", "--color", "blue"})
+	testutil.NoError(t, root.Execute())
+
+	var out struct {
+		Headers map[string]string `json:"headers"`
+	}
+	testutil.NoError(t, json.Unmarshal(stdout.Bytes(), &out))
+	testutil.Check(t, out.Headers["Cookie"] == "tenant=***; tenant=acme; csrf_token=***; session=***; sid=***; color=blue", "cookie = %q", out.Headers["Cookie"])
+	for _, secret := range []string{"SECRET", "csrf-secret-value", "session-secret-value", "sid-secret-value"} {
+		testutil.Check(t, !strings.Contains(stdout.String(), secret), "dry-run leaked %s: %s", secret, stdout.String())
+	}
 }

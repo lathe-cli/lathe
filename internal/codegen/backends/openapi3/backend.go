@@ -93,7 +93,9 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 		Name:    name,
 		Schemas: map[string]*rawir.RawSchema{},
 	}
+	var schemes map[string]document.SecurityScheme
 	if doc.Components != nil {
+		schemes = doc.Components.SecuritySchemes
 		for k, v := range doc.Components.Schemas {
 			mod.Schemas[k] = convertSchema(v)
 		}
@@ -117,13 +119,13 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 			if pair.op == nil {
 				continue
 			}
-			mod.Operations = append(mod.Operations, convertOp(pair.op, pair.method, path, pathParams, doc.Security))
+			mod.Operations = append(mod.Operations, convertOp(pair.op, pair.method, path, pathParams, doc.Security, schemes))
 		}
 	}
 	return mod
 }
 
-func convertOp(op *operation, method, path string, pathParams []parameter, globalSecurity []map[string][]string) rawir.RawOperation {
+func convertOp(op *operation, method, path string, pathParams []parameter, globalSecurity []map[string][]string, schemes map[string]document.SecurityScheme) rawir.RawOperation {
 	out := rawir.RawOperation{
 		OperationID:    op.OperationID,
 		Summary:        op.Summary,
@@ -176,7 +178,7 @@ func convertOp(op *operation, method, path string, pathParams []parameter, globa
 	if op.Security != nil {
 		sec = *op.Security
 	}
-	out.Security = document.Security(sec)
+	out.Security = document.Security(sec, schemes)
 	return out
 }
 
@@ -192,16 +194,24 @@ func convertParam(p parameter) rawir.RawParameter {
 		def = document.String(p.Schema.Default)
 		enum = document.Strings(p.Schema.Enum)
 	}
+	var explode *bool
+	if p.Explode != nil {
+		value := *p.Explode
+		explode = &value
+	}
 	return rawir.RawParameter{
-		Name:        p.Name,
-		In:          p.In,
-		Required:    p.Required,
-		Type:        typ,
-		Description: p.Description,
-		Default:     def,
-		Enum:        enum,
-		Format:      format,
-		Deprecated:  p.Deprecated,
+		Name:          p.Name,
+		In:            p.In,
+		Required:      p.Required,
+		Type:          typ,
+		Description:   p.Description,
+		Default:       def,
+		Enum:          enum,
+		Format:        format,
+		Deprecated:    p.Deprecated,
+		Style:         p.Style,
+		Explode:       explode,
+		AllowReserved: p.AllowReserved,
 	}
 }
 

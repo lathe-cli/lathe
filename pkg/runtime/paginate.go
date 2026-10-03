@@ -162,26 +162,31 @@ func relayHasNextPath(tokenField string) string {
 }
 
 func setQueryParam(basePath, key, value string) string {
-	qIdx := -1
-	for i, c := range basePath {
-		if c == '?' {
-			qIdx = i
-			break
+	pathPart, queryStr, _ := strings.Cut(basePath, "?")
+	var b strings.Builder
+	if queryStr != "" {
+		for _, pair := range strings.Split(queryStr, "&") {
+			name, _, _ := strings.Cut(pair, "=")
+			decoded, err := url.QueryUnescape(name)
+			if err != nil {
+				decoded = name
+			}
+			if decoded == key {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteByte('&')
+			}
+			b.WriteString(pair)
 		}
 	}
-	var pathPart, queryStr string
-	if qIdx >= 0 {
-		pathPart = basePath[:qIdx]
-		queryStr = basePath[qIdx+1:]
-	} else {
-		pathPart = basePath
+	if b.Len() > 0 {
+		b.WriteByte('&')
 	}
-	q, err := url.ParseQuery(queryStr)
-	if err != nil {
-		q = url.Values{}
-	}
-	q.Set(key, value)
-	return fmt.Sprintf("%s?%s", pathPart, q.Encode())
+	b.WriteString(url.QueryEscape(key))
+	b.WriteByte('=')
+	b.WriteString(url.QueryEscape(value))
+	return pathPart + "?" + b.String()
 }
 
 func buildMergedJSON(items []json.RawMessage, listPath string) ([]byte, error) {

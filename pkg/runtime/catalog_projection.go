@@ -152,23 +152,26 @@ func catalogFlags(params []ParamSpec) []CatalogFlag {
 			argumentPosition = position
 		}
 		flags = append(flags, CatalogFlag{
-			Name:        p.Name,
-			Flag:        p.Flag,
-			Aliases:     append([]string(nil), p.Aliases...),
-			Argument:    p.Argument,
-			Position:    argumentPosition,
-			Location:    p.In,
-			Type:        p.GoType,
-			Required:    p.Required,
-			Default:     p.Default,
-			Enum:        append([]string(nil), p.Enum...),
-			ItemEnum:    append([]string(nil), p.ItemEnum...),
-			Format:      p.Format,
-			ContentType: p.ContentType,
-			InputModes:  inputModes,
-			Deprecated:  p.Deprecated,
-			Help:        p.Help,
-			Context:     catalogContextBinding(p),
+			Name:          p.Name,
+			Flag:          p.Flag,
+			Aliases:       append([]string(nil), p.Aliases...),
+			Argument:      p.Argument,
+			Position:      argumentPosition,
+			Location:      p.In,
+			Type:          p.GoType,
+			Required:      p.Required,
+			Default:       p.Default,
+			Enum:          append([]string(nil), p.Enum...),
+			ItemEnum:      append([]string(nil), p.ItemEnum...),
+			Format:        p.Format,
+			ContentType:   p.ContentType,
+			InputModes:    inputModes,
+			Deprecated:    p.Deprecated,
+			Help:          p.Help,
+			Context:       catalogContextBinding(p),
+			Style:         p.Style,
+			Explode:       p.Explode,
+			AllowReserved: p.AllowReserved,
 		})
 	}
 	return flags
@@ -258,7 +261,11 @@ func catalogAuth(security *SecurityHint) CatalogAuth {
 	if security == nil {
 		return CatalogAuth{Required: true}
 	}
-	return CatalogAuth{Required: !security.Public, Scopes: append([]string(nil), security.Scopes...)}
+	return CatalogAuth{
+		Required:     !security.Public,
+		Scopes:       append([]string(nil), security.Scopes...),
+		Requirements: append([]SecurityRequirement(nil), security.Requirements...),
+	}
 }
 
 func catalogOutput(output OutputHints) CatalogOutput {

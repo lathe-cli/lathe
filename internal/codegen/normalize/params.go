@@ -22,6 +22,9 @@ func parameter(p rawir.RawParameter) runtime.ParamSpec {
 	switch p.In {
 	case runtime.InPath:
 		spec.Required = true
+		if p.Type == "array" {
+			spec.GoType = "[]string"
+		}
 	case runtime.InQuery, runtime.InFormData, runtime.InVariable:
 		switch p.Type {
 		case "integer":
@@ -40,7 +43,23 @@ func parameter(p rawir.RawParameter) runtime.ParamSpec {
 			}
 		}
 	}
+	applySerialization(&spec, p)
 	return spec
+}
+
+func applySerialization(spec *runtime.ParamSpec, p rawir.RawParameter) {
+	switch p.In {
+	case runtime.InPath, runtime.InQuery, runtime.InHeader, runtime.InCookie:
+	default:
+		return
+	}
+	spec.AllowReserved = p.AllowReserved && p.In == runtime.InQuery
+	style, explode, err := serialization(p)
+	if err != nil || defaultSerialization(p.In, style, explode) {
+		return
+	}
+	spec.Style = style
+	spec.Explode = explode
 }
 
 func variableFlagName(name string) string {
@@ -349,6 +368,30 @@ func multipartContentType(declared, fallback string) string {
 		return fallback
 	}
 	return strings.Join(kept, ", ")
+}
+
+func disambiguateCookieParamFlags(params []runtime.ParamSpec) {
+	used := make(map[string]bool, len(params))
+	for _, param := range params {
+		if param.In != runtime.InCookie {
+			used[param.Flag] = true
+		}
+	}
+	for i := range params {
+		if params[i].In != runtime.InCookie {
+			continue
+		}
+		flag := params[i].Flag
+		if used[flag] {
+			base := "cookie-" + flag
+			flag = base
+			for suffix := 2; used[flag]; suffix++ {
+				flag = fmt.Sprintf("%s-%d", base, suffix)
+			}
+			params[i].Flag = flag
+		}
+		used[flag] = true
+	}
 }
 
 func disambiguateMultipartParamFlags(existing, body []runtime.ParamSpec) {

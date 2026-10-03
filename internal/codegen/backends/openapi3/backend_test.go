@@ -441,6 +441,69 @@ func TestParse_SecuritySemantics(t *testing.T) {
 	}
 }
 
+func TestParse_SecurityRequirements(t *testing.T) {
+	schemes := `"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"Bearer","description":"omit"},"apiKeyAuth":{"type":"apiKey","in":"header","name":"X-API-Key"},"tenantKey":{"type":"apiKey","in":"header","name":"X-Tenant-Key","x-example":"omit"}}}`
+	bearer := runtime.SecurityScheme{Name: "bearerAuth", Type: "http", Scheme: "bearer"}
+	bearerRead := bearer
+	bearerRead.Scopes = []string{"read"}
+	apiKey := runtime.SecurityScheme{Name: "apiKeyAuth", Type: "apiKey", In: "header", Param: "X-API-Key"}
+	tenant := runtime.SecurityScheme{Name: "tenantKey", Type: "apiKey", In: "header", Param: "X-Tenant-Key"}
+	cases := []struct {
+		name     string
+		security string
+		want     *runtime.SecurityHint
+	}{
+		{
+			name:     "or",
+			security: `[{"bearerAuth":["read"]},{"apiKeyAuth":[]}]`,
+			want: &runtime.SecurityHint{
+				Scopes: []string{"read"},
+				Requirements: []runtime.SecurityRequirement{
+					{Schemes: []runtime.SecurityScheme{bearerRead}},
+					{Schemes: []runtime.SecurityScheme{apiKey}},
+				},
+			},
+		},
+		{
+			name:     "and",
+			security: `[{"tenantKey":[],"bearerAuth":[]}]`,
+			want: &runtime.SecurityHint{Requirements: []runtime.SecurityRequirement{{
+				Schemes: []runtime.SecurityScheme{bearer, tenant},
+			}}},
+		},
+		{
+			name:     "anonymous alternative",
+			security: `[{},{"bearerAuth":[]}]`,
+			want: &runtime.SecurityHint{
+				Public: true,
+				Requirements: []runtime.SecurityRequirement{
+					{},
+					{Schemes: []runtime.SecurityScheme{bearer}},
+				},
+			},
+		},
+		{
+			name:     "empty object is public",
+			security: `[{}]`,
+			want:     &runtime.SecurityHint{Public: true, Requirements: []runtime.SecurityRequirement{{}}},
+		},
+		{
+			name:     "undefined name",
+			security: `[{"missing":[]}]`,
+			want: &runtime.SecurityHint{Requirements: []runtime.SecurityRequirement{{
+				Schemes: []runtime.SecurityScheme{{Name: "missing"}},
+			}}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"openapi":"3.0.3",` + schemes + `,"paths":{"/items":{"get":{"operationId":"Items_Get","security":` + tc.security + `,"responses":{"200":{}}}}}}`
+			got := parseNormalized(t, input)[0].Security
+			testutil.Require(t, reflect.DeepEqual(got, tc.want), "security = %#v\nwant %#v", got, tc.want)
+		})
+	}
+}
+
 func parseNormalized(t *testing.T, input string) []runtime.CommandSpec {
 	t.Helper()
 	mod, err := parseInput(t, input, ".json", nil)
@@ -448,6 +511,53 @@ func parseNormalized(t *testing.T, input string) []runtime.CommandSpec {
 	specs := normalize.Normalize(mod)
 	testutil.Require(t, len(specs) != 0, "Normalize produced no commands")
 	return specs
+}
+
+func TestParse_ParameterSerialization(t *testing.T) {
+	input := `
+openapi: "3.0.3"
+paths:
+  /items/{id}:
+    get:
+      operationId: Items_Get
+      parameters:
+        - name: id
+          in: path
+          required: true
+          style: label
+          explode: false
+          schema:
+            type: string
+        - name: roles
+          in: query
+          style: form
+          explode: false
+          allowReserved: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: tenant
+          in: cookie
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+`
+	mod, err := parseInput(t, input, ".yaml", nil)
+	testutil.NoError(t, err)
+	testutil.Require(t, len(mod.Operations) == 1, "operations = %d", len(mod.Operations))
+	byName := map[string]rawir.RawParameter{}
+	for _, param := range mod.Operations[0].Parameters {
+		byName[param.Name] = param
+	}
+	id := byName["id"]
+	testutil.Check(t, id.Style == "label" && id.Explode != nil && !*id.Explode && !id.AllowReserved, "id = %+v", id)
+	roles := byName["roles"]
+	testutil.Check(t, roles.In == "query" && roles.Type == "array" && roles.Style == "form" && roles.Explode != nil && !*roles.Explode && roles.AllowReserved, "roles = %+v", roles)
+	tenant := byName["tenant"]
+	testutil.Check(t, tenant.In == "cookie" && tenant.Type == "string" && tenant.Style == "" && tenant.Explode == nil && !tenant.AllowReserved, "tenant = %+v", tenant)
 }
 
 func TestParse_RejectsOpenAPI31MultiTypeUnion(t *testing.T) {

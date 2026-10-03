@@ -174,6 +174,83 @@ func collectScalarPaths(s *rawir.RawSchema, prefix string, maxDepth int, out map
 	}
 }
 
+func binaryResponse(op rawir.RawOperation, responseMediaType string, schemas map[string]*rawir.RawSchema) bool {
+	base := baseMediaType(responseMediaType)
+	if base == "" || isJSONMediaType(base) || streamingStrategy(base) != "" {
+		return false
+	}
+	if binaryBlockedByOtherStatus(op) {
+		return false
+	}
+	return binarySchemas(op, schemas) || binaryMediaBase(base)
+}
+
+func binaryBlockedByOtherStatus(op rawir.RawOperation) bool {
+	for code, response := range op.Responses {
+		if !is2xxStatus(code) {
+			continue
+		}
+		if response == nil || response.MediaType == "" {
+			continue
+		}
+		if isJSONMediaType(response.MediaType) || streamingStrategy(response.MediaType) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func is2xxStatus(code string) bool {
+	if strings.EqualFold(code, "2XX") {
+		return true
+	}
+	if len(code) != 3 {
+		return false
+	}
+	status, err := strconv.Atoi(code)
+	return err == nil && status >= 200 && status <= 299
+}
+
+func binarySchemas(op rawir.RawOperation, schemas map[string]*rawir.RawSchema) bool {
+	responses := successResponses(op)
+	if len(responses) == 0 {
+		return false
+	}
+	for _, response := range responses {
+		if response == nil || response.Schema == nil || !binaryResolvedSchema(rawir.Resolve(response.Schema, schemas)) {
+			return false
+		}
+	}
+	return true
+}
+
+func binaryResolvedSchema(schema *rawir.RawSchema) bool {
+	if schema == nil {
+		return false
+	}
+	if schema.Type == "file" {
+		return true
+	}
+	return schema.Type == "string" && schema.Format == "binary"
+}
+
+func binaryMediaBase(base string) bool {
+	switch base {
+	case "application/octet-stream", "application/pdf", "application/zip", "application/gzip":
+		return true
+	}
+	typ, sub, ok := strings.Cut(base, "/")
+	if !ok {
+		return false
+	}
+	switch typ {
+	case "image", "audio", "video", "font":
+		return !strings.HasSuffix(sub, "+xml")
+	default:
+		return false
+	}
+}
+
 func deriveResponseMediaType(op rawir.RawOperation) string {
 	responses := successResponses(op)
 	if len(responses) == 0 {
@@ -392,19 +469,29 @@ func deriveSecurity(op rawir.RawOperation) *runtime.SecurityHint {
 	if op.Security == nil {
 		return nil
 	}
-	if len(op.Security) == 0 {
-		return &runtime.SecurityHint{Public: true}
-	}
+	hint := &runtime.SecurityHint{Public: len(op.Security) == 0}
 	seen := map[string]bool{}
-	var scopes []string
 	for _, req := range op.Security {
-		for _, s := range req.Scopes {
-			if !seen[s] {
-				seen[s] = true
-				scopes = append(scopes, s)
+		var out runtime.SecurityRequirement
+		for _, s := range req.Schemes {
+			out.Schemes = append(out.Schemes, runtime.SecurityScheme{
+				Name:   s.Name,
+				Type:   s.Type,
+				Scheme: s.Scheme,
+				In:     s.In,
+				Param:  s.Param,
+				Scopes: append([]string(nil), s.Scopes...),
+			})
+			for _, scope := range s.Scopes {
+				if !seen[scope] {
+					seen[scope] = true
+					hint.Scopes = append(hint.Scopes, scope)
+				}
 			}
 		}
+		hint.Public = hint.Public || len(out.Schemes) == 0
+		hint.Requirements = append(hint.Requirements, out)
 	}
-	sort.Strings(scopes)
-	return &runtime.SecurityHint{Scopes: scopes}
+	sort.Strings(hint.Scopes)
+	return hint
 }
