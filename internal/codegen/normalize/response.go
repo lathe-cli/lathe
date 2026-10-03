@@ -174,6 +174,83 @@ func collectScalarPaths(s *rawir.RawSchema, prefix string, maxDepth int, out map
 	}
 }
 
+func binaryResponse(op rawir.RawOperation, responseMediaType string, schemas map[string]*rawir.RawSchema) bool {
+	base := baseMediaType(responseMediaType)
+	if base == "" || isJSONMediaType(base) || streamingStrategy(base) != "" {
+		return false
+	}
+	if binaryBlockedByOtherStatus(op) {
+		return false
+	}
+	return binarySchemas(op, schemas) || binaryMediaBase(base)
+}
+
+func binaryBlockedByOtherStatus(op rawir.RawOperation) bool {
+	for code, response := range op.Responses {
+		if !is2xxStatus(code) {
+			continue
+		}
+		if response == nil || response.MediaType == "" {
+			continue
+		}
+		if isJSONMediaType(response.MediaType) || streamingStrategy(response.MediaType) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func is2xxStatus(code string) bool {
+	if strings.EqualFold(code, "2XX") {
+		return true
+	}
+	if len(code) != 3 {
+		return false
+	}
+	status, err := strconv.Atoi(code)
+	return err == nil && status >= 200 && status <= 299
+}
+
+func binarySchemas(op rawir.RawOperation, schemas map[string]*rawir.RawSchema) bool {
+	responses := successResponses(op)
+	if len(responses) == 0 {
+		return false
+	}
+	for _, response := range responses {
+		if response == nil || response.Schema == nil || !binaryResolvedSchema(rawir.Resolve(response.Schema, schemas)) {
+			return false
+		}
+	}
+	return true
+}
+
+func binaryResolvedSchema(schema *rawir.RawSchema) bool {
+	if schema == nil {
+		return false
+	}
+	if schema.Type == "file" {
+		return true
+	}
+	return schema.Type == "string" && schema.Format == "binary"
+}
+
+func binaryMediaBase(base string) bool {
+	switch base {
+	case "application/octet-stream", "application/pdf", "application/zip", "application/gzip":
+		return true
+	}
+	typ, sub, ok := strings.Cut(base, "/")
+	if !ok {
+		return false
+	}
+	switch typ {
+	case "image", "audio", "video", "font":
+		return !strings.HasSuffix(sub, "+xml")
+	default:
+		return false
+	}
+}
+
 func deriveResponseMediaType(op rawir.RawOperation) string {
 	responses := successResponses(op)
 	if len(responses) == 0 {

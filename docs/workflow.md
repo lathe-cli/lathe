@@ -165,6 +165,6 @@ execution; there is no workflow-level preview.
 
 Workflows do not provide rollback, loops, parallelism, workflow-specific retry
 or accepted-status policy, shell commands, local IO, plugins, or
-workflow-level dry-run. Workflow steps do not expose operation-command controls
-such as `--all`, `--max-pages`, or `--wait`. A non-success HTTP response stops
-the workflow.
+workflow-level dry-run. Workflow steps cannot consume binary responses, and
+they do not expose operation-command controls such as `--all`, `--max-pages`,
+or `--wait`. A non-success HTTP response stops the workflow.

@@ -96,6 +96,14 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 			SetContext: &runtime.ContextSetHint{Name: "organization", Param: unsafeParamName},
 		},
 		{Group: "Users", Use: "delete-user", Short: "Delete user", Method: "DELETE", PathTpl: "/users/{id}", Hidden: true},
+		{
+			Group:   "Reports",
+			Use:     "download",
+			Short:   "Download report",
+			Method:  "GET",
+			PathTpl: "/reports/{id}/download",
+			Output:  runtime.OutputHints{ResponseMediaType: "application/pdf", Binary: true},
+		},
 	}
 	merged := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"create-user": {
@@ -133,6 +141,9 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"error.code",
 		"exit 0",
 		"auth context status -o json",
+		"When `output.binary` is present, success output is raw bytes.",
+		"--<output.binary.flag> <new-path>",
+		"never into the conversation",
 		"acmectl __lathe verify --json",
 		"provenance",
 	} {
@@ -151,7 +162,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	testutil.Require(t, strings.Contains(openai, "default_prompt:") && strings.Contains(openai, "$acmectl"), "openai.yaml missing default prompt: %s", openai)
 
 	catalog := readFile(t, dir, "skills/acmectl/references/catalog.md")
-	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "input_modes", "body.runtime_schema", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json", "error.http", "pause exits zero", "`mutation`", "`dry_run`", "catalog_schema_version", "surfaces", "other than `read`", "explicit user confirmation"} {
+	for _, want := range []string{"## Search", "## Full Catalog", "## Command Detail", "## Sensitive Flags", "## Schema", "input_modes", "body.runtime_schema", "--<flag>-env", "--<flag>-file", "--<flag>-stdin", "--set-str", "-o json", "error.http", "pause exits zero", "`mutation`", "`dry_run`", "catalog_schema_version", "surfaces", "other than `read`", "explicit user confirmation", "`binary.flag`", "output.binary.flag"} {
 		testutil.Check(t, strings.Contains(catalog, want), "catalog.md missing %q", want)
 	}
 
@@ -167,6 +178,7 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"argument 1 `[receiver]` or `--type` (query, required, context `organization` via `ACMECTL_ORG_ID`): Receiver type",
 		"pagination `cursor`",
 		"streaming `sse`",
+		"binary response: write with --output-file <new-path> or - for stdout (exact flag in output.binary.flag)",
 		"Notes:",
 		"clusterFilter expects a cluster UUID.",
 		"Prerequisites:",

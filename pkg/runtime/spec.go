@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const SchemaVersion = 19
+const SchemaVersion = 20
 
 type CommandSpec struct {
 	Group           string
@@ -159,6 +159,7 @@ type OutputHints struct {
 	ResponseMediaType string
 	Pagination        *PaginationHint
 	Streaming         *StreamingHint
+	Binary            bool `json:",omitempty"`
 }
 
 type ColumnFormat struct {

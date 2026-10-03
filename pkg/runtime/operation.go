@@ -89,6 +89,9 @@ func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, o
 			data = r.Body
 		}
 	} else if output.raw != nil {
+		if s.Output.Binary {
+			clientOpts.binaryContentGuard = true
+		}
 		_, err = doRawFull(ctx, opts.Hostname, s.Method, path, body, clientOpts, output.raw)
 	} else if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Collect != nil {
 		var result *RawResult

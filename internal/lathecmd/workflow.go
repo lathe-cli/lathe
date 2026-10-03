@@ -54,6 +54,9 @@ func buildWorkflowSpecs(manifest *config.Manifest, modules []app.Module, shortcu
 			if err != nil {
 				return nil, fmt.Errorf("workflow command %q step %q: %w", command.Use, step.ID, err)
 			}
+			if ref.Output.Binary {
+				return nil, fmt.Errorf("workflow command %q step %q: operation %q returns a binary response; workflow steps cannot consume binary responses", command.Use, step.ID, ref.OperationID)
+			}
 			if err := validateWorkflowStepParams(step, ref); err != nil {
 				return nil, fmt.Errorf("workflow command %q step %q: %w", command.Use, step.ID, err)
 			}
