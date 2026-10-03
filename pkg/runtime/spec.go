@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const SchemaVersion = 20
+const SchemaVersion = 21
 
 type CommandSpec struct {
 	Group           string
@@ -61,26 +61,30 @@ type CommandShortcut struct {
 }
 
 type ParamSpec struct {
-	Name       string
-	Flag       string
-	Aliases    []string `json:",omitempty"`
-	Argument   string   `json:",omitempty"`
-	In         string
-	GoType     string
-	Help       string
-	Required   bool
-	Default    string
-	Enum       []string
-	ItemEnum   []string `json:",omitempty"`
-	Format     string
-	Deprecated bool
-	Context    string `json:",omitempty"`
+	Name          string
+	Flag          string
+	Aliases       []string `json:",omitempty"`
+	Argument      string   `json:",omitempty"`
+	In            string
+	GoType        string
+	Help          string
+	Required      bool
+	Default       string
+	Enum          []string
+	ItemEnum      []string `json:",omitempty"`
+	Format        string
+	Deprecated    bool
+	Context       string `json:",omitempty"`
+	Style         string `json:",omitempty"`
+	Explode       bool   `json:",omitempty"`
+	AllowReserved bool   `json:",omitempty"`
 }
 
 const (
 	InPath     = "path"
 	InQuery    = "query"
 	InHeader   = "header"
+	InCookie   = "cookie"
 	InFormData = "formData"
 	InVariable = "variable"
 	InBody     = "body"

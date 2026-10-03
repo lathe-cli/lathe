@@ -13,7 +13,7 @@ import (
 func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequestBody bool) {
 	key := boundParamKey(p)
 	goType := p.GoType
-	if p.In == InPath {
+	if p.In == InPath && goType != "[]string" {
 		goType = "string"
 	}
 	switch goType {

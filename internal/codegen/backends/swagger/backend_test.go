@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/codegen/normalize"
@@ -44,6 +45,98 @@ func TestParse_YAMLMatchesJSON(t *testing.T) {
 		})
 	}
 	testutil.Require(t, reflect.DeepEqual(jsonModule, yamlModule), "YAML module differs from JSON\nJSON: %#v\nYAML: %#v", jsonModule, yamlModule)
+}
+
+func TestParse_CollectionFormat(t *testing.T) {
+	mod := parseInput(t, `{
+	  "swagger": "2.0",
+	  "paths": {
+	    "/items/{pathCsv}": {
+	      "get": {
+	        "operationId": "Items_List",
+	        "parameters": [
+	          {"name": "csvDefault", "in": "query", "type": "array", "items": {"type": "string"}},
+	          {"name": "csv", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "csv"},
+	          {"name": "multi", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "multi"},
+	          {"name": "ssv", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "pipes", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "pipes"},
+	          {"name": "tsv", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "tsv"},
+	          {"name": "pathCsv", "in": "path", "required": true, "type": "array", "items": {"type": "string"}},
+	          {"name": "pathMulti", "in": "path", "required": true, "type": "array", "items": {"type": "string"}, "collectionFormat": "multi"},
+	          {"name": "headerSsv", "in": "header", "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "formCsv", "in": "formData", "type": "array", "items": {"type": "string"}}
+	        ],
+	        "responses": {"200": {}}
+	      }
+	    }
+	  }
+	}`, ".json")
+	got := map[string]rawir.RawParameter{}
+	for _, param := range mod.Operations[0].Parameters {
+		got[param.Name] = param
+	}
+	checkCollection := func(name, style string, explode bool) {
+		t.Helper()
+		param := got[name]
+		testutil.Check(t, param.Style == style && param.Explode != nil && *param.Explode == explode, "%s = %+v explode=%v", name, param, param.Explode)
+	}
+	checkCollection("csvDefault", "form", false)
+	checkCollection("csv", "form", false)
+	checkCollection("multi", "form", true)
+	checkCollection("ssv", "spaceDelimited", false)
+	checkCollection("pipes", "pipeDelimited", false)
+	checkCollection("tsv", "tabDelimited", false)
+	checkCollection("pathCsv", "simple", false)
+	checkCollection("pathMulti", "form", true)
+	header := got["headerSsv"]
+	testutil.Check(t, header.In == "header" && header.Style == "" && header.Explode == nil, "header = %+v", header)
+	form := got["formCsv"]
+	testutil.Check(t, form.In == "formData" && form.Style == "" && form.Explode == nil, "formData = %+v", form)
+}
+
+func TestParse_HeaderArraysPassThroughAndPathNamesCollectionFormat(t *testing.T) {
+	mod := parseInput(t, `{
+	  "swagger": "2.0",
+	  "paths": {
+	    "/items/{pathSsv}/{pathPipes}": {
+	      "get": {
+	        "operationId": "Items_List",
+	        "parameters": [
+	          {"name": "headerSsv", "in": "header", "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "headerPipes", "in": "header", "type": "array", "items": {"type": "string"}, "collectionFormat": "pipes"},
+	          {"name": "pathSsv", "in": "path", "required": true, "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "pathPipes", "in": "path", "required": true, "type": "array", "items": {"type": "string"}, "collectionFormat": "pipes"}
+	        ],
+	        "responses": {"200": {}}
+	      }
+	    }
+	  }
+	}`, ".json")
+	got := map[string]rawir.RawParameter{}
+	for _, param := range mod.Operations[0].Parameters {
+		got[param.Name] = param
+	}
+	for _, name := range []string{"headerSsv", "headerPipes"} {
+		param := got[name]
+		testutil.Check(t, param.Style == "" && param.Explode == nil, "%s = %+v", name, param)
+	}
+	testutil.Check(t, got["pathSsv"].Style == "ssv" && got["pathPipes"].Style == "pipes", "path styles = %q %q", got["pathSsv"].Style, got["pathPipes"].Style)
+	specs := normalize.Normalize(mod)
+	testutil.Require(t, len(specs) == 1, "specs = %d", len(specs))
+	for _, param := range specs[0].Params {
+		if param.In == "header" {
+			testutil.Check(t, param.GoType == "string" && param.Style == "", "header param = %+v", param)
+		}
+	}
+	problems := normalize.ValidateParameters(mod)
+	testutil.Require(t, len(problems) == 2, "problems = %+v", problems)
+	seen := map[string]bool{}
+	for _, problem := range problems {
+		seen[problem.Style] = true
+		msg := problem.Error()
+		testutil.Check(t, strings.Contains(msg, problem.Style) && !strings.Contains(msg, "spaceDelimited") && !strings.Contains(msg, "pipeDelimited"), "error = %q", msg)
+	}
+	testutil.Check(t, seen["ssv"] && seen["pipes"], "styles = %v", seen)
 }
 
 func TestParse_DeduplicatesSwaggerParameters(t *testing.T) {

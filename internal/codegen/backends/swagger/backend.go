@@ -35,16 +35,17 @@ type operation struct {
 }
 
 type parameter struct {
-	Name        string      `json:"name"`
-	In          string      `json:"in"`
-	Required    bool        `json:"required"`
-	Type        string      `json:"type"`
-	Format      string      `json:"format,omitempty"`
-	Description string      `json:"description"`
-	Schema      *schemaNode `json:"schema,omitempty"`
-	Default     any         `json:"default,omitempty"`
-	Enum        []any       `json:"enum,omitempty"`
-	Deprecated  bool        `json:"x-deprecated,omitempty"`
+	Name             string      `json:"name"`
+	In               string      `json:"in"`
+	Required         bool        `json:"required"`
+	Type             string      `json:"type"`
+	Format           string      `json:"format,omitempty"`
+	Description      string      `json:"description"`
+	Schema           *schemaNode `json:"schema,omitempty"`
+	Default          any         `json:"default,omitempty"`
+	Enum             []any       `json:"enum,omitempty"`
+	Deprecated       bool        `json:"x-deprecated,omitempty"`
+	CollectionFormat string      `json:"collectionFormat"`
 }
 
 type response struct {
@@ -210,7 +211,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 			out.RequestBody = &rawir.RawRequestBody{Required: p.Required, Schema: convertSchema(p.Schema)}
 			continue
 		}
-		out.Parameters = append(out.Parameters, rawir.RawParameter{
+		raw := rawir.RawParameter{
 			Name:        p.Name,
 			In:          p.In,
 			Required:    p.Required,
@@ -220,7 +221,13 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 			Enum:        document.Strings(p.Enum),
 			Format:      p.Format,
 			Deprecated:  p.Deprecated,
-		})
+		}
+		if p.Type == "array" && (p.In == "query" || p.In == "path") {
+			style, explode := swaggerCollection(p.CollectionFormat, p.In)
+			raw.Style = style
+			raw.Explode = &explode
+		}
+		out.Parameters = append(out.Parameters, raw)
 	}
 	for code, resp := range op.Responses {
 		out.Responses[code] = &rawir.RawResponse{Schema: convertSchema(resp.Schema)}
@@ -231,6 +238,33 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 	}
 	out.Security = document.Security(sec, schemes)
 	return out
+}
+
+func swaggerCollection(format, in string) (string, bool) {
+	switch format {
+	case "ssv":
+		if in == "path" {
+			return format, false
+		}
+		return "spaceDelimited", false
+	case "pipes":
+		if in == "path" {
+			return format, false
+		}
+		return "pipeDelimited", false
+	case "tsv":
+		return "tabDelimited", false
+	case "multi":
+		return "form", true
+	default:
+		if format != "" && format != "csv" {
+			return format, false
+		}
+		if in == "query" {
+			return "form", false
+		}
+		return "simple", false
+	}
 }
 
 func convertSchema(s *schemaNode) *rawir.RawSchema {

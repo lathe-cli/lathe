@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 27
+const CatalogSchemaVersion = 28
 
 const DefaultSearchLimit = 20
 
@@ -168,22 +168,25 @@ type CatalogRuntimeSchema struct {
 }
 
 type CatalogFlag struct {
-	Name       string                 `json:"name"`
-	Flag       string                 `json:"flag"`
-	Aliases    []string               `json:"aliases,omitempty"`
-	Argument   string                 `json:"argument,omitempty"`
-	Position   int                    `json:"position,omitempty"`
-	Location   string                 `json:"location"`
-	Type       string                 `json:"type"`
-	Required   bool                   `json:"required"`
-	Default    string                 `json:"default,omitempty"`
-	Enum       []string               `json:"enum,omitempty"`
-	ItemEnum   []string               `json:"item_enum,omitempty"`
-	Format     string                 `json:"format,omitempty"`
-	InputModes []string               `json:"input_modes,omitempty"`
-	Deprecated bool                   `json:"deprecated"`
-	Help       string                 `json:"help,omitempty"`
-	Context    *CatalogContextBinding `json:"context,omitempty"`
+	Name          string                 `json:"name"`
+	Flag          string                 `json:"flag"`
+	Aliases       []string               `json:"aliases,omitempty"`
+	Argument      string                 `json:"argument,omitempty"`
+	Position      int                    `json:"position,omitempty"`
+	Location      string                 `json:"location"`
+	Type          string                 `json:"type"`
+	Required      bool                   `json:"required"`
+	Default       string                 `json:"default,omitempty"`
+	Enum          []string               `json:"enum,omitempty"`
+	ItemEnum      []string               `json:"item_enum,omitempty"`
+	Format        string                 `json:"format,omitempty"`
+	InputModes    []string               `json:"input_modes,omitempty"`
+	Deprecated    bool                   `json:"deprecated"`
+	Help          string                 `json:"help,omitempty"`
+	Context       *CatalogContextBinding `json:"context,omitempty"`
+	Style         string                 `json:"style,omitempty"`
+	Explode       bool                   `json:"explode,omitempty"`
+	AllowReserved bool                   `json:"allow_reserved,omitempty"`
 }
 
 type CatalogContextBinding struct {

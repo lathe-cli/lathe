@@ -8,12 +8,63 @@ import (
 	"strings"
 )
 
-func redactedDryRunHeaders(headers map[string][]string) map[string]string {
+func redactedDryRunHeaders(headers map[string][]string, publicPairs map[string]bool) map[string]string {
 	out := make(map[string]string, len(headers))
 	for k, vs := range headers {
-		out[k] = redactDebugHeader(k, strings.Join(vs, ", "), nil)
+		joined := strings.Join(vs, ", ")
+		if strings.EqualFold(k, "Cookie") {
+			out[k] = redactCookieHeader(joined, publicPairs)
+			continue
+		}
+		out[k] = redactDebugHeader(k, joined, nil)
 	}
 	return out
+}
+
+func redactCookieHeader(value string, publicPairs map[string]bool) string {
+	parts := strings.Split(value, "; ")
+	for i, part := range parts {
+		if publicPairs[part] {
+			continue
+		}
+		name, _, ok := strings.Cut(part, "=")
+		if !ok {
+			parts[i] = "***"
+			continue
+		}
+		parts[i] = name + "=***"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func publicCookiePairs(params []ParamSpec, paramCookies string) map[string]bool {
+	names := publicDryRunCookies(params)
+	out := map[string]bool{}
+	if paramCookies == "" {
+		return out
+	}
+	for _, part := range strings.Split(paramCookies, "; ") {
+		name, _, ok := strings.Cut(part, "=")
+		if ok && names[name] {
+			out[part] = true
+		}
+	}
+	return out
+}
+
+func publicDryRunCookies(params []ParamSpec) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range params {
+		if p.In == InCookie && !isSensitiveStringParam(p) && !isSensitiveDebugQueryName(p.Name) && !isSensitiveDebugName(p.Name) && !isSensitiveCookieName(p.Name) {
+			out[p.Name] = true
+		}
+	}
+	return out
+}
+
+func isSensitiveCookieName(name string) bool {
+	n := strings.ToLower(name)
+	return strings.Contains(n, "session") || strings.Contains(n, "sid") || strings.Contains(n, "csrf")
 }
 
 func redactedDryRunBody(contentType string, body []byte, sensitive map[string]bool) any {
@@ -65,7 +116,7 @@ func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, hostSource
 		URL:        redactDebugURL(req.URL, opts.sensitiveQueryParams),
 		Hostname:   hostname,
 		HostSource: hostSource,
-		Headers:    redactedDryRunHeaders(req.Header),
+		Headers:    redactedDryRunHeaders(req.Header, publicCookiePairs(s.Params, opts.Headers["Cookie"])),
 		Body:       redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes, sensitiveBodyFields(s)),
 		Auth:       dryRunAuthForSpec(s),
 		Output: CatalogOutput{

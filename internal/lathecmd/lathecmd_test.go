@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestRunWithOutput_RootHelpPrintsSubcommands(t *testing.T) {
@@ -442,6 +444,116 @@ func runGit(t *testing.T, dir string, args ...string) {
 
 func runTestCodegen(args ...string) error {
 	return RunCodegen(append([]string{"-sources", "specs/sources.yaml", "-cache", ".cache"}, args...), &bytes.Buffer{})
+}
+
+func TestRunCodegen_RejectsUnsupportedParameter(t *testing.T) {
+	t.Chdir(t.TempDir())
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", unsupportedParameterSpec)
+	err := runTestCodegen()
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "filter") && strings.Contains(err.Error(), `source "acme"`), "error = %v", err)
+	if _, statErr := os.Stat("internal/generated"); !os.IsNotExist(statErr) {
+		t.Fatalf("unsupported parameter should fail before writing generated code, stat err = %v", statErr)
+	}
+}
+
+func TestRunCodegen_OverlayIgnoreSkipsUnsupportedParameter(t *testing.T) {
+	t.Chdir(t.TempDir())
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", unsupportedParameterSpec)
+	writeCodegenFile(t, "overlays/acme.yaml", "commands:\n  list:\n    ignore: true\n")
+	testutil.NoError(t, runTestCodegen("-overlay", "overlays"))
+	if _, err := os.Stat("internal/generated/acme/acme_gen.go"); err != nil {
+		t.Fatalf("ignored unsupported parameter should still generate the remaining command: %v", err)
+	}
+}
+
+const unsupportedParameterSpec = `openapi: "3.0.3"
+paths:
+  /healthz:
+    get:
+      operationId: System_Healthz
+      tags: [System]
+      summary: Health
+      responses:
+        "200":
+          description: OK
+  /users:
+    get:
+      operationId: Users_List
+      tags: [Users]
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              role:
+                type: string
+      responses:
+        "200":
+          description: OK
+`
+
+func TestRunCodegen_DuplicateOperationIDIgnoreSkipsOnlyThatOperation(t *testing.T) {
+	t.Chdir(t.TempDir())
+	seedCodegenProject(t, true)
+	writeCodegenFile(t, ".cache/specs-sync/acme/openapi.yaml", `openapi: "3.0.3"
+paths:
+  /healthz:
+    get:
+      operationId: Users_List
+      tags: [System]
+      summary: Health
+      responses:
+        "200":
+          description: OK
+  /users:
+    get:
+      operationId: Users_List
+      tags: [Users]
+      summary: List users
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          schema:
+            type: object
+      responses:
+        "200":
+          description: OK
+`)
+	writeCodegenFile(t, "overlays/acme.yaml", "commands:\n  list:\n    ignore: true\n")
+	testutil.NoError(t, runTestCodegen("-overlay", "overlays"))
+	if _, err := os.Stat("internal/generated/acme/acme_gen.go"); err != nil {
+		t.Fatalf("ignoring one operation should not fail its duplicate operationId: %v", err)
+	}
+}
+
+func TestFirstParameterError_MatchesMethodAndPathInStableOrder(t *testing.T) {
+	problems := []normalize.ParameterError{
+		{OperationID: "Dup", Method: "POST", Path: "/z", Name: "filter", In: "query", Style: "deepObject"},
+		{OperationID: "Dup", Method: "GET", Path: "/a", Name: "b", In: "header", Style: "form"},
+		{OperationID: "Dup", Method: "GET", Path: "/a", Name: "a", In: "query", Style: "simple"},
+		{OperationID: "Dup", Method: "GET", Path: "/users", Name: "filter", In: "query", Style: "deepObject"},
+	}
+	ignored := []runtime.CommandSpec{{OperationID: "Dup", Method: "GET", PathTpl: "/healthz"}}
+	testutil.Check(t, firstParameterError("acme", problems, ignored) == nil, "different method and path should not fail")
+	live := []runtime.CommandSpec{
+		{OperationID: "Dup", Method: "POST", PathTpl: "/z"},
+		{OperationID: "Dup", Method: "GET", PathTpl: "/a"},
+	}
+	err := firstParameterError("acme", problems, live)
+	testutil.Require(t, err != nil, "expected a live parameter error")
+	testutil.Check(t, strings.Contains(err.Error(), "GET /a") && strings.Contains(err.Error(), `parameter "a"`), "error = %v", err)
+	withBase := []runtime.CommandSpec{{OperationID: "Items_List", Method: "GET", PathTpl: "/api/items"}}
+	baseErr := firstParameterError("acme", []normalize.ParameterError{{
+		OperationID: "Items_List", Method: "GET", Path: "/api/items", Name: "filter", In: "query", Style: "deepObject",
+	}}, withBase)
+	testutil.Require(t, baseErr != nil && strings.Contains(baseErr.Error(), "GET /api/items"), "base path error = %v", baseErr)
 }
 
 func TestRunCodegen_RegroupUsesUnreferencedTag(t *testing.T) {
