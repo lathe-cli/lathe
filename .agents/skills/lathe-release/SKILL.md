@@ -96,7 +96,7 @@ go build -trimpath -ldflags "-X github.com/lathe-cli/lathe/pkg/lathe.Commit=$COM
 "$ROOT/bin/lathe" --help 2>&1 | grep -F -- "lathe init" >/dev/null
 "$ROOT/bin/lathe" --help 2>&1 | grep -F -- "lathe skill" >/dev/null
 "$ROOT/bin/lathe" skill install --help 2>&1 | grep -F -- "-scope string" >/dev/null
-CATALOG_SCHEMA=$(awk '/const CatalogSchemaVersion =/{print $4}' pkg/runtime/catalog.go)
+CATALOG_SCHEMA=$(awk '/const CatalogSchemaVersion =/{print $4}' pkg/runtime/*.go)
 REPO=$(pwd)
 ```
 
