@@ -1,0 +1,63 @@
+[
+  {
+    "Group": "Users",
+    "Use": "list",
+    "Aliases": null,
+    "Short": "List users.",
+    "Long": "",
+    "Example": "",
+    "OperationID": "Users_List",
+    "Hidden": false,
+    "Deprecated": false,
+    "Method": "GET",
+    "PathTpl": "/users/{ids}",
+    "Params": [
+      {
+        "Name": "ids",
+        "Flag": "ids",
+        "In": "path",
+        "GoType": "[]string",
+        "Help": "ids (path, required)",
+        "Required": true,
+        "Default": "",
+        "Enum": null,
+        "Format": "",
+        "Deprecated": false
+      },
+      {
+        "Name": "roles",
+        "Flag": "roles",
+        "In": "query",
+        "GoType": "[]string",
+        "Help": "roles (query)",
+        "Required": false,
+        "Default": "",
+        "Enum": null,
+        "Format": "",
+        "Deprecated": false,
+        "Style": "form"
+      },
+      {
+        "Name": "tenant",
+        "Flag": "tenant",
+        "In": "cookie",
+        "GoType": "string",
+        "Help": "tenant (cookie)",
+        "Required": false,
+        "Default": "",
+        "Enum": null,
+        "Format": "",
+        "Deprecated": false
+      }
+    ],
+    "RequestBody": null,
+    "Output": {
+      "ListPath": "",
+      "DefaultColumns": null,
+      "ResponseMediaType": "",
+      "Pagination": null,
+      "Streaming": null
+    },
+    "Security": null
+  }
+]

@@ -1,9 +1,11 @@
 package lathecmd
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 
 	"github.com/lathe-cli/lathe/internal/codegen/app"
 	"github.com/lathe-cli/lathe/internal/codegen/backends/graphql"
@@ -17,6 +19,7 @@ import (
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/specsync"
 	"github.com/lathe-cli/lathe/pkg/config"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overlayDir string, skillFlags skillFlagOptions, output io.Writer) error {
@@ -90,6 +93,7 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		if err != nil {
 			return nil, err
 		}
+		parameterErrors := normalize.ValidateParameters(mod)
 
 		specs := normalize.Normalize(mod)
 		if src.DefaultHostname != nil {
@@ -103,6 +107,9 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		specs, err = render.MergeOverlayModule(specs, overlays[src.Name])
 		if err != nil {
 			return nil, fmt.Errorf("source %q overlay: %w", src.Name, err)
+		}
+		if err := firstParameterError(src.Name, parameterErrors, specs); err != nil {
+			return nil, err
 		}
 		for i := range specs {
 			if _, overridden := overlays[src.Name].Groups[specs[i].Group]; !overridden && specs[i].GroupShort == "" {
@@ -127,7 +134,7 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 			}
 		}
 		specs = render.RewriteCommandExamples(manifest.CLI.Name, cliName, specs, flat)
-		generated.Modules = append(generated.Modules, app.Module{Source: src.Name, CLIName: cliName, Flat: flat, Specs: specs})
+		generated.Modules = append(generated.Modules, app.Module{Source: src.Name, CLIName: cliName, Flat: flat, Specs: specs, Provenance: render.SourceProvenance(src, state)})
 		if generated.Skill != nil {
 			generated.Skill.Modules = append(generated.Skill.Modules, render.SkillModule{Source: src, State: state, Specs: specs})
 		}
@@ -138,6 +145,30 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 	}
 	generated.Workflows = workflows
 	return generated, nil
+}
+
+func firstParameterError(source string, problems []normalize.ParameterError, specs []runtime.CommandSpec) error {
+	if len(problems) == 0 {
+		return nil
+	}
+	live := make(map[string]bool, len(specs))
+	for _, spec := range specs {
+		live[parameterIdentity(spec.OperationID, spec.Method, spec.PathTpl)] = true
+	}
+	ordered := append([]normalize.ParameterError(nil), problems...)
+	slices.SortFunc(ordered, func(a, b normalize.ParameterError) int {
+		return cmp.Or(cmp.Compare(a.Path, b.Path), cmp.Compare(a.Method, b.Method), cmp.Compare(a.Name, b.Name), cmp.Compare(a.In, b.In))
+	})
+	for _, problem := range ordered {
+		if live[parameterIdentity(problem.OperationID, problem.Method, problem.Path)] {
+			return fmt.Errorf("source %q: %w", source, problem)
+		}
+	}
+	return nil
+}
+
+func parameterIdentity(operationID, method, path string) string {
+	return operationID + "\x00" + method + "\x00" + path
 }
 
 func parseSource(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {

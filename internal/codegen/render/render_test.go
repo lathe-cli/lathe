@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/overlay"
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
+	"github.com/lathe-cli/lathe/internal/specsync"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
@@ -294,6 +296,41 @@ func TestRenderModulesGen_UsesFlatMount(t *testing.T) {
 	if got := generatedFile(t, "modules_gen.go"); !containsGo(got, `if err := alpha.MountFlat(root); err != nil`) {
 		t.Fatalf("output did not use MountFlat:\n%s", got)
 	}
+}
+
+func TestRenderModulesGen_AttachesSourceProvenance(t *testing.T) {
+	chdirWithGeneratedRoot(t)
+
+	testutil.NoError(t, RenderModulesGenWithOptions([]ModuleMount{{Name: "pets"}, {Name: "local"}}, ModulesGenOptions{
+		Sources: []runtime.SourceProvenance{
+			{ID: "pets", Backend: "openapi3", Kind: "git", RepoURL: "https://example.com/petstore.git", PinnedTag: "v1.0.0", ResolvedSHA: "abc123", Reproducible: true},
+			{ID: "local", Backend: "openapi3", Kind: "local", Reproducible: false},
+		},
+	}))
+	got := generatedFile(t, "modules_gen.go")
+	for _, want := range []string{
+		`func MountModules(root *cobra.Command) error`,
+		`latheruntime.AttachSourceProvenance(root, latheSourceProvenance)`,
+		`Kind: "git"`,
+		`Kind: "local"`,
+		`Reproducible: true`,
+		`Reproducible: false`,
+	} {
+		testutil.Check(t, containsGo(got, want), "output missing %q\n%s", want, got)
+	}
+}
+
+func TestSourceProvenance_ReproducibleRequiresPinnedInputs(t *testing.T) {
+	state := &specsync.State{RepoURL: "https://example.com/api.git", ResolvedSHA: "abc123"}
+	pinned := &sourceconfig.Source{Name: "api", Backend: "proto", RepoURL: "https://example.com/api.git", PinnedTag: "v1", Proto: &sourceconfig.ProtoConfig{
+		Dependencies: []sourceconfig.ProtoDependency{{Kind: sourceconfig.ProtoDependencyGoModule}},
+	}}
+	testutil.Check(t, SourceProvenance(pinned, state).Reproducible, "go_module dependency should stay reproducible")
+
+	floating := *pinned
+	floating.Proto = &sourceconfig.ProtoConfig{Dependencies: []sourceconfig.ProtoDependency{{Kind: sourceconfig.ProtoDependencyGit}}}
+	testutil.Check(t, !SourceProvenance(&floating, state).Reproducible, "git proto dependency must not be reproducible")
+	testutil.Check(t, !SourceProvenance(pinned, &specsync.State{ResolvedSHA: "abc123"}).Reproducible, "missing repo_url must not be reproducible")
 }
 
 func TestRenderModulesGen_WithSkillBundle(t *testing.T) {

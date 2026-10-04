@@ -67,8 +67,9 @@ internal/generated/skillbundle/                 # when skill.bundle is enabled
 
 `<module>_gen.go` contains compiled API operation specs. `workflows_gen.go`
 contains compiled workflow specs. `modules_gen.go` exposes `generated.Mount`,
-which mounts API modules, workflows, then bundled capabilities in a stable
-order. `generated.MountModules` remains a compatibility alias.
+which attaches compiled source provenance, then mounts API modules,
+workflows, then bundled capabilities in a stable order.
+`generated.MountModules` remains a compatibility alias.
 
 ## Package Ownership
 

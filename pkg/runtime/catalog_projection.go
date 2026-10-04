@@ -45,12 +45,13 @@ func catalogCommand(service string, spec CommandSpec, path []string) CatalogComm
 	}
 	if spec.RequestBody != nil {
 		cmd.Body = &CatalogBody{
-			Required:      spec.RequestBody.Required,
-			MediaType:     spec.RequestBody.MediaType,
-			Schema:        spec.RequestBody.Schema,
-			Template:      spec.RequestBody.Template,
-			MergePath:     spec.RequestBody.MergePath,
-			SetOnlyFields: append([]string(nil), spec.RequestBody.SetOnlyFields...),
+			Required:          spec.RequestBody.Required,
+			MediaType:         spec.RequestBody.MediaType,
+			Schema:            spec.RequestBody.Schema,
+			Template:          spec.RequestBody.Template,
+			MergePath:         spec.RequestBody.MergePath,
+			SetOnlyFields:     append([]string(nil), spec.RequestBody.SetOnlyFields...),
+			UnsupportedFields: append([]string(nil), spec.RequestBody.UnsupportedFields...),
 		}
 		if binding := spec.RequestBody.RuntimeSchema; binding != nil {
 			cmd.Body.RuntimeSchema = &CatalogRuntimeSchema{
@@ -151,22 +152,26 @@ func catalogFlags(params []ParamSpec) []CatalogFlag {
 			argumentPosition = position
 		}
 		flags = append(flags, CatalogFlag{
-			Name:       p.Name,
-			Flag:       p.Flag,
-			Aliases:    append([]string(nil), p.Aliases...),
-			Argument:   p.Argument,
-			Position:   argumentPosition,
-			Location:   p.In,
-			Type:       p.GoType,
-			Required:   p.Required,
-			Default:    p.Default,
-			Enum:       append([]string(nil), p.Enum...),
-			ItemEnum:   append([]string(nil), p.ItemEnum...),
-			Format:     p.Format,
-			InputModes: inputModes,
-			Deprecated: p.Deprecated,
-			Help:       p.Help,
-			Context:    catalogContextBinding(p),
+			Name:          p.Name,
+			Flag:          p.Flag,
+			Aliases:       append([]string(nil), p.Aliases...),
+			Argument:      p.Argument,
+			Position:      argumentPosition,
+			Location:      p.In,
+			Type:          p.GoType,
+			Required:      p.Required,
+			Default:       p.Default,
+			Enum:          append([]string(nil), p.Enum...),
+			ItemEnum:      append([]string(nil), p.ItemEnum...),
+			Format:        p.Format,
+			ContentType:   p.ContentType,
+			InputModes:    inputModes,
+			Deprecated:    p.Deprecated,
+			Help:          p.Help,
+			Context:       catalogContextBinding(p),
+			Style:         p.Style,
+			Explode:       p.Explode,
+			AllowReserved: p.AllowReserved,
 		})
 	}
 	return flags
@@ -256,7 +261,11 @@ func catalogAuth(security *SecurityHint) CatalogAuth {
 	if security == nil {
 		return CatalogAuth{Required: true}
 	}
-	return CatalogAuth{Required: !security.Public, Scopes: append([]string(nil), security.Scopes...)}
+	return CatalogAuth{
+		Required:     !security.Public,
+		Scopes:       append([]string(nil), security.Scopes...),
+		Requirements: append([]SecurityRequirement(nil), security.Requirements...),
+	}
 }
 
 func catalogOutput(output OutputHints) CatalogOutput {

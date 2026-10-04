@@ -21,6 +21,7 @@ type State struct {
 	Source      string `yaml:"source"`
 	Backend     string `yaml:"backend"`
 	SyncedFrom  string `yaml:"synced_from"`
+	RepoURL     string `yaml:"repo_url,omitempty"`
 	ResolvedSHA string `yaml:"resolved_sha"`
 }
 
@@ -76,6 +77,9 @@ func VerifyState(syncDir string, src *sourceconfig.Source) error {
 			return fmt.Errorf("source %q: synced_from=%q but local_path=%q (re-run `lathe specsync`)", src.Name, s.SyncedFrom, wantFrom)
 		}
 		return fmt.Errorf("source %q: synced_from=%q but pinned_tag=%q (re-run `lathe specsync`)", src.Name, s.SyncedFrom, wantFrom)
+	}
+	if wantKind == SourceKindGit && s.RepoURL != "" && s.RepoURL != sourceconfig.PublicRepoURL(src.RepoURL) {
+		return fmt.Errorf("source %q: sync-state repo_url %q != config repo_url (re-run `lathe specsync`)", src.Name, s.RepoURL)
 	}
 	if wantKind == SourceKindGit && s.ResolvedSHA == "" {
 		return fmt.Errorf("source %q: sync-state missing resolved_sha (re-run `lathe specsync`)", src.Name)

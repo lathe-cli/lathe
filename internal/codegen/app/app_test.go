@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lathe-cli/lathe/pkg/config"
@@ -20,4 +21,17 @@ func TestValidateContexts(t *testing.T) {
 	if err := (&App{Manifest: manifest, Modules: []Module{{CLIName: "api", Specs: []runtime.CommandSpec{invalid}}}}).Validate(); err == nil {
 		t.Fatal("unknown context accepted")
 	}
+}
+
+func TestValidateMultipartBody_AllOfRequiredUnsupported(t *testing.T) {
+	spec := runtime.CommandSpec{
+		Use: "create",
+		RequestBody: &runtime.RequestBody{
+			MediaType:         "multipart/form-data",
+			UnsupportedFields: []string{"extra"},
+			Schema:            &runtime.SchemaSpec{AllOf: []*runtime.SchemaSpec{{Required: []string{"extra"}}}},
+		},
+	}
+	err := (&App{Modules: []Module{{CLIName: "api", Specs: []runtime.CommandSpec{spec}}}}).Validate()
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "extra"), "error = %v", err)
 }

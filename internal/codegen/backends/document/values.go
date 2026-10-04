@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 )
@@ -33,19 +36,52 @@ func EqualJSON(a, b any) bool {
 	return leftErr == nil && rightErr == nil && bytes.Equal(left, right)
 }
 
-func Security(requirements []map[string][]string) []rawir.RawSecurityReq {
+type SecurityScheme struct {
+	Type   string `json:"type" yaml:"type"`
+	Scheme string `json:"scheme,omitempty" yaml:"scheme,omitempty"`
+	In     string `json:"in,omitempty" yaml:"in,omitempty"`
+	Name   string `json:"name,omitempty" yaml:"name,omitempty"`
+}
+
+func Security(requirements []map[string][]string, schemes map[string]SecurityScheme) []rawir.RawSecurityReq {
 	if requirements == nil {
 		return nil
 	}
 	out := make([]rawir.RawSecurityReq, 0, len(requirements))
 	for _, requirement := range requirements {
-		var scopes []string
-		for _, values := range requirement {
-			scopes = append(scopes, values...)
+		var raw rawir.RawSecurityReq
+		for _, name := range slices.Sorted(maps.Keys(requirement)) {
+			def := schemes[name]
+			typ := def.Type
+			scheme := strings.ToLower(def.Scheme)
+			if strings.EqualFold(typ, "basic") {
+				typ = "http"
+				scheme = "basic"
+			}
+			raw.Schemes = append(raw.Schemes, rawir.RawSecurityScheme{
+				Name:   name,
+				Type:   typ,
+				Scheme: scheme,
+				In:     def.In,
+				Param:  def.Name,
+				Scopes: append([]string(nil), requirement[name]...),
+			})
 		}
-		out = append(out, rawir.RawSecurityReq{Scopes: scopes})
+		out = append(out, raw)
 	}
 	return out
+}
+
+func MergeNamed[T any](dst, add map[string]T, kind, module, origin string) {
+	for k, v := range add {
+		if existing, exists := dst[k]; exists {
+			if !EqualJSON(existing, v) {
+				fmt.Fprintf(os.Stderr, "warn: %s: diverging %s %q in %s (kept first)\n", module, kind, k, origin)
+			}
+			continue
+		}
+		dst[k] = v
+	}
 }
 
 type Tag struct {

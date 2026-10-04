@@ -22,6 +22,8 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	var waitPoll bool
 	var dryRun bool
 	var liveStream bool
+	var outputFile string
+	var outputFileFlag string
 
 	positionals := positionalParams(s.Params)
 	cmd := &cobra.Command{
@@ -80,6 +82,10 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				return UsageError(cmd, err)
 			}
 
+			if s.Output.Binary && !dryRun && outputFile == "" {
+				return binaryOutputUsage(cmd, outputFileFlag, nil)
+			}
+
 			host, clientOpts, err := operationHostOptions(cmd, s, dryRun)
 			if err != nil {
 				return err
@@ -90,7 +96,19 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			}
 
 			output := operationOutput{}
-			if s.Output.Streaming != nil && format == "raw" && !waitPoll {
+			var sink *binaryFile
+			if s.Output.Binary && !dryRun {
+				if outputFile == "-" {
+					output.raw = cmd.OutOrStdout()
+				} else {
+					sink, err = createBinaryFile(outputFile)
+					if err != nil {
+						return binaryOutputUsage(cmd, outputFileFlag, err)
+					}
+					defer sink.abort()
+					output.raw = sink.tmp
+				}
+			} else if s.Output.Streaming != nil && format == "raw" && !waitPoll {
 				output.raw = cmd.OutOrStdout()
 			} else if liveStream && format == "table" {
 				output.live = cmd.OutOrStdout()
@@ -104,6 +122,11 @@ func buildCmd(s CommandSpec) *cobra.Command {
 				MaxPages:    maxPages,
 				Wait:        waitPoll,
 			}, output)
+			if sink != nil && err == nil {
+				if cerr := sink.commit(); cerr != nil {
+					return binaryCommitError(cerr)
+				}
+			}
 			if err != nil {
 				return apiErrorWithKnownDetail(s, err)
 			}
@@ -127,7 +150,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	for i := range s.Params {
 		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
 	}
-	if s.RequestBody != nil && !hasFormDataParams(s.Params) {
+	if s.RequestBody != nil && !hasFormDataParams(s.Params) && !isMultipartMediaType(s.RequestBody.MediaType) {
 		bodyFileFlag = controlFlagName(cmd, "file")
 		bodySetFlag := controlFlagName(cmd, "set")
 		bodyStringSetFlag := controlFlagName(cmd, "set-str")
@@ -149,13 +172,17 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Flags().StringArrayVar(&bodySets, bodySetFlag, nil, setHelp)
 		cmd.Flags().StringArrayVar(&bodyStringSets, bodyStringSetFlag, nil, setStrHelp)
 	}
+	if s.Output.Binary {
+		outputFileFlag = controlFlagName(cmd, "output-file")
+		cmd.Flags().StringVar(&outputFile, outputFileFlag, "", "write the binary response to a new file, or '-' for stdout")
+	}
 	if s.Output.Pagination != nil {
 		allFlag := controlFlagName(cmd, "all")
 		maxPagesFlag := controlFlagName(cmd, "max-pages")
 		cmd.Flags().BoolVar(&paginateAll, allFlag, false, "fetch all pages")
 		cmd.Flags().IntVar(&maxPages, maxPagesFlag, DefaultMaxPages, "maximum pages to fetch with --"+allFlag)
 	}
-	if s.Method == "POST" || s.Method == "PUT" || s.Method == "DELETE" || s.Method == "PATCH" {
+	if !s.Output.Binary && (s.Method == "POST" || s.Method == "PUT" || s.Method == "DELETE" || s.Method == "PATCH") {
 		cmd.Flags().BoolVar(&waitPoll, controlFlagName(cmd, "wait"), false, "poll until long-running operation completes")
 	}
 	if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Live != nil {
@@ -167,6 +194,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Annotations = map[string]string{}
 	}
 	cmd.Annotations[catalogDryRunWiredAnnotation] = dryRunFlag
+	if s.Output.Binary {
+		cmd.Annotations[catalogBinaryOutputAnnotation] = outputFileFlag
+	}
 	cmd.Hidden = s.Hidden
 	if s.Deprecated {
 		cmd.Deprecated = "this command is deprecated"
@@ -175,6 +205,28 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		cmd.Long = fmt.Sprintf("%s\n\nRequired scopes: %s", cmd.Short, strings.Join(s.Security.Scopes, ", "))
 	}
 	return cmd
+}
+
+func binaryOutputUsage(cmd *cobra.Command, flag string, cause error) error {
+	detail := fmt.Sprintf("binary response requires --%s <new-file> or --%s -", flag, flag)
+	switch {
+	case cause == nil:
+		cause = errors.New(detail)
+	case errors.Is(cause, errBinaryOutputExists):
+		detail = fmt.Sprintf("--%s refuses an existing path; choose a new file", flag)
+	default:
+		detail = fmt.Sprintf("cannot write binary response with --%s", flag)
+		if errno := pathFreeErrno(cause); errno != "" {
+			detail += ": " + errno
+		}
+	}
+	return UsageError(cmd, WithUsageDetail(cause, detail))
+}
+
+func binaryCommitError(cause error) error {
+	le := NewError(CodeGeneral, ExitGeneral, "command failed", defaultErrorHint(CodeGeneral), cause)
+	le.Detail = sanitizeErrorDetail("the request completed and the file was not written")
+	return le
 }
 
 func inputError(cmd *cobra.Command, err error) error {

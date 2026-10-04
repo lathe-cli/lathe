@@ -1,6 +1,7 @@
 package render
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -19,18 +20,31 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 	fmt.Fprintf(&b, "# Module `%s`\n\n", moduleName(mod))
 	b.WriteString("## Source\n\n")
 	if mod.Source != nil {
-		fmt.Fprintf(&b, "- Backend: `%s`\n", mod.Source.Backend)
+		p := SourceProvenance(mod.Source, mod.State)
+		fmt.Fprintf(&b, "- Backend: `%s`\n", p.Backend)
 		if mod.Source.DefaultHostname != nil {
 			fmt.Fprintf(&b, "- Default hostname: `%s`\n", *mod.Source.DefaultHostname)
 		}
-		fmt.Fprintf(&b, "- Repository: %s\n", valueOrUnknown(mod.Source.RepoURL))
-		fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(mod.Source.PinnedTag))
+		fmt.Fprintf(&b, "- Source kind: `%s`\n", p.Kind)
+		if p.Kind == "git" {
+			fmt.Fprintf(&b, "- Repository: `%s`\n", cmp.Or(p.RepoURL, "unknown"))
+			fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(p.PinnedTag))
+		}
 		for _, line := range sourceInputs(mod.Source) {
 			fmt.Fprintf(&b, "- %s\n", line)
 		}
-	}
-	if mod.State != nil && mod.State.ResolvedSHA != "" {
-		fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", mod.State.ResolvedSHA)
+		if p.Kind == "git" {
+			if p.ResolvedSHA != "" {
+				fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", p.ResolvedSHA)
+			}
+			if p.Reproducible {
+				b.WriteString("- Reproducible: yes\n")
+			} else {
+				b.WriteString("- Reproducible: no\n")
+			}
+		} else {
+			b.WriteString("- Reproducible: no — follows the local working tree; no immutable revision recorded\n")
+		}
 	}
 	b.WriteString("\n")
 	shortcutSection := false
@@ -101,6 +115,10 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					if len(p.ItemEnum) > 0 {
 						enum = ", items one of: " + strings.Join(p.ItemEnum, "|")
 					}
+					contentType := ""
+					if notable := notablePartContentType(p); notable != "" {
+						contentType = ", part content type `" + strings.ReplaceAll(oneLine(notable), "`", "'") + "`"
+					}
 					deprecated := ""
 					if p.Deprecated {
 						deprecated = ", deprecated"
@@ -118,9 +136,16 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 						position++
 						input = fmt.Sprintf("argument %d `[%s]` or `--%s`", position, p.Argument, p.Flag)
 					}
-					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s): %s\n", input, p.In, req, def, format, enum, deprecated, oneLine(stripHelpMeta(p.Help)))
+					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s%s): %s\n", input, p.In, req, def, format, enum, contentType, deprecated, oneLine(stripHelpMeta(p.Help)))
 				}
 
+			}
+			if spec.RequestBody != nil && len(spec.RequestBody.UnsupportedFields) > 0 {
+				quoted := make([]string, len(spec.RequestBody.UnsupportedFields))
+				for i, name := range spec.RequestBody.UnsupportedFields {
+					quoted[i] = "`" + strings.ReplaceAll(oneLine(name), "`", "'") + "`"
+				}
+				fmt.Fprintf(&b, "- Unsupported properties: %s cannot be sent by this command.\n", strings.Join(quoted, ", "))
 			}
 			if out := outputSummary(spec.Output); out != "" {
 				fmt.Fprintf(&b, "- Output: %s\n", out)
@@ -412,13 +437,48 @@ func legacyCommandPath(cli, module string, spec runtime.CommandSpec, flat bool) 
 }
 
 func authSummary(security *runtime.SecurityHint) string {
+	summary := "required"
 	if security != nil && security.Public {
-		return "public"
+		summary = "public"
+	} else if security != nil && len(security.Scopes) > 0 {
+		scopes := make([]string, len(security.Scopes))
+		for i, scope := range security.Scopes {
+			scopes[i] = "`" + strings.ReplaceAll(oneLine(scope), "`", "'") + "`"
+		}
+		summary = "required; scopes: " + strings.Join(scopes, ", ")
 	}
-	if security != nil && len(security.Scopes) > 0 {
-		return "required; scopes: `" + strings.Join(security.Scopes, "`, `") + "`"
+	if security == nil || len(security.Requirements) == 0 {
+		return summary
 	}
-	return "required"
+	return summary + "; accepts: " + securityAccepts(security)
+}
+
+func securityAccepts(security *runtime.SecurityHint) string {
+	alts := make([]string, len(security.Requirements))
+	for i, req := range security.Requirements {
+		if len(req.Schemes) == 0 {
+			alts[i] = "`anonymous`"
+			continue
+		}
+		parts := make([]string, len(req.Schemes))
+		for j, scheme := range req.Schemes {
+			parts[j] = "`" + strings.ReplaceAll(oneLine(scheme.String()), "`", "'") + "`"
+		}
+		alts[i] = strings.Join(parts, " + ")
+	}
+	return strings.Join(alts, " | ")
+}
+
+func notablePartContentType(param runtime.ParamSpec) string {
+	if param.In != runtime.InFormData {
+		return ""
+	}
+	switch param.ContentType {
+	case "", "text/plain", "application/octet-stream", "application/json":
+		return ""
+	default:
+		return param.ContentType
+	}
 }
 
 func bodySummary(body *runtime.RequestBody) string {
@@ -446,7 +506,7 @@ func bodySummary(body *runtime.RequestBody) string {
 }
 
 func outputSummary(out runtime.OutputHints) string {
-	parts := make([]string, 0, 5)
+	parts := make([]string, 0, 6)
 	if out.ListPath != "" {
 		parts = append(parts, "list path `"+out.ListPath+"`")
 	}
@@ -468,6 +528,9 @@ func outputSummary(out runtime.OutputHints) string {
 			}
 		}
 		parts = append(parts, streaming)
+	}
+	if out.Binary {
+		parts = append(parts, "binary response: write with --output-file <new-path> or - for stdout (exact flag in output.binary.flag)")
 	}
 	return strings.Join(parts, "; ")
 }

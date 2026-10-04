@@ -23,6 +23,7 @@ func TestNormalize_Golden(t *testing.T) {
 		{"request-body-envelope", requestBodyEnvelope},
 		{"param-in-header", paramInHeader},
 		{"param-in-form-data", paramInFormData},
+		{"param-serialization", paramSerialization},
 		{"pagination-cursor", paginationCursor},
 		{"streaming-sse", streamingSSE},
 		{"response-media-type", responseMediaType},
@@ -254,6 +255,26 @@ func paramInHeader() *rawir.RawModule {
 	}
 }
 
+func paramSerialization() *rawir.RawModule {
+	explodeFalse := false
+	return &rawir.RawModule{
+		Name: "demo",
+		Operations: []rawir.RawOperation{{
+			Group:       "Users",
+			OperationID: "Users_List",
+			Summary:     "List users.",
+			Method:      "GET",
+			Path:        "/users/{ids}",
+			Parameters: []rawir.RawParameter{
+				{Name: "ids", In: "path", Required: true, Type: "array"},
+				{Name: "roles", In: "query", Type: "array", Style: "form", Explode: &explodeFalse},
+				{Name: "tenant", In: "cookie", Type: "string"},
+			},
+			Responses: map[string]*rawir.RawResponse{},
+		}},
+	}
+}
+
 func paramInFormData() *rawir.RawModule {
 	return &rawir.RawModule{
 		Name: "demo",
@@ -368,9 +389,13 @@ func securityScopes() *rawir.RawModule {
 				{Name: "id", In: "path", Required: true, Type: "string"},
 			},
 			Responses: map[string]*rawir.RawResponse{},
-			Security: []rawir.RawSecurityReq{
-				{Scopes: []string{"write:pets", "read:pets"}},
-			},
+			Security: []rawir.RawSecurityReq{{
+				Schemes: []rawir.RawSecurityScheme{{
+					Name:   "petstore_auth",
+					Type:   "oauth2",
+					Scopes: []string{"write:pets", "read:pets"},
+				}},
+			}},
 		}},
 	}
 }

@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
-const SchemaVersion = 18
+const SchemaVersion = 22
 
 type CommandSpec struct {
 	Group           string
@@ -60,26 +61,31 @@ type CommandShortcut struct {
 }
 
 type ParamSpec struct {
-	Name       string
-	Flag       string
-	Aliases    []string `json:",omitempty"`
-	Argument   string   `json:",omitempty"`
-	In         string
-	GoType     string
-	Help       string
-	Required   bool
-	Default    string
-	Enum       []string
-	ItemEnum   []string `json:",omitempty"`
-	Format     string
-	Deprecated bool
-	Context    string `json:",omitempty"`
+	Name          string
+	Flag          string
+	Aliases       []string `json:",omitempty"`
+	Argument      string   `json:",omitempty"`
+	In            string
+	GoType        string
+	Help          string
+	Required      bool
+	Default       string
+	Enum          []string
+	ItemEnum      []string `json:",omitempty"`
+	Format        string
+	ContentType   string `json:",omitempty"`
+	Deprecated    bool
+	Context       string `json:",omitempty"`
+	Style         string `json:",omitempty"`
+	Explode       bool   `json:",omitempty"`
+	AllowReserved bool   `json:",omitempty"`
 }
 
 const (
 	InPath     = "path"
 	InQuery    = "query"
 	InHeader   = "header"
+	InCookie   = "cookie"
 	InFormData = "formData"
 	InVariable = "variable"
 	InBody     = "body"
@@ -92,9 +98,10 @@ type RequestBody struct {
 	Schema        *SchemaSpec        `json:",omitempty"`
 	RuntimeSchema *RuntimeSchemaSpec `json:",omitempty"`
 
-	Template      string   `json:",omitempty"`
-	MergePath     string   `json:",omitempty"`
-	SetOnlyFields []string `json:",omitempty"`
+	Template          string   `json:",omitempty"`
+	MergePath         string   `json:",omitempty"`
+	SetOnlyFields     []string `json:",omitempty"`
+	UnsupportedFields []string `json:",omitempty"`
 }
 
 type RuntimeSchemaSpec struct {
@@ -158,6 +165,7 @@ type OutputHints struct {
 	ResponseMediaType string
 	Pagination        *PaginationHint
 	Streaming         *StreamingHint
+	Binary            bool `json:",omitempty"`
 }
 
 type ColumnFormat struct {
@@ -210,8 +218,29 @@ type StreamLiveHint struct {
 }
 
 type SecurityHint struct {
-	Public bool
-	Scopes []string
+	Public       bool
+	Scopes       []string
+	Requirements []SecurityRequirement `json:",omitempty"`
+}
+
+type SecurityRequirement struct {
+	Schemes []SecurityScheme `json:"schemes,omitempty"`
+}
+
+type SecurityScheme struct {
+	Name   string   `json:"name"`
+	Type   string   `json:"type,omitempty"`
+	Scheme string   `json:"scheme,omitempty"`
+	In     string   `json:"in,omitempty"`
+	Param  string   `json:"param,omitempty"`
+	Scopes []string `json:"scopes,omitempty"`
+}
+
+func (s SecurityScheme) String() string {
+	if s.Type == "" {
+		return s.Name
+	}
+	return s.Name + " (" + strings.Join(strings.Fields(strings.Join([]string{s.Type, s.Scheme, s.In, s.Param}, " ")), " ") + ")"
 }
 
 type KnownError struct {

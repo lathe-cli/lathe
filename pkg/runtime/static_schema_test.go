@@ -127,7 +127,7 @@ func TestStaticBodySchemaContracts(t *testing.T) {
 			}
 		})
 	}
-	for _, mediaType := range []string{"text/plain", "application/octet-stream", "multipart/form-data", "application/x-www-form-urlencoded"} {
+	for _, mediaType := range []string{"text/plain", "application/octet-stream", "application/x-www-form-urlencoded"} {
 		spec := CommandSpec{RequestBody: &RequestBody{MediaType: mediaType, Schema: nested}}
 		_, _, _, err := resolveOperationRequest(spec, OperationInput{HasFile: true, FileBody: []byte("private-value")}, ClientOptions{})
 		testutil.NoError(t, err)

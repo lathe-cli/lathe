@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/pkg/runtime"
 )
 
 func TestParse_Golden(t *testing.T) {
@@ -43,6 +45,98 @@ func TestParse_YAMLMatchesJSON(t *testing.T) {
 		})
 	}
 	testutil.Require(t, reflect.DeepEqual(jsonModule, yamlModule), "YAML module differs from JSON\nJSON: %#v\nYAML: %#v", jsonModule, yamlModule)
+}
+
+func TestParse_CollectionFormat(t *testing.T) {
+	mod := parseInput(t, `{
+	  "swagger": "2.0",
+	  "paths": {
+	    "/items/{pathCsv}": {
+	      "get": {
+	        "operationId": "Items_List",
+	        "parameters": [
+	          {"name": "csvDefault", "in": "query", "type": "array", "items": {"type": "string"}},
+	          {"name": "csv", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "csv"},
+	          {"name": "multi", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "multi"},
+	          {"name": "ssv", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "pipes", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "pipes"},
+	          {"name": "tsv", "in": "query", "type": "array", "items": {"type": "string"}, "collectionFormat": "tsv"},
+	          {"name": "pathCsv", "in": "path", "required": true, "type": "array", "items": {"type": "string"}},
+	          {"name": "pathMulti", "in": "path", "required": true, "type": "array", "items": {"type": "string"}, "collectionFormat": "multi"},
+	          {"name": "headerSsv", "in": "header", "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "formCsv", "in": "formData", "type": "array", "items": {"type": "string"}}
+	        ],
+	        "responses": {"200": {}}
+	      }
+	    }
+	  }
+	}`, ".json")
+	got := map[string]rawir.RawParameter{}
+	for _, param := range mod.Operations[0].Parameters {
+		got[param.Name] = param
+	}
+	checkCollection := func(name, style string, explode bool) {
+		t.Helper()
+		param := got[name]
+		testutil.Check(t, param.Style == style && param.Explode != nil && *param.Explode == explode, "%s = %+v explode=%v", name, param, param.Explode)
+	}
+	checkCollection("csvDefault", "form", false)
+	checkCollection("csv", "form", false)
+	checkCollection("multi", "form", true)
+	checkCollection("ssv", "spaceDelimited", false)
+	checkCollection("pipes", "pipeDelimited", false)
+	checkCollection("tsv", "tabDelimited", false)
+	checkCollection("pathCsv", "simple", false)
+	checkCollection("pathMulti", "form", true)
+	header := got["headerSsv"]
+	testutil.Check(t, header.In == "header" && header.Style == "" && header.Explode == nil, "header = %+v", header)
+	form := got["formCsv"]
+	testutil.Check(t, form.In == "formData" && form.Style == "" && form.Explode == nil, "formData = %+v", form)
+}
+
+func TestParse_HeaderArraysPassThroughAndPathNamesCollectionFormat(t *testing.T) {
+	mod := parseInput(t, `{
+	  "swagger": "2.0",
+	  "paths": {
+	    "/items/{pathSsv}/{pathPipes}": {
+	      "get": {
+	        "operationId": "Items_List",
+	        "parameters": [
+	          {"name": "headerSsv", "in": "header", "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "headerPipes", "in": "header", "type": "array", "items": {"type": "string"}, "collectionFormat": "pipes"},
+	          {"name": "pathSsv", "in": "path", "required": true, "type": "array", "items": {"type": "string"}, "collectionFormat": "ssv"},
+	          {"name": "pathPipes", "in": "path", "required": true, "type": "array", "items": {"type": "string"}, "collectionFormat": "pipes"}
+	        ],
+	        "responses": {"200": {}}
+	      }
+	    }
+	  }
+	}`, ".json")
+	got := map[string]rawir.RawParameter{}
+	for _, param := range mod.Operations[0].Parameters {
+		got[param.Name] = param
+	}
+	for _, name := range []string{"headerSsv", "headerPipes"} {
+		param := got[name]
+		testutil.Check(t, param.Style == "" && param.Explode == nil, "%s = %+v", name, param)
+	}
+	testutil.Check(t, got["pathSsv"].Style == "ssv" && got["pathPipes"].Style == "pipes", "path styles = %q %q", got["pathSsv"].Style, got["pathPipes"].Style)
+	specs := normalize.Normalize(mod)
+	testutil.Require(t, len(specs) == 1, "specs = %d", len(specs))
+	for _, param := range specs[0].Params {
+		if param.In == "header" {
+			testutil.Check(t, param.GoType == "string" && param.Style == "", "header param = %+v", param)
+		}
+	}
+	problems := normalize.ValidateParameters(mod)
+	testutil.Require(t, len(problems) == 2, "problems = %+v", problems)
+	seen := map[string]bool{}
+	for _, problem := range problems {
+		seen[problem.Style] = true
+		msg := problem.Error()
+		testutil.Check(t, strings.Contains(msg, problem.Style) && !strings.Contains(msg, "spaceDelimited") && !strings.Contains(msg, "pipeDelimited"), "error = %q", msg)
+	}
+	testutil.Check(t, seen["ssv"] && seen["pipes"], "styles = %v", seen)
 }
 
 func TestParse_DeduplicatesSwaggerParameters(t *testing.T) {
@@ -83,6 +177,40 @@ func TestParse_SecuritySemantics(t *testing.T) {
 			testutil.Require(t, security != nil && security.Public == tc.wantPublic && reflect.DeepEqual(security.Scopes, tc.wantScopes), "security = %#v, want public=%t scopes=%v", security, tc.wantPublic, tc.wantScopes)
 		})
 	}
+}
+
+func TestParse_SecurityRequirements(t *testing.T) {
+	input := `{
+	  "swagger": "2.0",
+	  "securityDefinitions": {
+	    "basicAuth": {"type": "basic", "description": "omit"},
+	    "apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}
+	  },
+	  "paths": {
+	    "/or": {"get": {"operationId": "Or_Get", "security": [{"basicAuth": []}, {"apiKey": ["read"]}], "responses": {"200": {}}}},
+	    "/and": {"get": {"operationId": "And_Get", "security": [{"apiKey": [], "basicAuth": []}], "responses": {"200": {}}}}
+	  }
+	}`
+	got := map[string]*runtime.SecurityHint{}
+	for _, spec := range normalize.Normalize(parseInput(t, input, ".json")) {
+		got[spec.OperationID] = spec.Security
+	}
+	basic := runtime.SecurityScheme{Name: "basicAuth", Type: "http", Scheme: "basic"}
+	apiKey := runtime.SecurityScheme{Name: "apiKey", Type: "apiKey", In: "header", Param: "X-API-Key"}
+	apiKeyRead := apiKey
+	apiKeyRead.Scopes = []string{"read"}
+	wantOR := &runtime.SecurityHint{
+		Scopes: []string{"read"},
+		Requirements: []runtime.SecurityRequirement{
+			{Schemes: []runtime.SecurityScheme{basic}},
+			{Schemes: []runtime.SecurityScheme{apiKeyRead}},
+		},
+	}
+	wantAND := &runtime.SecurityHint{Requirements: []runtime.SecurityRequirement{{
+		Schemes: []runtime.SecurityScheme{apiKey, basic},
+	}}}
+	testutil.Require(t, reflect.DeepEqual(got["Or_Get"], wantOR), "or = %#v", got["Or_Get"])
+	testutil.Require(t, reflect.DeepEqual(got["And_Get"], wantAND), "and = %#v", got["And_Get"])
 }
 
 func TestParse_PreservesBodySchemaMetadata(t *testing.T) {
@@ -300,6 +428,32 @@ func TestParse_TagDescriptions(t *testing.T) {
 				want = "Manage user accounts"
 			}
 			testutil.Require(t, spec.GroupShort == want, "%s: group %q description = %q, want %q", tc.ext, spec.Group, spec.GroupShort, want)
+		}
+	}
+}
+
+func TestParse_FileParamContentType(t *testing.T) {
+	spec := normalize.Normalize(parseInput(t, `{
+  "swagger": "2.0",
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "Uploads_Create",
+        "parameters": [
+          {"name": "file", "in": "formData", "type": "file", "required": true},
+          {"name": "note", "in": "formData", "type": "string"}
+        ],
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}`, ".json"))[0]
+	for _, param := range spec.Params {
+		switch param.Name {
+		case "file":
+			testutil.Require(t, param.Format == "binary" && param.ContentType == "", "file = %#v", param)
+		case "note":
+			testutil.Require(t, param.ContentType == "" && param.In == "formData", "note = %#v", param)
 		}
 	}
 }

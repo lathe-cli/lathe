@@ -206,6 +206,8 @@ func TestSetQueryParam(t *testing.T) {
 		{"/items", "page_token", "abc", "/items?page_token=abc"},
 		{"/items?limit=10", "page_token", "abc", "/items?limit=10&page_token=abc"},
 		{"/items?page_token=old&limit=10", "page_token", "new", "/items?limit=10&page_token=new"},
+		{"/x?ids=a,b&p=a/b", "page_token", "t", "/x?ids=a,b&p=a/b&page_token=t"},
+		{"/x?a=1;b=2&c=3", "page_token", "t", "/x?a=1;b=2&c=3&page_token=t"},
 	}
 	for _, tc := range cases {
 		got := setQueryParam(tc.base, tc.key, tc.val)

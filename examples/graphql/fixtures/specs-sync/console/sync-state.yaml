@@ -1,4 +1,5 @@
 source: console
 backend: graphql
 synced_from: v1.0.0
+repo_url: https://github.com/acme/graphql-console.git
 resolved_sha: "0000000000000000000000000000000000000000"

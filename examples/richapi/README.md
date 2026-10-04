@@ -17,10 +17,12 @@ The rich API path is useful when validating:
 
 - Pagination hints.
 - Enum flags.
+- Query and cookie parameter serialization (`roles`, `tenant`).
 - Header parameters.
 - Required and optional JSON request bodies.
 - Public endpoints with no auth requirement.
 - Streaming response hints.
 - Long-running operation hints.
+- Security alternatives and combinations.
 
 See [CLI Usage](../../docs/cli-usage.md) for the full command sequence and agent loop.
