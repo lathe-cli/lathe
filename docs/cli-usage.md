@@ -195,6 +195,8 @@ the generated Skill root are rejected.
 When bundling is enabled, codegen runs `go mod tidy`. The bundle's Kitup
 dependencies resolve to the versions required by the Lathe runtime in
 `go.mod`. Keep that runtime at the generator's version.
+Inside a Go workspace (`go env GOWORK` is set), codegen skips `go mod tidy`;
+run it yourself before building with `GOWORK=off`.
 
 ### Version and Update
 
