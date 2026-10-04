@@ -55,7 +55,7 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		return err
 	}
 	if generated.Manifest.Skill.Bundle {
-		return pinSkillBundleDependencies(output)
+		return tidySkillBundleDependencies(output)
 	}
 	return nil
 }

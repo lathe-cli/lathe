@@ -192,11 +192,11 @@ Object-form `include` supports per-file `append`, `create`, `replace`, and
 `scripts/`, and `assets/`. Dotfiles, symlinks, traversal, and paths inside
 the generated Skill root are rejected.
 
-When bundling is enabled, codegen pins:
-
-```sh
-go get github.com/lathe-cli/kitup/go@v0.1.3 github.com/lathe-cli/kitup/go-cobra@v0.1.3
-```
+When bundling is enabled, codegen runs `go mod tidy`. The bundle's Kitup
+dependencies resolve to the versions required by the Lathe runtime in
+`go.mod`. Keep that runtime at the generator's version.
+Inside a Go workspace (`go env GOWORK` is set), codegen skips `go mod tidy`;
+run it yourself before building with `GOWORK=off`.
 
 ### Version and Update
 

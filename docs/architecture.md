@@ -91,6 +91,7 @@ workflows, then bundled capabilities in a stable order.
 | `pkg/runtime` | runtime | Builds operation/workflow commands, catalog data, requests, auth, body handling, pagination, streaming, polling, output, and stable errors. |
 | `internal/auth` | runtime | Implements `auth login`, `logout`, `status`, and context commands. |
 | `pkg/lathe` | runtime | Provides the generated-CLI entrypoint, framework commands, version/update support, and `__lathe verify`. |
+| `pkg/skillbundle` | runtime | Mounts the bundled Skill install command for CLIs generated with `skill.bundle: true`. |
 
 `internal/**` is implementation-only. `pkg/**` is linked by downstream generated
 CLIs and is therefore a compatibility-sensitive surface.
@@ -131,8 +132,9 @@ successful completed operation.
 Lathe composes first-party capabilities at generation time; it does not load
 runtime plugins.
 
-- `skill.bundle: true` embeds the generated Skill, pins Kitup dependencies, and
-  mounts `<cli> skill install`.
+- `skill.bundle: true` embeds the generated Skill and mounts
+  `<cli> skill install` through `pkg/skillbundle`, so Lathe's `go.mod` selects
+  the Kitup dependency versions.
 - `workflow.commands` renders workflow specs and mounts them as normal root
   commands.
 - `catalog.cli.capabilities` records compiled capabilities such as
