@@ -44,7 +44,7 @@ lint: ## Run golangci-lint
 test: ## Run tests
 	$(GO) test ./...
 
-bench: ## Run benchmarks (reported to CodSpeed in CI)
+bench: ## Run local benchmarks
 	$(GO) test -bench=. ./...
 
 vet: ## Run go vet
