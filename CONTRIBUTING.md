@@ -28,9 +28,6 @@ codegen pipeline (spec parsing, normalization) and the generated-CLI runtime
 make bench        # go test -bench=. ./...
 ```
 
-CI runs the same benchmarks on [CodSpeed](https://app.codspeed.io/lathe-cli/lathe)
-and reports the performance impact of a pull request against `main`.
-
 ## Workflow
 
 1. Fork the repo, create a feature branch off `main`.
