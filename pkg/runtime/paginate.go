@@ -19,6 +19,11 @@ func PaginateAll(ctx context.Context, hostname, method, basePath string, body an
 	var allItems []json.RawMessage
 	currentPath := basePath
 	var offset int
+	if hint.Strategy == "offset" {
+		_, query, _ := strings.Cut(basePath, "?")
+		values, _ := url.ParseQuery(query)
+		offset, _ = strconv.Atoi(values.Get(hint.TokenParam))
+	}
 
 	for page := 0; page < maxPages; page++ {
 		data, err := DoRaw(ctx, hostname, method, currentPath, body, opts)
