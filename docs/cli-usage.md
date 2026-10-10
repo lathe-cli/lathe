@@ -512,6 +512,14 @@ per-column table alignment to `left` or `right`. Omitted columns stay left.
 Currency-formatted columns default to right alignment; an explicit
 `column_alignments` entry overrides that default.
 
+### Pagination
+
+Generated list commands with pagination metadata expose `--all` to collect
+pages and `--max-pages` to cap the number of requests. With offset pagination,
+`--all` starts at the offset sent in the first request, including an explicit
+flag or a declared default. Each subsequent offset advances by the number of
+items returned, and an empty page ends collection.
+
 ### Stream Collection
 
 ```yaml

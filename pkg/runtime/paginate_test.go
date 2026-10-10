@@ -1,12 +1,15 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,6 +181,99 @@ func TestPaginateAll_Offset(t *testing.T) {
 	var result map[string][]map[string]string
 	testutil.NoError(t, json.Unmarshal(data, &result))
 	testutil.Check(t, len(result["data"]) == 5, "got %d items, want 5", len(result["data"]))
+}
+
+func TestPaginateAll_OffsetStartsFromRequestedPage(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		tokenParam  string
+		query       string
+		limit       int
+		withTotal   bool
+		wantItems   []int
+		wantOffsets []int
+	}{
+		{name: "default offset", tokenParam: "offset", limit: 2, wantItems: []int{0, 1, 2, 3, 4}, wantOffsets: []int{0, 2, 4, 5}},
+		{name: "explicit zero", tokenParam: "offset", query: "offset=0", limit: 2, withTotal: true, wantItems: []int{0, 1, 2, 3, 4}, wantOffsets: []int{0, 2, 4, 5}},
+		{name: "nonzero offset", tokenParam: "offset", query: "offset=2", limit: 2, wantItems: []int{2, 3, 4}, wantOffsets: []int{2, 4, 5}},
+		{name: "custom parameter", tokenParam: "skip", query: "skip=2", limit: 1, withTotal: true, wantItems: []int{2, 3, 4}, wantOffsets: []int{2, 3, 4, 5}},
+		{name: "encoded parameter", tokenParam: "start_at", query: "start%5Fat=%32", limit: 3, wantItems: []int{2, 3, 4}, wantOffsets: []int{2, 5}},
+		{name: "empty first page", tokenParam: "offset", query: "offset=5", limit: 2, withTotal: true, wantOffsets: []int{5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			allItems := []int{0, 1, 2, 3, 4}
+			var offsets []int
+			var mu sync.Mutex
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				offset := 0
+				_, _ = fmt.Sscanf(r.URL.Query().Get(tc.tokenParam), "%d", &offset)
+				mu.Lock()
+				offsets = append(offsets, offset)
+				mu.Unlock()
+				testutil.Check(t, r.URL.Query().Get("limit") == strconv.Itoa(tc.limit), "request lost limit: %s", r.URL)
+				end := min(offset+tc.limit, len(allItems))
+				response := map[string]any{"items": allItems[offset:end]}
+				if tc.withTotal {
+					response["total"] = len(allItems)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(response)
+			}))
+			defer srv.Close()
+
+			hint := PaginationHint{Strategy: "offset", TokenParam: tc.tokenParam, LimitParam: "limit"}
+			path := "/items?limit=" + strconv.Itoa(tc.limit)
+			if tc.query != "" {
+				path += "&" + tc.query
+			}
+			data, err := PaginateAll(context.Background(), srv.URL, "GET", path, nil, ClientOptions{Timeout: 5 * time.Second}, hint, "items", 10)
+			testutil.NoError(t, err)
+			var result map[string][]int
+			testutil.NoError(t, json.Unmarshal(data, &result))
+			testutil.Check(t, slices.Equal(result["items"], tc.wantItems), "items = %v, want %v", result["items"], tc.wantItems)
+			mu.Lock()
+			defer mu.Unlock()
+			testutil.Check(t, slices.Equal(offsets, tc.wantOffsets), "request offsets = %v, want %v", offsets, tc.wantOffsets)
+		})
+	}
+}
+
+func TestBuild_OffsetPaginationStartsAtFlagValue(t *testing.T) {
+	for _, defaultOffset := range []string{"", "2"} {
+		t.Run("default="+defaultOffset, func(t *testing.T) {
+			isolateRuntime(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				offset := 0
+				_, _ = fmt.Sscanf(r.URL.Query().Get("offset"), "%d", &offset)
+				items := []int{0, 1, 2, 3, 4}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"items": items[offset:min(offset+2, len(items))]})
+			}))
+			defer srv.Close()
+			root := newExecutionRoot("raw")
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetErr(io.Discard)
+			mustBuild(t, root, "demo", []CommandSpec{{
+				Group: "Items", Use: "list", Method: "GET", PathTpl: "/items",
+				Params: []ParamSpec{
+					{Name: "offset", Flag: "offset", In: InQuery, GoType: "int64", Default: defaultOffset},
+					{Name: "limit", Flag: "limit", In: InQuery, GoType: "int64", Default: "2"},
+				},
+				Output:   OutputHints{ListPath: "items", Pagination: &PaginationHint{Strategy: "offset", TokenParam: "offset", LimitParam: "limit"}},
+				Security: &SecurityHint{Public: true},
+			}})
+			args := []string{"--hostname", srv.URL, "demo", "items", "list", "--all"}
+			if defaultOffset == "" {
+				args = append(args, "--offset", "2")
+			}
+			root.SetArgs(args)
+			testutil.NoError(t, root.Execute())
+			var result map[string][]int
+			testutil.NoError(t, json.Unmarshal(out.Bytes(), &result))
+			testutil.Check(t, slices.Equal(result["items"], []int{2, 3, 4}), "CLI output = %s, want items [2 3 4]", &out)
+		})
+	}
 }
 
 func TestPaginateAll_MaxPages(t *testing.T) {
