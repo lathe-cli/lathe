@@ -43,3 +43,22 @@ Use `make help` for targets and `go.mod` for the Go version.
 
 - HTTP and auth changes must protect credentials and account for SSRF, TLS, redirects, retries, headers, and debug/error leakage. Spec sync and generation must reject traversal, unsafe output roots, and deletion of non-owned directories; escape spec text emitted as code, flags, paths, or Skill Markdown.
 - Use [.agents/skills/lathe-release/SKILL.md](.agents/skills/lathe-release/SKILL.md) for versioned release validation. Tagging and publishing require explicit authorization.
+
+## Merge gate
+
+Gate contract. Green on the checks below is the claim that a PR is safe to merge for the listed properties; everything else stays with the human reviewer.
+
+| Property | Local | CI |
+| --- | --- | --- |
+| Compiles | `go build ./...` | `ci.yml`: `go build ./...` |
+| Vet and lint (errcheck, govet, ineffassign, staticcheck, unused) | `make vet`, `make lint` | `ci.yml`: `go vet`, golangci-lint |
+| Formatting | `make fmt-check` | not run; the enabled linters do not enforce gofmt |
+| Tests | `make test` | `ci.yml`: `go test -race ./...` (CI adds `-race`) |
+| Static security analysis | none | `codeql.yml` on pull requests |
+| Release build and race tests on tags | none | `release.yml` only, on `v*` tags |
+
+Not covered by any check: exercising a generated CLI (`<cli> __lathe verify --json`, example projects under `examples/`), Skill install smoke, compatibility of previously generated CLIs with a new runtime (`runtime.SchemaVersion`, `runtime.CatalogSchemaVersion`), and documentation claims against live behavior.
+
+Human review owns: product scope, agent inspectability of command shape and catalog changes, the architecture boundaries above, and downstream compatibility decisions for `pkg/**`.
+
+Required status checks: none enforced as of 2026-10-12; the `main` ruleset only blocks deletion and non-fast-forward pushes. Ledger: Issues labeled `gate-miss` and `gate-false-block`.
