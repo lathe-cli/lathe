@@ -153,7 +153,8 @@ func TestAccessTokenWaitDelayBoundsInheritedStdout(t *testing.T) {
 	case <-timer.C:
 		killChild()
 		select {
-		case <-done:
+		case err := <-done:
+			t.Fatalf("inherited stdout kept the lookup open past its timeout budget: %v", err)
 		case <-time.After(time.Second):
 		}
 		t.Fatal("inherited stdout kept the lookup open past its timeout budget")
