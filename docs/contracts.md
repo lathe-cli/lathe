@@ -171,8 +171,8 @@ user-provided values. It is a single bounded line. Human-readable output
 prints it as a `Detail:` line between `Error:` and `Hint:`. Cobra unknown
 command and unknown flag errors never carry a detail.
 
-For `api_error`, `message` stays `API request failed` and `detail` is filled
-from the first available layer:
+For `api_error`, `message` stays `API request failed`. For HTTP status failures,
+`detail` is filled from the first available layer:
 
 1. The response Content-Type is JSON and a string is extractable from a
    declared field (`message`; `error` as a string or `error.message`;
@@ -183,6 +183,21 @@ from the first available layer:
 3. Otherwise detail is absent and only the numeric status plus hint remain.
 
 The raw response body is never emitted in any layer.
+
+Ordinary API operations reject a successful `text/html` response only after
+following an HTTP redirect. The check applies when the response media type
+is unspecified or explicitly JSON (`application/json` or a concrete `+json`
+type). Direct responses keep their existing behavior, including JSON data or
+empty bodies with a `text/html` Content-Type. These failures return `api_error`
+/ exit `3`, with the numeric HTTP status and a fixed local detail.
+The hint is `check the API hostname and complete any required sign-in`.
+It does not instruct the caller to retry a write request that already ran.
+The response body and redirect URL are not included. This check runs before
+response consumption and applies to ordinary `-o raw` output, pagination,
+workflows, and wait requests.
+Declared HTML, text, wildcard, binary, and streaming outputs keep their existing
+behavior. Authentication helper requests and the public `DoRaw` helpers keep
+their existing behavior. Redirects that return API data still succeed.
 
 | Code | Exit |
 | --- | ---: |

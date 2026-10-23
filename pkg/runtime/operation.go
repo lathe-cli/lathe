@@ -210,6 +210,9 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 	if s.Output.ResponseMediaType != "" {
 		clientOpts.Accept = s.Output.ResponseMediaType
 	}
+	responseMediaType := mediaTypeValue(clientOpts.Accept)
+	jsonResponse := !strings.Contains(responseMediaType, "*") && isJSONErrorMediaType(responseMediaType)
+	clientOpts.htmlResponseGuard = !s.Output.Binary && s.Output.Streaming == nil && (clientOpts.Accept == "" || jsonResponse)
 	return path, body, clientOpts, nil
 }
 

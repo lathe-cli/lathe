@@ -31,6 +31,7 @@ type ClientOptions struct {
 	UserAgent          string
 	Accept             string
 	binaryContentGuard bool
+	htmlResponseGuard  bool
 
 	sensitiveQueryParams map[string]bool
 	checkRedirect        func(*http.Request, []*http.Request) error
@@ -379,6 +380,21 @@ func newRequest(ctx context.Context, method, u string, body []byte, contentType 
 
 func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsumer) (*RawResult, error) {
 	method := req.Method
+	redirected := false
+	if opts.htmlResponseGuard {
+		checkRedirect := opts.checkRedirect
+		opts.checkRedirect = func(req *http.Request, via []*http.Request) error {
+			if checkRedirect != nil {
+				if err := checkRedirect(req, via); err != nil {
+					return err
+				}
+			} else if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			redirected = true
+			return nil
+		}
+	}
 	resp, err := httpClient(opts, consume != nil).Do(req)
 	if err != nil {
 		cause := redactClientError(err, opts.sensitiveQueryParams)
@@ -401,6 +417,12 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 			ContentType: resp.Header.Get("Content-Type"),
 			Body:        data,
 		}
+	}
+	if opts.htmlResponseGuard && redirected && mediaTypeValue(resp.Header.Get("Content-Type")) == "text/html" {
+		le := newAPIError(errors.New("unexpected HTML response"), resp.StatusCode)
+		le.Detail = "received an HTML page instead of an API response"
+		le.Hint = "check the API hostname and complete any required sign-in"
+		return nil, le
 	}
 	if opts.binaryContentGuard {
 		if media, reject := rejectBinaryContentType(opts.Accept, resp.Header.Get("Content-Type")); reject {
