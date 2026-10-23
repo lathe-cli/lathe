@@ -30,6 +30,7 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 		fmt.Fprintf(&b, "- Use `%s auth login --device-auth --hostname <host> --provider <provider>` when the user needs browser-based OAuth login. The browser opens by default in an interactive terminal; use `--no-browser` for manual login.\n", cli)
 		b.WriteString("- The saved host will use `auth_type: bearer`; OAuth is the login method, and the resulting API credential is a bearer token.\n\n")
 	}
+	b.WriteString(renderCloudflareAccessGuidance(cli))
 	b.WriteString("## General Commands\n\n")
 	fmt.Fprintf(&b, "- `%s commands --json`: full generated command catalog.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands --include-hidden --json`: include hidden generated commands.\n", cli)
@@ -132,6 +133,42 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	if len(manifest.Contexts) > 0 {
 		fmt.Fprintf(&b, "Inspect effective account-scoped defaults with `%s auth context status -o json`; `local_set` reports whether `auth context set` is allowed. A command's explicit bound flag wins over its declared environment variable and stored host value.\n", cli)
 	}
+	b.WriteString("\n")
+	b.WriteString(renderCloudflareAccessGuidance(cli))
+	return b.String()
+}
+
+func renderCloudflareAccessGuidance(cli string) string {
+	var b strings.Builder
+	b.WriteString("## Cloudflare Access\n\n")
+	fmt.Fprintf(&b, "Before Access setup, run `%s commands --include-hidden --json`. ", cli)
+	b.WriteString("Read `auth.required` for every entry in `commands`.\n\n")
+	b.WriteString("If no command has `auth.required=true`, report: \"This CLI cannot enable Cloudflare Access in this version.\" ")
+	b.WriteString("Stop here. Do not run the Access login or API login steps below.\n\n")
+	b.WriteString("Only if at least one command has `auth.required=true`, continue with the following Access setup.\n\n")
+	b.WriteString("If the host requires Cloudflare Access, replace `api.example` below with its hostname, including any non-default port. ")
+	b.WriteString("Ask the user to complete these steps in order:\n\n")
+	b.WriteString("1. Install `cloudflared` on `PATH`.\n")
+	b.WriteString("2. Run `cloudflared access login --quiet https://api.example` for the actual HTTPS origin.\n")
+	fmt.Fprintf(&b, "3. Run `%s auth login --hostname api.example --cloudflare-access` and complete normal API login.\n\n", cli)
+	b.WriteString("Access login does not replace API authentication. Retain OAuth device and provider flags when required. ")
+	b.WriteString("Use the same explicit `--hostname` for status and execution. ")
+	b.WriteString("In `auth status -o json`, `hosts[].cloudflare_access` reports only the saved switch, not token validity. ")
+	b.WriteString("Status does not contact the host or invoke `cloudflared`.\n\n")
+	fmt.Fprintf(&b, "A later API login preserves the switch. Use `%s auth login --hostname api.example --cloudflare-access=false` to disable it. ", cli)
+	b.WriteString("The first real request obtains a token for the exact HTTPS origin and reuses it within the invocation. ")
+	b.WriteString("Lathe does not persist Access tokens or read or write the `cloudflared` cache. ")
+	b.WriteString("Disabled hosts, HTTP dry-runs, help, and verification never obtain Access tokens. The updater does not use host Access configuration.\n\n")
+	b.WriteString("Access requires HTTPS with certificate verification and conflicts with `--insecure` or a saved insecure setting. ")
+	b.WriteString("Tokens do not apply to subdomains or other ports. ")
+	b.WriteString("Enabled requests refuse redirects to another origin.\n\n")
+	b.WriteString("A 302 to `*.cloudflareaccess.com` supplies an error hint only. ")
+	b.WriteString("Never enable Access or run a command from that redirect. ")
+	b.WriteString("Lathe does not start Access browser login or automatically replay the request. ")
+	b.WriteString("If Access login expires, ask the user to repeat Access login before another API attempt.\n\n")
+	b.WriteString("One origin must use one Access application. Different application audiences by path are unsupported. ")
+	b.WriteString("A CLI whose commands all report `auth.required=false` cannot enable Access in this version. There is no separate configuration command. ")
+	b.WriteString("Credentials for an old proxy host are not migrated or deleted.\n\n")
 	return b.String()
 }
 

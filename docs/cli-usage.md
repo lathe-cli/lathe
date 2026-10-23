@@ -133,6 +133,78 @@ bin/acmectl auth use api.acme.com
 in, the CLI prints `current host: <name>` on stderr; explicit selection is
 silent.
 
+### Cloudflare Access
+
+Before Access setup, inspect the complete catalog, including hidden commands:
+
+```sh
+bin/acmectl commands --include-hidden --json
+```
+
+Read `auth.required` for every entry in `commands`.
+If no command has `auth.required=true`, stop here:
+"This CLI cannot enable Cloudflare Access in this version."
+Do not run the Access login or API login steps below.
+
+Only if at least one command has `auth.required=true`, continue with Access setup.
+For a host protected by Cloudflare Access, complete Access login before API
+login. Install `cloudflared` on `PATH` first. Replace `api.example` with your
+hostname, including a non-default port, in these commands. Run them yourself:
+
+```sh
+cloudflared access login --quiet https://api.example
+bin/acmectl auth login --hostname api.example --cloudflare-access
+bin/acmectl auth status --hostname api.example -o json
+```
+
+Complete the CLI's normal API login when prompted. For OAuth device login,
+retain the required `--device-auth` and provider flags. Access login does not
+replace API authentication. Pass the same `--hostname` when executing commands
+against this host.
+
+The CLI saves `cloudflare_access: true` in that host's `hosts.yml` entry.
+No change to `cli.yaml` is needed. A later API login preserves the switch unless
+you explicitly change it. To disable Access while logging in again, run:
+
+```sh
+bin/acmectl auth login --hostname api.example --cloudflare-access=false
+```
+
+`auth status` reports `hosts[].cloudflare_access: true` for enabled hosts.
+It omits this field for disabled hosts. It reports only the saved switch. It does not contact the host, obtain a token, or prove that
+Access login remains valid.
+
+On the first real HTTP request, the CLI runs
+`cloudflared access token -app=https://api.example` and sends `Cf-Access-Token`
+alongside the API credential. The CLI keeps the token in memory for that origin
+within the current invocation.
+
+Token lookup has its own 8-second timeout.
+Canceling one request stops that request's wait without canceling the shared lookup.
+The lookup can finish and cache its result for other requests in the invocation.
+
+Lathe does not save Access tokens or read or write the `cloudflared` cache.
+`cloudflared` owns its cache.
+Hosts with Access disabled never invoke `cloudflared`.
+HTTP dry-runs, status, help, and `__lathe verify` do not obtain Access tokens.
+`update` does not use the host's Access configuration.
+
+Access requires HTTPS with certificate verification. `--insecure` or a saved
+insecure host setting conflicts with Access. The token applies only to the
+same HTTPS scheme, hostname, and effective port. The default HTTPS port is 443.
+A subdomain or the same hostname on another port does not receive the token.
+When Access is enabled, the CLI refuses redirects to another origin.
+
+A 302 redirect to `*.cloudflareaccess.com` supplies an error hint only.
+The CLI never enables Access, starts Access browser login, or replays the
+request automatically. If Access login expires, repeat the `cloudflared access login`
+command yourself before running the API command again.
+
+One origin must use one Access application. Different application audiences
+(AUD values) by path are unsupported. CLIs whose commands all report `auth.required=false` cannot enable Access
+in this version. There is no separate configuration command for these CLIs.
+Existing credentials for an old proxy host are not migrated or deleted.
+
 ### Active Contexts
 
 Account-scoped defaults are opt-in:

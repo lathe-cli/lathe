@@ -111,10 +111,6 @@ func (r *hostReporter) noticeImplicitHost(w io.Writer, res HostResolution) {
 	fmt.Fprintf(w, "current host: %s\n", res.Hostname)
 }
 
-// LoadHostOptions resolves hostname and client options (including auth) for
-// the current command in one call. The persistent --insecure flag forces
-// insecure when set; otherwise the host record's persisted Insecure value
-// applies.
 func LoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
 	res, opts, err := loadHostOptions(cmd, "", true)
 	return res.Hostname, opts, err
@@ -134,6 +130,7 @@ func tryLoadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool
 }
 
 func hostOptions(cmd *cobra.Command, defaultHostname string, refresh, optional bool) (HostResolution, ClientOptions, error) {
+	cmd.SetContext(WithAccessSession(cmd.Context()))
 	hosts, err := config.LoadHosts()
 	if err != nil {
 		return HostResolution{}, ClientOptions{}, err
@@ -147,12 +144,16 @@ func hostOptions(cmd *cobra.Command, defaultHostname string, refresh, optional b
 		return res, ClientOptions{}, missingHostCredentialsError(res.Hostname, hosts.Names())
 	}
 	insecure, _ := cmd.Root().PersistentFlags().GetBool("insecure")
-	opts := ClientOptions{Insecure: entry.Insecure || insecure}
+	opts, err := HostClientOptions(cmd.Context(), res.Hostname, entry, insecure)
+	if err != nil {
+		return res, ClientOptions{}, err
+	}
+	opts.AccessLoginAvailable = func() bool { return CloudflareAccessLoginAvailable(cmd.Root()) }
 	if !stored {
 		return res, opts, nil
 	}
 	if refresh {
-		refreshed, err := refreshHostAuthIfNeeded(cmd.Context(), res.Hostname, entry, opts.Insecure)
+		refreshed, err := refreshHostAuthIfNeeded(cmd.Context(), res.Hostname, entry, opts)
 		if err == nil {
 			entry = refreshed
 		} else if !optional {
@@ -167,7 +168,7 @@ func hostOptions(cmd *cobra.Command, defaultHostname string, refresh, optional b
 		return res, ClientOptions{}, err
 	}
 	if refresh && canRefreshHostAuth(entry) {
-		opts.RefreshAuth = refreshAuthFunc(res.Hostname, opts.Insecure, entry.OAuthToken)
+		opts.RefreshAuth = refreshAuthFunc(res.Hostname, opts, entry.OAuthToken)
 	}
 	return res, opts, nil
 }

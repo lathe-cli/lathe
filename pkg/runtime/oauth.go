@@ -17,7 +17,7 @@ type oauthTokenResponse struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
-func refreshAuthFunc(hostname string, insecure bool, rejectedToken string) func(context.Context) (Authenticator, error) {
+func refreshAuthFunc(hostname string, opts ClientOptions, rejectedToken string) func(context.Context) (Authenticator, error) {
 	return func(ctx context.Context) (Authenticator, error) {
 		hosts, err := config.LoadHosts()
 		if err != nil {
@@ -30,7 +30,7 @@ func refreshAuthFunc(hostname string, insecure bool, rejectedToken string) func(
 		if entry.OAuthToken != "" && entry.OAuthToken != rejectedToken {
 			return NewAuthFromHost(entry)
 		}
-		entry, err = refreshHostAuth(ctx, hostname, entry, insecure)
+		entry, err = refreshHostAuth(ctx, hostname, entry, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -43,24 +43,30 @@ func canRefreshHostAuth(entry config.HostEntry) bool {
 	return login != nil && login.RefreshPath != "" && entry.OAuthRefreshToken != ""
 }
 
-func refreshHostAuthIfNeeded(ctx context.Context, hostname string, entry config.HostEntry, insecure bool) (config.HostEntry, error) {
+func refreshHostAuthIfNeeded(ctx context.Context, hostname string, entry config.HostEntry, opts ClientOptions) (config.HostEntry, error) {
 	if !canRefreshHostAuth(entry) {
 		return entry, nil
 	}
 	if entry.OAuthExpiresAt == 0 || time.Now().Unix()+oauthRefreshSkew < entry.OAuthExpiresAt {
 		return entry, nil
 	}
-	return refreshHostAuth(ctx, hostname, entry, insecure)
+	return refreshHostAuth(ctx, hostname, entry, opts)
 }
 
-func refreshHostAuth(ctx context.Context, hostname string, entry config.HostEntry, insecure bool) (config.HostEntry, error) {
+func refreshHostAuth(ctx context.Context, hostname string, entry config.HostEntry, parentOpts ClientOptions) (config.HostEntry, error) {
 	login := config.Active().Auth.Login
 	if login == nil || login.RefreshPath == "" || entry.OAuthRefreshToken == "" {
 		return entry, fmt.Errorf("refresh token unavailable; run `%s auth login --auth-type oauth --hostname %s`", config.Active().CLI.Name, hostname)
 	}
+	opts, err := HostClientOptions(ctx, hostname, entry, parentOpts.Insecure)
+	if err != nil {
+		return entry, err
+	}
+	opts.Timeout = 10 * time.Second
+	opts.AccessLoginAvailable = parentOpts.AccessLoginAvailable
 	data, err := DoRaw(ctx, hostname, "POST", login.RefreshPath, map[string]string{
 		"refresh_token": entry.OAuthRefreshToken,
-	}, ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
+	}, opts)
 	if err != nil {
 		if current, ok := refreshedByAnotherProcess(hostname, entry); ok {
 			return current, nil

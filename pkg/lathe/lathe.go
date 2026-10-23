@@ -35,6 +35,7 @@ func NewApp(m *config.Manifest) *cobra.Command {
 			return cmd.Help()
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SetContext(runtime.WithAccessSession(cmd.Context()))
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
 			if !slices.Contains(runtime.FormatterNames(), format) {
 				return runtime.UsageError(cmd, runtime.WithUsageDetail(

@@ -38,7 +38,7 @@ type oauthDeviceTokenResponse struct {
 	Contexts     map[string]string
 }
 
-func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, provider string, insecure, noBrowser bool) (config.HostEntry, error) {
+func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, provider string, opts runtime.ClientOptions, cloudflareAccess, noBrowser bool) (config.HostEntry, error) {
 	login := m.Auth.Login
 	if login == nil || login.Type != config.AuthLoginOAuthDevice {
 		return config.HostEntry{}, runtime.NewError(runtime.CodeUsage, runtime.ExitUsage,
@@ -64,7 +64,7 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 	if err != nil {
 		return config.HostEntry{}, err
 	}
-	data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.StartPath, body, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
+	data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.StartPath, body, opts)
 	if err != nil {
 		return config.HostEntry{}, fmt.Errorf("start oauth login: %w", err)
 	}
@@ -91,7 +91,7 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 		openURL = verificationURL
 	}
 	maybeOpenBrowser(openURL, noBrowser)
-	token, err := pollOAuthDeviceToken(cmd, hostname, login, start, provider, deviceLabel, insecure)
+	token, err := pollOAuthDeviceToken(cmd, hostname, login, start, provider, deviceLabel, opts)
 	if err != nil {
 		return config.HostEntry{}, err
 	}
@@ -101,7 +101,8 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 		LoginProvider:     provider,
 		OAuthToken:        token.AccessToken,
 		OAuthRefreshToken: token.RefreshToken,
-		Insecure:          insecure,
+		Insecure:          opts.Insecure,
+		CloudflareAccess:  cloudflareAccess,
 		Contexts:          token.Contexts,
 	}
 	if token.ExpiresIn > 0 {
@@ -114,7 +115,7 @@ func oauthDeviceLogin(cmd *cobra.Command, m *config.Manifest, hostname string, p
 	return entry, nil
 }
 
-func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, login *config.AuthLogin, start oauthDeviceStartResponse, provider, deviceLabel string, insecure bool) (oauthDeviceTokenResponse, error) {
+func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, login *config.AuthLogin, start oauthDeviceStartResponse, provider, deviceLabel string, opts runtime.ClientOptions) (oauthDeviceTokenResponse, error) {
 	expiresIn := start.ExpiresIn
 	if expiresIn <= 0 {
 		expiresIn = 600
@@ -137,7 +138,7 @@ func pollOAuthDeviceToken(cmd *cobra.Command, hostname string, login *config.Aut
 		if time.Now().After(deadline) {
 			return oauthDeviceTokenResponse{}, errors.New("oauth login expired")
 		}
-		data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.TokenPath, body, runtime.ClientOptions{Insecure: insecure, Timeout: 10 * time.Second})
+		data, err := runtime.DoRaw(cmd.Context(), hostname, "POST", login.TokenPath, body, opts)
 		var token oauthDeviceTokenResponse
 		if len(data) > 0 {
 			var decodeErr error

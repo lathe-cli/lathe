@@ -127,6 +127,56 @@ from `commands show` (usually `--dry-run`). Normal execution can paginate, poll 
 configured streams, and persist a declared active context only after a
 successful completed operation.
 
+## Cloudflare Access Boundary
+
+Cloudflare Access is an optional per-host layer alongside API authentication.
+`hosts.yml` stores the `cloudflare_access` switch. `cli.yaml` does not declare it.
+Access setup requires at least one catalog command with `auth.required=true`.
+Agents inspect `commands --include-hidden --json` before any Access setup commands.
+If no command requires authentication, agents stop without attempting Access setup.
+For supported CLIs, users install `cloudflared` and complete Access login before CLI authentication.
+
+API execution, credential validation, OAuth device requests, and refresh share
+`runtime.HostClientOptions(ctx, hostname, entry, insecure)`. Each path constructs
+client options separately, so these paths need one shared constructor.
+`runtime.WithAccessSession` gives them one session per CLI invocation.
+The HTTP layer obtains a token on the first real request for an enabled origin.
+It reuses that token for the same origin during the invocation.
+
+One redirect policy applies the redirect limit, Access origin checks,
+operation-specific callbacks, and the standard header allowlist.
+The Access transport checks the origin and token expiry before every attempt
+and adds the token only for the enabled HTTPS origin.
+
+The shared lookup uses `context.WithoutCancel(firstCtx)` with its own 8-second timeout.
+Its goroutine can complete and cache the result after one caller cancels.
+Each caller waits on its own context and the shared completion signal.
+Canceling one caller stops only that caller's wait, not the shared lookup.
+
+For Access, the runtime executes only
+`cloudflared access token -app=<HTTPS origin>`.
+It uses fixed arguments without a shell. It adds the token as `Cf-Access-Token` alongside the API credential.
+Lathe does not persist Access tokens or read or write the `cloudflared` cache.
+`cloudflared` owns its cache. Lathe does not initiate Access browser login or
+replay a request after an Access authentication failure.
+
+The origin is the HTTPS scheme, hostname, and effective port. Subdomains and
+other ports do not receive the token. Enabled requests reject redirects to
+another origin and reject insecure TLS. A 302 to `*.cloudflareaccess.com` only
+supplies an error hint. It cannot enable Access or trigger a subprocess.
+Disabled hosts never invoke `cloudflared`. Status, help, verification, and HTTP
+previews do not obtain tokens. The updater uses its own HTTP path.
+
+The strongest simpler alternative is a downstream `RunOptions` or transport hook.
+The existing transport hook does not cover authentication and refresh.
+A downstream implementation duplicates origin, redirect, and credential-safety
+responsibilities across those paths. The shared constructor keeps that policy
+in the runtime without changing generated operation declarations.
+
+One origin must use one Access application. Different application audiences by
+path are unsupported. Expired Access login requires user action before another run.
+Existing credentials for a proxy host remain separate and unchanged.
+
 ## Capability Composition
 
 Lathe composes first-party capabilities at generation time; it does not load

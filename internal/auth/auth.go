@@ -50,9 +50,10 @@ type authStatus struct {
 }
 
 type authStatusHost struct {
-	Hostname string `json:"hostname"`
-	User     string `json:"user,omitempty"`
-	Auth     string `json:"auth"`
+	Hostname         string `json:"hostname"`
+	CloudflareAccess bool   `json:"cloudflare_access,omitempty"`
+	User             string `json:"user,omitempty"`
+	Auth             string `json:"auth"`
 }
 
 func newStatus() *cobra.Command {
@@ -90,7 +91,7 @@ func newStatus() *cobra.Command {
 			}
 			for _, n := range names {
 				e, _ := hosts.Get(n)
-				out.Hosts = append(out.Hosts, authStatusHost{Hostname: n, User: e.User, Auth: authTypeLabel(e)})
+				out.Hosts = append(out.Hosts, authStatusHost{Hostname: n, User: e.User, Auth: authTypeLabel(e), CloudflareAccess: e.CloudflareAccess})
 			}
 
 			if format := rootString(cmd, "output"); format == "json" || format == "yaml" {
@@ -166,6 +167,9 @@ func printStatus(w io.Writer, hostname string, e config.HostEntry, selected bool
 	}
 	credential := maskedCredential(e)
 	fmt.Fprintf(w, "%s%s\n  ✓ Logged in as %s\n  ✓ Auth: %s\n  ✓ Credential: %s\n", hostname, marker, user, authTypeLabel(e), credential)
+	if e.CloudflareAccess {
+		fmt.Fprintln(w, "  ✓ Cloudflare Access: enabled (token not checked)")
+	}
 	if e.LoginType != "" {
 		loginLabel := e.LoginType
 		if e.LoginProvider != "" {

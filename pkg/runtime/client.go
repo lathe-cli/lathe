@@ -20,18 +20,20 @@ import (
 )
 
 type ClientOptions struct {
-	Auth               Authenticator
-	RefreshAuth        func(context.Context) (Authenticator, error)
-	Transport          http.RoundTripper
-	Insecure           bool
-	Timeout            time.Duration
-	Headers            map[string]string
-	Debug              bool
-	MaxRetries         int
-	UserAgent          string
-	Accept             string
-	binaryContentGuard bool
-	htmlResponseGuard  bool
+	Auth                 Authenticator
+	RefreshAuth          func(context.Context) (Authenticator, error)
+	Transport            http.RoundTripper
+	Insecure             bool
+	Timeout              time.Duration
+	Headers              map[string]string
+	Debug                bool
+	MaxRetries           int
+	UserAgent            string
+	Accept               string
+	AccessLoginAvailable func() bool
+	access               *cloudflareAccess
+	binaryContentGuard   bool
+	htmlResponseGuard    bool
 
 	sensitiveQueryParams map[string]bool
 	checkRedirect        func(*http.Request, []*http.Request) error
@@ -67,6 +69,9 @@ func httpClient(opts ClientOptions, streaming bool) *http.Client {
 			tlsCfg = &tls.Config{InsecureSkipVerify: true}
 		}
 		transport = &http.Transport{TLSClientConfig: tlsCfg}
+	}
+	if opts.access != nil {
+		transport = &accessTransport{inner: transport, access: opts.access, insecure: opts.Insecure}
 	}
 	maxRetries := opts.MaxRetries
 	safeMethodsOnly := maxRetries == 0
@@ -403,6 +408,10 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 		if errors.Is(cause, context.Canceled) {
 			return nil, cause
 		}
+		var accessErr *LatheError
+		if errors.As(cause, &accessErr) {
+			return nil, accessErr
+		}
 		return nil, newAPIError(cause, 0)
 	}
 	defer resp.Body.Close()
@@ -411,6 +420,9 @@ func doRawFullOnce(req *http.Request, opts ClientOptions, consume responseConsum
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, newAPIError(fmt.Errorf("read response: %w", err), resp.StatusCode)
+		}
+		if opts.access != nil {
+			data = opts.access.redact(data)
 		}
 		return nil, &HTTPError{
 			Method:      method,

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
@@ -17,18 +18,20 @@ import (
 
 func newLogin(m *config.Manifest) *cobra.Command {
 	var (
-		authType     string
-		provider     string
-		withToken    bool
-		deviceAuth   bool
-		noBrowser    bool
-		skipValidate bool
+		cloudflareAccess bool
+		authType         string
+		provider         string
+		withToken        bool
+		deviceAuth       bool
+		noBrowser        bool
+		skipValidate     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate with a host",
 		Args:  runtime.UsageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SetContext(runtime.WithAccessSession(cmd.Context()))
 			hostname := rootString(cmd, "hostname")
 			insecure := rootBool(cmd, "insecure")
 			if hostname == "" && !withToken {
@@ -51,7 +54,27 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				authType = "oauth"
 			}
 
-			entry := config.HostEntry{AuthType: authType, Insecure: insecure}
+			hosts, err := config.LoadHosts()
+			if err != nil {
+				return err
+			}
+			current, _ := hosts.Get(hostname)
+			chosenAccess := current.CloudflareAccess
+			if cmd.Flags().Changed("cloudflare-access") {
+				chosenAccess = cloudflareAccess
+			}
+			if chosenAccess {
+				if !runtime.CloudflareAccessLoginAvailable(cmd.Root()) {
+					return runtime.NewError(runtime.CodeUsage, runtime.ExitUsage, "Cloudflare Access requires a CLI with API authentication", "Use a CLI with API authentication. Access setup for public-only CLIs is unsupported", nil)
+				}
+			}
+			opts, err := runtime.HostClientOptions(cmd.Context(), hostname, config.HostEntry{CloudflareAccess: chosenAccess, Insecure: insecure}, false)
+			if err != nil {
+				return err
+			}
+			opts.Timeout = 10 * time.Second
+			opts.AccessLoginAvailable = func() bool { return runtime.CloudflareAccessLoginAvailable(cmd.Root()) }
+			entry := config.HostEntry{AuthType: authType, Insecure: insecure, CloudflareAccess: chosenAccess}
 			switch authType {
 			case "", "bearer":
 				token, err := readSecret("authentication token", withToken)
@@ -106,7 +129,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 					return runtime.UsageError(cmd, errors.New("--with-token cannot be used with --auth-type oauth"))
 				}
 				var err error
-				entry, err = oauthDeviceLogin(cmd, m, hostname, provider, insecure, noBrowser)
+				entry, err = oauthDeviceLogin(cmd, m, hostname, provider, opts, chosenAccess, noBrowser)
 				if err != nil {
 					return err
 				}
@@ -119,9 +142,9 @@ func newLogin(m *config.Manifest) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				result, err := validateWithAuth(cmd.Context(), hostname, auth, m.Auth.Validate, runtime.ClientOptions{Insecure: insecure})
+				result, err := validateWithAuth(cmd.Context(), hostname, auth, m.Auth.Validate, opts)
 				if err != nil {
-					if !insecure && strings.Contains(err.Error(), "tls:") {
+					if !chosenAccess && !insecure && strings.Contains(err.Error(), "tls:") {
 						return fmt.Errorf("credential validation failed against %s: %w\n\nThe server uses a self-signed or non-standard certificate.\nRe-run with --insecure to skip TLS verification (the choice is persisted per host)", hostname, err)
 					}
 					return fmt.Errorf("credential validation failed against %s: %w", hostname, err)
@@ -171,6 +194,7 @@ func newLogin(m *config.Manifest) *cobra.Command {
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read token/key from stdin")
 	cmd.Flags().BoolVar(&deviceAuth, "device-auth", false, "Use OAuth device login")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Do not open a browser for OAuth device login")
+	cmd.Flags().BoolVar(&cloudflareAccess, "cloudflare-access", false, "Use Cloudflare Access for this host")
 	cmd.Flags().BoolVar(&skipValidate, "skip-validate", false, "Do not validate credentials against the server")
 	return cmd
 }

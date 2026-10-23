@@ -166,6 +166,36 @@ A redirect chain sends at most ten requests. Operation-specific restrictions,
 including rejection of cross-origin polling redirects, still apply. Request
 bodies and redirect target query parameters follow Go HTTP redirect rules.
 
+Cloudflare Access adds a stricter rule for enabled hosts: redirects must stay
+on the configured HTTPS origin. The runtime rejects other origins before
+sending another request. It adds `Cf-Access-Token` only for that origin on
+every attempt and same-origin hop.
+
+## Host Access status
+
+`<cli> auth status -o json` reports `cloudflare_access: true` in an enabled
+`hosts[]` entry. It omits this field when Access is disabled.
+It does not prove that an Access token exists, is current, or permits the request.
+Status does not contact the host or invoke `cloudflared`.
+
+Before Access setup, read `<cli> commands --include-hidden --json`.
+At least one catalog command must have `auth.required=true`.
+If none does, stop without running Access login or API login:
+"This CLI cannot enable Cloudflare Access in this version."
+
+`<cli> auth login --hostname <host> --cloudflare-access` enables the switch
+alongside API login. Repeating login without that flag preserves the switch.
+Passing `--cloudflare-access=false` explicitly disables it.
+The switch does not replace the API credential or satisfy `auth.requirements`.
+A CLI whose commands all report `auth.required=false` cannot enable Access
+in this version. There is no separate configuration command for these CLIs.
+
+This framework command and status field do not alter `runtime.CommandSpec`,
+`generated.Mount`, catalog entries, or HTTP preview JSON.
+`runtime.SchemaVersion` remains 22 and `runtime.CatalogSchemaVersion` remains 29.
+The status field is separate from the catalog contract. A runtime upgrade
+supplies this capability without requiring regenerated operation declarations.
+
 ## Verify report
 
 `<cli> __lathe verify --json`, implemented in `pkg/lathe/verify.go`, emits a
@@ -205,8 +235,9 @@ user-provided values. It is a single bounded line. Human-readable output
 prints it as a `Detail:` line between `Error:` and `Hint:`. Cobra unknown
 command and unknown flag errors never carry a detail.
 
-For `api_error`, `message` stays `API request failed`. For HTTP status failures,
-`detail` is filled from the first available layer:
+For ordinary API failures, `message` stays `API request failed`.
+Cloudflare Access failures can return a specific local message and recovery hint.
+For HTTP status failures, `detail` is filled from the first available layer:
 
 1. The response Content-Type is JSON and a string is extractable from a
    declared field (`message`; `error` as a string or `error.message`;

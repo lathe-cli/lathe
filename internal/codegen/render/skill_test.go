@@ -197,6 +197,46 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 	testutil.Require(t, !strings.Contains(module, "**INJECT**"), "module reference contains injected parameter content:\n%s", module)
 }
 
+func TestRenderSkillDirectory_CloudflareAccessSetup(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills", "acmectl")
+	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
+	testutil.NoError(t, RenderSkillDirectory(root, manifest, nil))
+	var guidance string
+	for _, path := range []string{"SKILL.md", "references/catalog.md"} {
+		body := readFile(t, root, path)
+		_, section, found := strings.Cut(body, "## Cloudflare Access\n\n")
+		testutil.Require(t, found, "%s lacks Access setup guidance", path)
+		section, _, _ = strings.Cut(section, "\n## ")
+		section = strings.TrimSpace(section)
+		if guidance != "" {
+			testutil.Require(t, section == guidance, "%s disagrees with SKILL.md Access setup", path)
+		}
+		guidance = section
+		unsupported := strings.Index(section, "If no command has `auth.required=true`")
+		supported := strings.Index(section, "Only if at least one command has `auth.required=true`")
+		testutil.Require(t, unsupported >= 0 && supported > unsupported, "%s lacks separate support branches", path)
+		stop := section[unsupported:supported]
+		testutil.Require(t, strings.Contains(stop, "This CLI cannot enable Cloudflare Access in this version.") &&
+			strings.Contains(stop, "Stop here.") && strings.Contains(stop, "Do not run the Access login or API login steps below."),
+			"%s does not stop unsupported Access setup before login", path)
+		previous := -1
+		for _, step := range []string{
+			"acmectl commands --include-hidden --json",
+			"Read `auth.required` for every entry in `commands`.",
+			"If no command has `auth.required=true`",
+			"Stop here.",
+			"Only if at least one command has `auth.required=true`",
+			"Install `cloudflared`",
+			"cloudflared access login --quiet https://api.example",
+			"acmectl auth login --hostname api.example --cloudflare-access",
+		} {
+			position := strings.Index(section, step)
+			testutil.Require(t, position > previous, "%s lacks ordered Access setup step %q", path, step)
+			previous = position
+		}
+	}
+}
+
 func TestRenderModuleReference_SanitizesRepoURL(t *testing.T) {
 	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "acmectl"}}
 	module := SkillModule{

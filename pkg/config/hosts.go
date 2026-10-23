@@ -23,7 +23,6 @@ func NormalizeHostname(s string) string {
 	return strings.TrimPrefix(h, "https://")
 }
 
-// HostEntry mirrors gh's per-host record in hosts.yml.
 type HostEntry struct {
 	AuthType          string            `yaml:"auth_type,omitempty"`
 	LoginType         string            `yaml:"login_type,omitempty"`
@@ -36,6 +35,7 @@ type HostEntry struct {
 	APIKeyHeader      string            `yaml:"api_key_header,omitempty"`
 	BasicUser         string            `yaml:"basic_user,omitempty"`
 	BasicPassword     string            `yaml:"basic_password,omitempty"`
+	CloudflareAccess  bool              `yaml:"cloudflare_access,omitempty"`
 	Insecure          bool              `yaml:"insecure,omitempty"`
 	Selected          bool              `yaml:"selected,omitempty"`
 	Contexts          map[string]string `yaml:"contexts,omitempty"`

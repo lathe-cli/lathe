@@ -39,6 +39,9 @@ func redirectPolicy(opts ClientOptions) func(*http.Request, []*http.Request) err
 		if len(via) >= 10 {
 			return errors.New("stopped after 10 redirects")
 		}
+		if err := checkAccessRedirect(req, via, opts); err != nil {
+			return err
+		}
 		if opts.checkRedirect != nil {
 			if err := opts.checkRedirect(req, via); err != nil {
 				return err
