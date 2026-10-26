@@ -113,7 +113,11 @@ func writeSkillDirectory(root string, files map[string]skillFile) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, file.body, file.mode); err != nil {
+		body := file.body
+		if filepath.Ext(rel) == ".md" {
+			body = normalizeSkillMarkdown(body)
+		}
+		if err := os.WriteFile(target, body, file.mode); err != nil {
 			return err
 		}
 	}
@@ -125,6 +129,14 @@ func writeSkillDirectory(root string, files map[string]skillFile) error {
 	}
 	removeTmp = false
 	return nil
+}
+
+func normalizeSkillMarkdown(body []byte) []byte {
+	lines := strings.Split(string(body), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t\r")
+	}
+	return []byte(strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n")
 }
 
 func verifySkillDirectoryOwned(root string) error {
