@@ -54,6 +54,7 @@ Gate contract. Green on the checks below is the claim that a PR is safe to merge
 | Vet and lint (errcheck, govet, ineffassign, staticcheck, unused) | `make vet`, `make lint` | `ci.yml`: `go vet`, golangci-lint |
 | Formatting | `make fmt-check` | not run; the enabled linters do not enforce gofmt |
 | Tests | `make test` | `ci.yml`: `go test -race ./...` (CI adds `-race`) |
+| Generated Skill Markdown ends with one newline and has no trailing whitespace | `go test ./internal/codegen/render` | `ci.yml`: `go test -race ./...` |
 | Static security analysis | none | `codeql.yml` on pull requests |
 | Release build and race tests on tags | none | `release.yml` only, on `v*` tags |
 
