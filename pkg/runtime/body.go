@@ -323,6 +323,9 @@ func inferValue(s string) any {
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
 	}
+	if u, err := strconv.ParseUint(s, 10, 64); err == nil {
+		return u
+	}
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		return f
 	}
