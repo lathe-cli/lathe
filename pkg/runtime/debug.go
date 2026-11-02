@@ -134,9 +134,8 @@ func redactDebugBody(contentType string, body []byte, sensitive map[string]bool)
 		return body
 	}
 	mt, _, _ := mime.ParseMediaType(contentType)
-	if mt == "application/json" {
-		var v any
-		if err := json.Unmarshal(body, &v); err == nil {
+	if mt == "application/json" && json.Valid(body) {
+		if v, err := decodeNumberPreserving(body); err == nil {
 			if redactDebugJSON(v, sensitive) {
 				redacted, err := json.Marshal(v)
 				if err == nil {

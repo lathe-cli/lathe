@@ -75,9 +75,8 @@ func redactedDryRunBody(contentType string, body []byte, sensitive map[string]bo
 		return fmt.Sprintf("<multipart body omitted: %d bytes>", len(body))
 	}
 	redacted := redactDebugBody(contentType, body, sensitive)
-	if strings.HasPrefix(contentType, "application/json") {
-		var v any
-		if err := json.Unmarshal(redacted, &v); err == nil {
+	if strings.HasPrefix(contentType, "application/json") && json.Valid(redacted) {
+		if v, err := decodeNumberPreserving(redacted); err == nil {
 			return v
 		}
 	}
