@@ -92,6 +92,14 @@ func TestStaticBodySchemaContracts(t *testing.T) {
 		{name: "null type", schema: &SchemaSpec{Type: "null"}, body: `null`},
 		{name: "nonnullable", schema: &SchemaSpec{Type: "string"}, body: `null`, path: "#/"},
 		{name: "nullable", schema: &SchemaSpec{Type: "string", Nullable: true}, body: `null`},
+		{name: "int64 string integer", schema: &SchemaSpec{Type: "string", Format: "int64"}, body: `9007199254740993`},
+		{name: "int64 string string", schema: &SchemaSpec{Type: "string", Format: "int64"}, body: `"9007199254740993"`},
+		{name: "uint64 string integer", schema: &SchemaSpec{Type: "string", Format: "uint64"}, body: `18446744073709551615`},
+		{name: "int64 string items", schema: &SchemaSpec{Type: "array", Items: &SchemaSpec{Type: "string", Format: "int64"}}, body: `[1,"2"]`},
+		{name: "nullable int64 string", schema: &SchemaSpec{Type: "string", Format: "int64", Nullable: true}, body: `null`},
+		{name: "int64 string noninteger", schema: &SchemaSpec{Type: "string", Format: "int64"}, body: `1.5`, path: "#/"},
+		{name: "int64 string boolean", schema: &SchemaSpec{Type: "string", Format: "int64"}, body: `true`, path: "#/"},
+		{name: "other string format integer", schema: &SchemaSpec{Type: "string", Format: "date-time"}, body: `12`, path: "#/"},
 		{name: "required nullable present", schema: &SchemaSpec{Type: "object", Required: []string{"count"}, Properties: map[string]*SchemaSpec{"count": {Type: "integer", Nullable: true}}}, body: `{"count":null}`},
 		{name: "typeless scalar", schema: &SchemaSpec{Properties: map[string]*SchemaSpec{"count": {Type: "integer"}}, Required: []string{"count"}}, body: `true`},
 		{name: "typeless object", schema: &SchemaSpec{Properties: map[string]*SchemaSpec{"count": {Type: "integer"}}}, body: `{"count":"private-value"}`, path: "#/count"},
@@ -144,6 +152,29 @@ func TestStaticBodySchemaContracts(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "#/variables/count") {
 		t.Fatalf("template schema bypassed: %v", err)
 	}
+}
+
+func TestStaticBodySchemaInt64StringInputs(t *testing.T) {
+	spec := CommandSpec{RequestBody: &RequestBody{MediaType: "application/json", Schema: &SchemaSpec{Type: "object", Properties: map[string]*SchemaSpec{"limit": {Type: "string", Format: "int64"}}}}}
+	for _, tc := range []struct {
+		name  string
+		input OperationInput
+		want  string
+	}{
+		{name: "set", input: OperationInput{BodySets: []string{"limit=3"}}, want: `{"limit":3}`},
+		{name: "set-str", input: OperationInput{BodyStringSets: []string{"limit=3"}}, want: `{"limit":"3"}`},
+		{name: "file", input: OperationInput{HasFile: true, FileBody: []byte(`{"limit":9007199254740993}`)}, want: `{"limit":9007199254740993}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, body, _, err := resolveOperationRequest(spec, tc.input, ClientOptions{})
+			testutil.NoError(t, err)
+			raw, _, err := encodeRequestBody(body)
+			testutil.NoError(t, err)
+			testutil.Require(t, strings.TrimSpace(string(raw)) == tc.want, "body = %s, want %s", raw, tc.want)
+		})
+	}
+	_, _, _, err := resolveOperationRequest(spec, OperationInput{BodySets: []string{"limit=1.5"}}, ClientOptions{})
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), "#/limit"), "fractional int64 string accepted: %v", err)
 }
 
 func TestStaticBodySchemaUnsupportedMetadata(t *testing.T) {

@@ -68,6 +68,7 @@ func staticBodySchemaDocument(doc map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	nullable, _ := doc["nullable"].(bool)
+	format, _ := doc["format"].(string)
 	for key := range doc {
 		switch key {
 		case "type", "properties", "required", "items", "allOf":
@@ -80,6 +81,11 @@ func staticBodySchemaDocument(doc map[string]any) map[string]any {
 		case "object", "array", "string", "integer", "number", "boolean", "null":
 		default:
 			delete(doc, "type")
+		}
+		// gRPC-Gateway OpenAPI output declares ProtoJSON 64-bit integers as
+		// strings; ProtoJSON also accepts JSON numbers for them.
+		if typ == "string" && (format == "int64" || format == "uint64") {
+			doc["type"] = []any{"string", "integer"}
 		}
 	}
 	if required, ok := doc["required"].([]any); ok {

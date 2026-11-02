@@ -507,7 +507,9 @@ preserve nullability; list singleton coercion and ID string/integer inputs use
 union schemas, and custom scalars remain untyped. These shapes do not acquire
 stricter static type validation. Protobuf schemas preserve field nullability,
 numeric and enum string/number alternatives, and well-known ProtoJSON shapes
-such as timestamp strings and arbitrary `Value` JSON. Regenerate modules
+such as timestamp strings and arbitrary `Value` JSON. String schemas with
+`format: int64` or `uint64`, which gRPC-Gateway OpenAPI output uses for
+ProtoJSON 64-bit integers, also accept JSON integers. Regenerate modules
 before upgrading the runtime; older generated modules fail mounting with a
 regeneration instruction.
 
