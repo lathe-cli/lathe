@@ -75,6 +75,7 @@ func runGitHubUpdate(cmd *cobra.Command, m *config.Manifest, yes bool) error {
 	}
 	if cmp == 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s is up to date (%s)\n", m.CLI.Name, release.TagName)
+		printSkillStatusHint(cmd, m.CLI.Name)
 		return nil
 	}
 	if cmp > 0 {
@@ -115,7 +116,14 @@ func runGitHubUpdate(cmd *cobra.Command, m *config.Manifest, yes bool) error {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Updated %s to %s\n", m.CLI.Name, release.TagName)
+	printSkillStatusHint(cmd, m.CLI.Name)
 	return nil
+}
+
+func printSkillStatusHint(cmd *cobra.Command, cli string) {
+	if runtime.HasCapability(cmd.Root(), runtime.CapabilitySkillBundle) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Run `%s skill status` to compare installed Skills with this binary's bundle.\n", cli)
+	}
 }
 
 func fetchLatestGitHubRelease(ctx context.Context, gh config.GitHubUpdate) (githubRelease, error) {
