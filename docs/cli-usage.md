@@ -102,15 +102,23 @@ auth:
 - `flat`: require one module and fail on root-command conflicts.
 
 `auth.default_type` is `bearer`, `apikey`, `basic`, or `oauth`.
-`oauth` requires `auth.login.type: oauth_device`. Interactive device login
-opens the verification URL by default; `--no-browser` keeps the flow manual.
-Expired OAuth bearer credentials refresh before execution when
-`refresh_path` and a refresh token are available. `start_request` and
-`poll_request` replace the default JSON bodies; values may be literals or the
-supported `${hostname}`, `${provider}`, `${device_label}`, and poll-only
-`${device_code}` placeholders. `poll_response` maps dot-separated response
-paths for status, errors, tokens, expiry, user identity, and declared contexts.
-Omitted mappings use the standard OAuth field names.
+`oauth` requires `auth.login.type: oauth_device`. When `default_type` is not
+`oauth`, pass `--device-auth` to start device login. When it is `oauth`, you can
+omit that flag. Interactive device login opens the verification URL by default;
+use `--no-browser` to keep the flow manual. The CLI stores the login as
+`auth_type: bearer`, which describes how it sends API credentials. It does not
+mean that the token must be an OAuth access token. Expired bearer credentials
+from this flow refresh before execution when `refresh_path` and a refresh token
+are available. `start_request` and `poll_request` replace the default JSON
+bodies; values may be literals or the supported `${hostname}`, `${provider}`,
+`${device_label}`, and poll-only `${device_code}` placeholders. If the service
+requires a provider, pass `--provider <provider>` only when a request uses
+`${provider}` or `start_request` is omitted and uses its default body. An
+omitted `poll_request` uses a fallback body with only `device_code`, so it does
+not use `--provider`. Fixed provider literals do not need the flag. `poll_response`
+maps dot-separated response paths for status, errors, tokens, expiry, user
+identity, and declared contexts. Omitted mappings use the standard OAuth field
+names.
 
 `auth.validate` proves that saved credentials work. `assert.field` resolves a
 dot-separated JSON path; it and display paths require JSON. `non_empty: true`
@@ -153,12 +161,15 @@ hostname, including a non-default port, in these commands. Run them yourself:
 
 ```sh
 cloudflared access login --quiet https://api.example
-bin/acmectl auth login --hostname api.example --cloudflare-access
+bin/acmectl auth login --hostname api.example --cloudflare-access --device-auth
 bin/acmectl auth status --hostname api.example -o json
 ```
 
-Complete the CLI's normal API login when prompted. For OAuth device login,
-retain the required `--device-auth` and provider flags. Access login does not
+The command above matches this guide's configuration, whose default auth type is
+not `oauth`. For another CLI, pass `--device-auth` unless `auth.default_type` is
+`oauth`. If the service requires a provider, pass `--provider <provider>` only
+when a request uses `${provider}` or `start_request` is omitted and uses its
+default body. Fixed provider literals do not need the flag. Access login does not
 replace API authentication. Pass the same `--hostname` when executing commands
 against this host.
 
@@ -167,7 +178,7 @@ No change to `cli.yaml` is needed. A later API login preserves the switch unless
 you explicitly change it. To disable Access while logging in again, run:
 
 ```sh
-bin/acmectl auth login --hostname api.example --cloudflare-access=false
+bin/acmectl auth login --hostname api.example --cloudflare-access=false --device-auth
 ```
 
 `auth status` reports `hosts[].cloudflare_access: true` for enabled hosts.
@@ -258,6 +269,11 @@ skill:
 - `root: ""` disables Skill generation.
 - `include` merges repo-local resources into the generated Skill.
 - `bundle: true` embeds the Skill and mounts `<cli> skill install`.
+
+When bundling is enabled, `<cli> skill status` compares the installed Skill with
+the bundle in the current binary. It is read-only, keeps standard output
+compatible with JSON consumers, and writes a refresh hint to standard error
+when it finds a difference.
 
 Object-form `include` supports per-file `append`, `create`, `replace`, and
 `omit` policies. Includes may target `SKILL.md`, `agents/`, `references/`,

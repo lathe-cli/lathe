@@ -27,10 +27,10 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	}
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
 		b.WriteString("## Auth Login\n\n")
-		fmt.Fprintf(&b, "- Use `%s auth login --device-auth --hostname <host> --provider <provider>` when the user needs browser-based OAuth login. The browser opens by default in an interactive terminal; use `--no-browser` for manual login.\n", cli)
-		b.WriteString("- The saved host will use `auth_type: bearer`; OAuth is the login method, and the resulting API credential is a bearer token.\n\n")
+		b.WriteString(renderAuthLoginGuidance(cli, manifest, "", "<host>"))
+		b.WriteString("\nThe saved host uses `auth_type: bearer`. This records how the CLI sends API credentials, not whether the token is an OAuth access token.\n\n")
 	}
-	b.WriteString(renderCloudflareAccessGuidance(cli))
+	b.WriteString(renderCloudflareAccessGuidance(manifest))
 	b.WriteString("## General Commands\n\n")
 	fmt.Fprintf(&b, "- `%s commands --json`: full generated command catalog.\n", cli)
 	fmt.Fprintf(&b, "- `%s commands --include-hidden --json`: include hidden generated commands.\n", cli)
@@ -46,6 +46,9 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	fmt.Fprintf(&b, "- `%s __lathe verify --json`: verify the compiled contract and read `provenance` (schema versions and per-source revision; `reproducible=false` marks local sources). The binary's report wins over this Skill.\n", cli)
 	if manifest.Update.GitHub != nil {
 		fmt.Fprintf(&b, "- `%s update`: update this CLI from configured GitHub Releases. Run only when the user explicitly asks to update `%s`; it may replace the current executable. Use `--yes` only when explicitly authorized.\n", cli, cli)
+	}
+	if manifest.Skill.Bundle {
+		fmt.Fprintf(&b, "- `%s skill status`: check whether the installed Skill differs from the bundle in this binary.\n", cli)
 	}
 	b.WriteString("\n")
 	b.WriteString("## References\n\n")
@@ -128,17 +131,19 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("## Auth\n\n")
 	fmt.Fprintf(&b, "If command detail returns `auth.required=true`, run `%s auth status -o json` before execution and read `hostname` and `source`. Host resolution order: `--hostname` > `$%s` > the selected host (`%s auth use <host>`) > `http.default_hostname` > the single host in `hosts.yml`. When more than one host is logged in and the host was chosen implicitly, the CLI also prints a `current host: <name>` line on stderr; read provenance from `auth status`, not from that line. If no matching host is logged in, stop and ask the user to authenticate. Map that status to declared schemes: bearer satisfies http bearer, oauth2, and openIdConnect; basic satisfies http basic; apikey satisfies an apiKey header whose name is `param`, or any http scheme when stored for the `Authorization` header; header or query parameters passed to the command can supply apiKey schemes.\n", cli, manifest.CLI.HostEnv, cli)
 	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
-		fmt.Fprintf(&b, "For browser-based OAuth login, run `%s auth login --device-auth --hostname <host> --provider <provider>`. The browser opens by default in an interactive terminal; use `--no-browser` for manual login. `auth_type: bearer` in `hosts.yml` is expected after login because API requests use the issued bearer token.\n", cli)
+		b.WriteString(renderAuthLoginGuidance(cli, manifest, "", "<host>"))
+		b.WriteString("The saved host uses `auth_type: bearer`. This records how the CLI sends API credentials, not whether the token is an OAuth access token.\n")
 	}
 	if len(manifest.Contexts) > 0 {
 		fmt.Fprintf(&b, "Inspect effective account-scoped defaults with `%s auth context status -o json`; `local_set` reports whether `auth context set` is allowed. A command's explicit bound flag wins over its declared environment variable and stored host value.\n", cli)
 	}
 	b.WriteString("\n")
-	b.WriteString(renderCloudflareAccessGuidance(cli))
+	b.WriteString(renderCloudflareAccessGuidance(manifest))
 	return b.String()
 }
 
-func renderCloudflareAccessGuidance(cli string) string {
+func renderCloudflareAccessGuidance(manifest *config.Manifest) string {
+	cli := manifest.CLI.Name
 	var b strings.Builder
 	b.WriteString("## Cloudflare Access\n\n")
 	fmt.Fprintf(&b, "Before Access setup, run `%s commands --include-hidden --json`. ", cli)
@@ -150,12 +155,21 @@ func renderCloudflareAccessGuidance(cli string) string {
 	b.WriteString("Ask the user to complete these steps in order:\n\n")
 	b.WriteString("1. Install `cloudflared` on `PATH`.\n")
 	b.WriteString("2. Run `cloudflared access login --quiet https://api.example` for the actual HTTPS origin.\n")
-	fmt.Fprintf(&b, "3. Run `%s auth login --hostname api.example --cloudflare-access` and complete normal API login.\n\n", cli)
-	b.WriteString("Access login does not replace API authentication. Retain OAuth device and provider flags when required. ")
+	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice {
+		b.WriteString("3. ")
+		b.WriteString(renderAuthLoginGuidance(cli, manifest, "--cloudflare-access", "api.example"))
+	} else {
+		fmt.Fprintf(&b, "3. Run `%s auth login --hostname api.example --cloudflare-access` and complete normal API login.\n", cli)
+	}
+	b.WriteString("\nAccess login does not replace API authentication. ")
 	b.WriteString("Use the same explicit `--hostname` for status and execution. ")
 	b.WriteString("In `auth status -o json`, `hosts[].cloudflare_access` reports only the saved switch, not token validity. ")
 	b.WriteString("Status does not contact the host or invoke `cloudflared`.\n\n")
-	fmt.Fprintf(&b, "A later API login preserves the switch. Use `%s auth login --hostname api.example --cloudflare-access=false` to disable it. ", cli)
+	deviceFlag := ""
+	if manifest.Auth.Login != nil && manifest.Auth.Login.Type == config.AuthLoginOAuthDevice && manifest.Auth.DefaultType != "oauth" {
+		deviceFlag = " --device-auth"
+	}
+	fmt.Fprintf(&b, "A later API login preserves the switch. Use `%s auth login --hostname api.example --cloudflare-access=false%s` to disable it. ", cli, deviceFlag)
 	b.WriteString("The first real request obtains a token for the exact HTTPS origin and reuses it within the invocation. ")
 	b.WriteString("Lathe does not persist Access tokens or read or write the `cloudflared` cache. ")
 	b.WriteString("Disabled hosts, HTTP dry-runs, help, and verification never obtain Access tokens. The updater does not use host Access configuration.\n\n")
