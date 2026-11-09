@@ -176,8 +176,14 @@ func validateColumnFormatsOverride(columns []string, formats map[string]overlay.
 		if !known[path] {
 			return fmt.Errorf("column format %q does not match a default column", path)
 		}
+		if format.Kind == "count" {
+			if format != (overlay.ColumnFormatOverride{Kind: "count"}) {
+				return fmt.Errorf("column format %q count cannot use currency options", path)
+			}
+			continue
+		}
 		if format.Kind != "currency" {
-			return fmt.Errorf("column format %q kind must be currency", path)
+			return fmt.Errorf("column format %q kind must be currency or count", path)
 		}
 		if !validCurrencyCode(format.Currency) {
 			return fmt.Errorf("column format %q currency must be a three-letter uppercase code", path)

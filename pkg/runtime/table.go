@@ -50,9 +50,6 @@ func renderTable(data []byte, w io.Writer, hints OutputHints) error {
 	return writeTable(cols, rows, hints, w)
 }
 
-// chooseColumns prefers codegen-supplied DefaultColumns when available,
-// keeping only columns that actually appear in the rows. Falls back to the
-// heuristic pickColumns when no hint is given or all hinted columns are absent.
 func chooseColumns(rows []map[string]any, hints OutputHints) []string {
 	if len(hints.DefaultColumns) == 0 {
 		return pickColumns(rows)
@@ -60,7 +57,7 @@ func chooseColumns(rows []map[string]any, hints OutputHints) []string {
 	var picked []string
 	for _, c := range hints.DefaultColumns {
 		for _, r := range rows {
-			if _, ok := tableValue(r, c); ok {
+			if _, ok := tableValue(r, c, hints.ColumnFormats[c]); ok {
 				picked = append(picked, c)
 				break
 			}
@@ -181,7 +178,7 @@ func collectPaths(v any, prefix string, maxDepth int, out map[string]struct{}) {
 }
 
 func lookupPath(row map[string]any, path string, formats map[string]ColumnFormat) string {
-	v, ok := tableValue(row, path)
+	v, ok := tableValue(row, path, formats[path])
 	if !ok {
 		return ""
 	}
@@ -193,7 +190,7 @@ func lookupPath(row map[string]any, path string, formats map[string]ColumnFormat
 	return stringify(v)
 }
 
-func tableValue(row map[string]any, path string) (any, bool) {
+func tableValue(row map[string]any, path string, format ColumnFormat) (any, bool) {
 	var v any = row
 	for _, part := range strings.Split(path, ".") {
 		m, ok := v.(map[string]any)
@@ -204,6 +201,13 @@ func tableValue(row map[string]any, path string) (any, bool) {
 		if !ok {
 			return nil, false
 		}
+	}
+	if format.Kind == "count" {
+		items, ok := v.([]any)
+		if !ok {
+			return nil, false
+		}
+		return len(items), true
 	}
 	if v == nil {
 		return nil, false
@@ -292,7 +296,7 @@ func columnAlignment(path string, alignments map[string]string, formats map[stri
 	case "left", "right":
 		return alignments[path]
 	}
-	if format, ok := formats[path]; ok && format.Kind == "currency" {
+	if format, ok := formats[path]; ok && (format.Kind == "currency" || format.Kind == "count") {
 		return "right"
 	}
 	return "left"

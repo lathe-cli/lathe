@@ -513,6 +513,11 @@ func outputSummary(out runtime.OutputHints) string {
 	if len(out.DefaultColumns) > 0 {
 		parts = append(parts, "columns `"+strings.Join(out.DefaultColumns, "`, `")+"`")
 	}
+	for _, path := range out.DefaultColumns {
+		if out.ColumnFormats[path].Kind == "count" {
+			parts = append(parts, "table array count `"+path+"` (empty array: 0; missing, null, or non-array: blank)")
+		}
+	}
 	if out.ResponseMediaType != "" {
 		parts = append(parts, "response media `"+out.ResponseMediaType+"`")
 	}
