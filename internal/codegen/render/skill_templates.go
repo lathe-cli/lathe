@@ -103,6 +103,7 @@ func renderCatalogReference(manifest *config.Manifest) string {
 	b.WriteString("- `dry_run`: preview contract. `http_preview` is declared only when the generated runner can preview; use `--<flag>` and print the resolved HTTP request JSON. `unsupported` means the command has no preview, including all workflow commands. A `--dry-run` flag on a custom command is not a preview contract.\n")
 	b.WriteString("- `examples`: runnable examples with optional body shape, output hints, and follow-up commands.\n")
 	b.WriteString("- `output`: list path, default columns, response media type, pagination, streaming hints, and `binary.flag` for binary downloads; a streaming policy describes collection, terminal outcomes, and optional live projection.\n")
+	b.WriteString("- `output.column_formats`: `kind: count` shows an array length in table output only.\n")
 	b.WriteString("- `flags[].context`: an optional account-scoped default with explicit flag, declared environment, then stored-value precedence.\n")
 	b.WriteString("- `sets_context`: a successful operation persists its declared parameter as the selected host's active context.\n")
 	b.WriteString("- `notes`, `prerequisites`, and `known_errors`: overlay-provided operation context that is not inferred from the API spec.\n\n")

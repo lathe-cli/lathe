@@ -572,11 +572,14 @@ columns do not surface the operator-facing identity or status fields:
 commands:
   list-resources:
     output:
-      default_columns: [resourceId, displayName, status, spendMicro, cpuMillis]
+      default_columns: [resourceId, displayName, status, spendMicro, cpuMillis, deployments]
       column_labels:
         resourceId: Resource ID
         displayName: Name
+        deployments: Mappings
       column_formats:
+        deployments:
+          kind: count
         spendMicro:
           kind: currency
           currency: USD
@@ -601,6 +604,16 @@ three-letter currency codes remain explicit. `column_alignments` sets
 per-column table alignment to `left` or `right`. Omitted columns stay left.
 Currency-formatted columns default to right alignment; an explicit
 `column_alignments` entry overrides that default.
+
+To show an array length, select its path in `default_columns` and set its
+`column_formats` entry to `kind: count`. An empty array displays `0`. Arrays
+with one or two elements display `1` or `2`. Missing fields, null values, and
+non-array values display a blank cell. If all selected fields are absent,
+the existing fallback column selection still applies. Count columns default
+to right alignment. An explicit `column_alignments` entry overrides this
+default. Currency options with non-zero values are invalid for `count`.
+Array counts require explicit configuration. Element projection, array
+indexes, and joins are not supported.
 
 ### Pagination
 

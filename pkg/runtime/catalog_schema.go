@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 29
+const CatalogSchemaVersion = 30
 
 const DefaultSearchLimit = 20
 

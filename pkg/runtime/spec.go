@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const SchemaVersion = 22
+const SchemaVersion = 23
 
 type CommandSpec struct {
 	Group           string

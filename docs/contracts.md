@@ -93,6 +93,17 @@ Table output may declare per-column `column_alignments` (`left` or `right`).
 Currency `column_formats` default to right alignment unless overridden
 (SchemaVersion 17, CatalogSchemaVersion 24).
 
+An explicit `column_formats.<path>.kind: count` displays the length of a JSON
+array in table output. An empty array displays `0`. Missing, null, and
+non-array values display a blank cell. The path must be a default column.
+Count columns default to right alignment and accept an explicit alignment
+override. JSON, YAML, and raw responses stay unchanged.
+This adds a format kind (SchemaVersion 23, CatalogSchemaVersion 30).
+Regenerate modules before linking the new runtime. Old modules fail mounting
+with a regeneration instruction. Modules generated at SchemaVersion 23 also
+fail mounting with an older runtime. This prevents older runtimes from
+silently omitting count columns.
+
 Operation entries may carry `group_description` from document-level tags or
 an overlay group summary (CatalogSchemaVersion 25). Generated declarations
 reuse `CommandSpec.GroupShort`; SchemaVersion remains 17. Regenerate downstream
@@ -192,9 +203,10 @@ in this version. There is no separate configuration command for these CLIs.
 
 This framework command and status field do not alter `runtime.CommandSpec`,
 `generated.Mount`, catalog entries, or HTTP preview JSON.
-`runtime.SchemaVersion` remains 22 and `runtime.CatalogSchemaVersion` remains 29.
+Access support did not change `runtime.SchemaVersion` or
+`runtime.CatalogSchemaVersion` (22 and 29 when introduced).
 The status field is separate from the catalog contract. A runtime upgrade
-supplies this capability without requiring regenerated operation declarations.
+supplies Access support without a regeneration requirement from this capability.
 
 ## Verify report
 
