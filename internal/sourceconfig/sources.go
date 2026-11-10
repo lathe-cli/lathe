@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
+	"github.com/lathe-cli/lathe/internal/codegen/backends/document"
 	latheconfig "github.com/lathe-cli/lathe/pkg/config"
 	"gopkg.in/yaml.v3"
 )
@@ -31,6 +33,7 @@ type Source struct {
 	Name            string          `yaml:"-"`
 	DisplayName     string          `yaml:"display_name,omitempty"`
 	DefaultHostname *string         `yaml:"default_hostname,omitempty"`
+	BasePath        *string         `yaml:"base_path,omitempty"`
 	RepoURL         string          `yaml:"repo_url"`
 	PinnedTag       string          `yaml:"pinned_tag"`
 	LocalPath       string          `yaml:"local_path"`
@@ -113,6 +116,20 @@ func (c *Config) Ordered() []*Source {
 }
 
 func validate(s *Source, baseDir string) error {
+	if s.BasePath != nil {
+		if s.Backend != BackendSwagger && s.Backend != BackendOpenAPI3 {
+			return fmt.Errorf("base_path is supported only for swagger and openapi3 backends")
+		}
+		basePath := *s.BasePath
+		if basePath != "" && (!strings.HasPrefix(basePath, "/") || strings.HasPrefix(basePath, "//") || strings.ContainsAny(basePath, "?#") || strings.ContainsFunc(basePath, unicode.IsControl)) {
+			return fmt.Errorf("base_path must be empty or a path that starts with one slash, without query, fragment, or control characters")
+		}
+		normalized, err := document.ServerBasePath(basePath)
+		if err != nil {
+			return fmt.Errorf("base_path must not contain placeholders or invalid percent escapes")
+		}
+		*s.BasePath = normalized
+	}
 	if s.DefaultHostname != nil {
 		hostname := latheconfig.NormalizeHostname(*s.DefaultHostname)
 		if hostname == "" {
