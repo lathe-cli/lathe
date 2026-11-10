@@ -21,12 +21,12 @@ type swaggerDoc struct {
 	SecurityDefinitions map[string]document.SecurityScheme `json:"securityDefinitions"`
 	Paths               map[string]map[string]operation    `json:"paths"`
 	Security            []map[string][]string              `json:"security"`
-	// BasePath is the Swagger 2.0 document-level basePath. Swagger 2.0 allows a
-	// spec to declare that every path is relative to it (Gitea, for example,
-	// uses "/api/v1"), and clients are expected to prepend it to the path
-	// template. Ignoring it produces URLs that miss the prefix and hit the
-	// web UI instead of the API.
-	BasePath string `json:"basePath"`
+	BasePath            string                             `json:"basePath"`
+}
+
+type operationPath struct {
+	path     string
+	basePath string
 }
 
 type operation struct {
@@ -99,8 +99,8 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 	all := &swaggerDoc{
 		Definitions:         map[string]*schemaNode{},
 		SecurityDefinitions: map[string]document.SecurityScheme{},
-		Paths:               map[string]map[string]operation{},
 	}
+	paths := map[operationPath]map[string]operation{}
 	for _, rel := range src.Swagger.Files {
 		p := filepath.Join(syncDir, rel)
 		data, err := os.ReadFile(p)
@@ -122,9 +122,9 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		applyEffectiveSecurity(&sw)
-		mergeDoc(all, &sw, src.Name, p)
+		mergeDoc(all, paths, &sw, src.Name, p)
 	}
-	return toRawIR(src.Name, all), nil
+	return toRawIR(src.Name, all, paths), nil
 }
 
 func applyEffectiveSecurity(doc *swaggerDoc) {
@@ -142,26 +142,20 @@ func applyEffectiveSecurity(doc *swaggerDoc) {
 	}
 }
 
-func mergeDoc(dst, add *swaggerDoc, module, origin string) {
-	// Swagger 2.0 documents in one module share a single basePath. Take the
-	// first non-empty one and warn when another document disagrees, because
-	// silently keeping either would produce paths that are wrong for the other.
-	if add.BasePath != "" {
-		switch {
-		case dst.BasePath == "":
-			dst.BasePath = add.BasePath
-		case dst.BasePath != add.BasePath:
-			fmt.Fprintf(os.Stderr, "warn: %s: conflicting basePath %q in %s (kept %q)\n", module, add.BasePath, origin, dst.BasePath)
-		}
+func mergeDoc(dst *swaggerDoc, paths map[operationPath]map[string]operation, add *swaggerDoc, module, origin string) {
+	basePath, err := document.ServerBasePath(strings.TrimSpace(add.BasePath))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warn: %s: unsupported basePath %q in %s (ignored)\n", module, add.BasePath, origin)
 	}
 	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
 	document.MergeNamed(dst.Definitions, add.Definitions, "definition", module, origin)
 	document.MergeNamed(dst.SecurityDefinitions, add.SecurityDefinitions, "security scheme", module, origin)
 	for path, methods := range add.Paths {
-		bucket, ok := dst.Paths[path]
+		key := operationPath{path: path, basePath: basePath}
+		bucket, ok := paths[key]
 		if !ok {
 			bucket = map[string]operation{}
-			dst.Paths[path] = bucket
+			paths[key] = bucket
 		}
 		for m, op := range methods {
 			if _, exists := bucket[m]; exists {
@@ -173,7 +167,7 @@ func mergeDoc(dst, add *swaggerDoc, module, origin string) {
 	}
 }
 
-func toRawIR(name string, doc *swaggerDoc) *rawir.RawModule {
+func toRawIR(name string, doc *swaggerDoc, paths map[operationPath]map[string]operation) *rawir.RawModule {
 	mod := &rawir.RawModule{
 		Name:    name,
 		Schemas: make(map[string]*rawir.RawSchema, len(doc.Definitions)),
@@ -185,50 +179,27 @@ func toRawIR(name string, doc *swaggerDoc) *rawir.RawModule {
 	for _, tag := range doc.Tags {
 		mod.GroupDescriptions[tag.Name] = tag.Description
 	}
-	for path, methods := range doc.Paths {
-		fullPath := joinBasePath(doc.BasePath, path)
+	for path, methods := range paths {
 		for _, m := range []string{"get", "post", "put", "delete", "patch"} {
 			op, ok := methods[m]
 			if !ok {
 				continue
 			}
-			mod.Operations = append(mod.Operations, convertOp(op, m, fullPath, doc.Produces, doc.Security, doc.SecurityDefinitions))
+			mod.Operations = append(mod.Operations, convertOp(op, m, path, doc.Produces, doc.Security, doc.SecurityDefinitions))
 		}
 	}
 	return mod
 }
 
-// joinBasePath prepends a Swagger 2.0 document-level basePath to a path
-// template. The basePath is optional and may or may not carry leading and
-// trailing slashes, so both are normalized to exactly one separating slash.
-// An empty basePath, or "/", leaves the path unchanged.
-func joinBasePath(basePath, path string) string {
-	basePath = strings.TrimSpace(basePath)
-	// A basePath of "/" or "" means the paths are already absolute.
-	if basePath == "" || basePath == "/" {
-		return path
-	}
-	basePath = strings.TrimSuffix(basePath, "/")
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
-	}
-	if path == "" {
-		return basePath
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return basePath + path
-}
-
-func convertOp(op operation, method, path string, docProduces []string, globalSecurity []map[string][]string, schemes map[string]document.SecurityScheme) rawir.RawOperation {
+func convertOp(op operation, method string, path operationPath, docProduces []string, globalSecurity []map[string][]string, schemes map[string]document.SecurityScheme) rawir.RawOperation {
 	out := rawir.RawOperation{
-		OperationID: op.OperationID,
-		Summary:     op.Summary,
-		Description: op.Description,
-		Method:      strings.ToUpper(method),
-		Path:        path,
-		Responses:   map[string]*rawir.RawResponse{},
+		OperationID:    op.OperationID,
+		Summary:        op.Summary,
+		Description:    op.Description,
+		Method:         strings.ToUpper(method),
+		Path:           path.path,
+		ServerBasePath: path.basePath,
+		Responses:      map[string]*rawir.RawResponse{},
 	}
 	if len(op.Tags) > 0 && op.Tags[0] != "" {
 		out.Group = op.Tags[0]
@@ -243,7 +214,7 @@ func convertOp(op operation, method, path string, docProduces []string, globalSe
 		key := p.In + "\x00" + p.Name
 		if existing, ok := seenParameters[key]; ok {
 			if !document.EqualJSON(existing, p) {
-				fmt.Fprintf(os.Stderr, "warn: diverging duplicate parameter %q in %s %s (kept first)\n", p.Name, out.Method, path)
+				fmt.Fprintf(os.Stderr, "warn: diverging duplicate parameter %q in %s %s (kept first)\n", p.Name, out.Method, path.path)
 			}
 			continue
 		}

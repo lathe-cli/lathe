@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,12 +132,12 @@ func resolveServerBasePath(servers []server, module, origin string) string {
 	for name, variable := range servers[0].Variables {
 		raw = strings.ReplaceAll(raw, "{"+name+"}", variable.Default)
 	}
-	u, err := url.Parse(raw)
-	if err != nil || strings.ContainsAny(raw, "{}") || !u.IsAbs() && !strings.HasPrefix(raw, "/") {
+	basePath, err := document.ServerBasePath(raw)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "warn: %s: unsupported server URL %q in %s (ignored)\n", module, servers[0].URL, origin)
 		return ""
 	}
-	return strings.TrimRight(u.EscapedPath(), "/")
+	return basePath
 }
 
 func unmarshalAuto(path string, data []byte, v any) error {
