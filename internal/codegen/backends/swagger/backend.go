@@ -21,6 +21,12 @@ type swaggerDoc struct {
 	SecurityDefinitions map[string]document.SecurityScheme `json:"securityDefinitions"`
 	Paths               map[string]map[string]operation    `json:"paths"`
 	Security            []map[string][]string              `json:"security"`
+	// BasePath is the Swagger 2.0 document-level basePath. Swagger 2.0 allows a
+	// spec to declare that every path is relative to it (Gitea, for example,
+	// uses "/api/v1"), and clients are expected to prepend it to the path
+	// template. Ignoring it produces URLs that miss the prefix and hit the
+	// web UI instead of the API.
+	BasePath string `json:"basePath"`
 }
 
 type operation struct {
@@ -137,6 +143,17 @@ func applyEffectiveSecurity(doc *swaggerDoc) {
 }
 
 func mergeDoc(dst, add *swaggerDoc, module, origin string) {
+	// Swagger 2.0 documents in one module share a single basePath. Take the
+	// first non-empty one and warn when another document disagrees, because
+	// silently keeping either would produce paths that are wrong for the other.
+	if add.BasePath != "" {
+		switch {
+		case dst.BasePath == "":
+			dst.BasePath = add.BasePath
+		case dst.BasePath != add.BasePath:
+			fmt.Fprintf(os.Stderr, "warn: %s: conflicting basePath %q in %s (kept %q)\n", module, add.BasePath, origin, dst.BasePath)
+		}
+	}
 	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
 	document.MergeNamed(dst.Definitions, add.Definitions, "definition", module, origin)
 	document.MergeNamed(dst.SecurityDefinitions, add.SecurityDefinitions, "security scheme", module, origin)
@@ -169,15 +186,39 @@ func toRawIR(name string, doc *swaggerDoc) *rawir.RawModule {
 		mod.GroupDescriptions[tag.Name] = tag.Description
 	}
 	for path, methods := range doc.Paths {
+		fullPath := joinBasePath(doc.BasePath, path)
 		for _, m := range []string{"get", "post", "put", "delete", "patch"} {
 			op, ok := methods[m]
 			if !ok {
 				continue
 			}
-			mod.Operations = append(mod.Operations, convertOp(op, m, path, doc.Produces, doc.Security, doc.SecurityDefinitions))
+			mod.Operations = append(mod.Operations, convertOp(op, m, fullPath, doc.Produces, doc.Security, doc.SecurityDefinitions))
 		}
 	}
 	return mod
+}
+
+// joinBasePath prepends a Swagger 2.0 document-level basePath to a path
+// template. The basePath is optional and may or may not carry leading and
+// trailing slashes, so both are normalized to exactly one separating slash.
+// An empty basePath, or "/", leaves the path unchanged.
+func joinBasePath(basePath, path string) string {
+	basePath = strings.TrimSpace(basePath)
+	// A basePath of "/" or "" means the paths are already absolute.
+	if basePath == "" || basePath == "/" {
+		return path
+	}
+	basePath = strings.TrimSuffix(basePath, "/")
+	if !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+	if path == "" {
+		return basePath
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return basePath + path
 }
 
 func convertOp(op operation, method, path string, docProduces []string, globalSecurity []map[string][]string, schemes map[string]document.SecurityScheme) rawir.RawOperation {
