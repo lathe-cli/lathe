@@ -121,6 +121,9 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		if err := json.Unmarshal(data, &sw); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
+		if src.BasePath != nil {
+			sw.BasePath = *src.BasePath
+		}
 		applyEffectiveSecurity(&sw)
 		mergeDoc(all, paths, &sw, src.Name, p)
 	}

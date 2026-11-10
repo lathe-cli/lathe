@@ -88,11 +88,16 @@ type response struct {
 	Content map[string]mediaType `json:"content,omitempty" yaml:"content,omitempty"`
 }
 
-func applyServerBasePaths(doc *oas3Doc, module, origin string) {
-	rootBasePath := resolveServerBasePath(doc.Servers, module, origin)
+func applyServerBasePaths(doc *oas3Doc, module, origin string, override *string) {
+	var rootBasePath string
+	if override != nil {
+		rootBasePath = *override
+	} else {
+		rootBasePath = resolveServerBasePath(doc.Servers, module, origin)
+	}
 	for _, item := range doc.Paths {
 		basePath := rootBasePath
-		if item.Servers != nil {
+		if override == nil && item.Servers != nil {
 			basePath = resolveServerBasePath(*item.Servers, module, origin)
 		}
 		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
@@ -100,7 +105,7 @@ func applyServerBasePaths(doc *oas3Doc, module, origin string) {
 				continue
 			}
 			op.serverBasePath = basePath
-			if op.Servers != nil {
+			if override == nil && op.Servers != nil {
 				op.serverBasePath = resolveServerBasePath(*op.Servers, module, origin)
 			}
 		}

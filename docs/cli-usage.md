@@ -364,12 +364,34 @@ sources:
 | `repo_url` + `pinned_tag` | Immutable Git input. Floating branches are rejected. |
 | `local_path` | Explicit working-tree input. Relative paths resolve from `sources.yaml`; it cannot be mixed with Git fields. |
 | `backend` | `swagger`, `openapi3`, `proto`, or `graphql`. |
+| `base_path` | Optional source-level path override for `swagger` and `openapi3`. |
 | `swagger.files` | Swagger 2.0 JSON files. |
 | `openapi3.files` | OpenAPI 3.x JSON or YAML files. |
 | `openapi3.expose.operation_ids` | Optional exact allowlist; every configured ID must match exactly once. |
 | `proto.entries` | Entry files whose annotated RPCs may become commands. Imported dependencies never add commands. |
 | `proto.dependencies` | Explicitly staged immutable Buf, Go module, or Git dependencies. |
 | `graphql.expose` | Required query/mutation allow policy; GraphQL has no implicit expose-all mode. |
+
+For Swagger and OpenAPI 3 sources, `base_path` replaces the server path prefix
+for every operation in every file. It also replaces OpenAPI 3 path-level and
+operation-level `servers` paths. For example, use `base_path: /api/v1` when an
+upstream template declares `/GITEA-API-APP-SUBURL/api/v1`.
+
+Omit `base_path` to keep the spec paths. Set `base_path: ""` or `base_path: /`
+to remove the server path prefix. YAML `null` acts as an omitted value. A
+non-empty value must start with `/`. Absolute URLs, network-path references
+such as `//host`, query strings, fragments, invalid percent escapes, control
+characters, and `{}` placeholders fail configuration loading. Proto and GraphQL sources reject
+`base_path`, including an empty string. Trailing slashes are removed, and path
+escaping follows the existing server URL rules. Dot segments remain accepted.
+
+For multi-file Swagger sources, overriding different prefixes can make operations
+share the same HTTP method and path. Lathe keeps the first operation and prints
+a duplicate warning.
+
+After changing only `base_path`, run `lathe codegen`. The existing spec cache
+remains valid. Overlay `match.path` values must use the resulting full path.
+The override does not change the hostname or edit the upstream spec.
 
 Buf dependencies require a module, commit, and digest; Go module dependencies
 require a version and checksum; Git dependencies require `repo_url` and

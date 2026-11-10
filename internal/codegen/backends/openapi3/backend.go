@@ -34,7 +34,7 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		if err := unmarshalAuto(p, data, &doc); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
-		applyServerBasePaths(&doc, src.Name, p)
+		applyServerBasePaths(&doc, src.Name, p, src.BasePath)
 		applyEffectiveSecurity(&doc)
 		countExposedOperationIDs(&doc, allowedOperationIDs, matchedOperationIDs)
 		mergeDoc(all, &doc, src.Name, p)

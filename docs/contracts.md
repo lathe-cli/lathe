@@ -369,5 +369,14 @@ for operators, not a machine contract.
   including contexts, runtime-schema preflights, and stream collection.
   Overlay concepts do not enter the runtime.
 
+For Swagger and OpenAPI 3 sources, the optional source-level `base_path`
+replaces every operation's server path prefix at codegen time. It takes
+precedence over document, path-level, and operation-level server declarations.
+An omitted or YAML `null` value preserves spec behavior. An empty string or `/`
+removes the prefix. Configuration loading rejects invalid paths and rejects the
+field on Proto and GraphQL sources. Changing the override requires codegen,
+with no spec sync or runtime schema version change. See
+[CLI Usage](cli-usage.md) for accepted values.
+
 Generated Go, catalogs, and Skill files are outputs. Regenerate them from the
 inputs; do not treat them as independent sources of truth.
