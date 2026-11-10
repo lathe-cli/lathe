@@ -1,6 +1,7 @@
 package swagger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lathe-cli/lathe/internal/codegen/backends/openapi3"
 	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/internal/codegen/rawir"
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
@@ -459,40 +461,51 @@ func TestParse_FileParamContentType(t *testing.T) {
 }
 
 func TestParse_BasePath(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		basePath string
-		path     string
-		want     string
-	}{
-		{"no basePath", "", "/users", "/users"},
-		{"root basePath", "/", "/users", "/users"},
-		{"api v1", "/api/v1", "/users", "/api/v1/users"},
-		{"trailing slash", "/api/v1/", "/users", "/api/v1/users"},
-		{"missing leading slash", "api/v1", "/users", "/api/v1/users"},
-		{"path without leading slash", "/api/v1", "users", "/api/v1/users"},
-		{"nested basePath", "/git/api/v1", "/repos/{owner}/{repo}", "/git/api/v1/repos/{owner}/{repo}"},
+	for _, tc := range []struct{ prefix, base string }{
+		{"", ""}, {"/", ""}, {"/api/v1", "/api/v1"}, {"/service", "/service"},
+		{"/api/v1/", "/api/v1"}, {"/git/api/v1", "/git/api/v1"}, {"/a b", "/a%20b"}, {"/api%2Fv1", "/api%2Fv1"},
+		{"/../admin", "/../admin"}, {"/%2e%2e/admin", "/%2e%2e/admin"},
+		{"/{tenant}", ""}, {"/api?x=1", "/api"}, {"/api#f", "/api"}, {"https://h/x", "/x"}, {"//", ""}, {"/api//", "/api"}, {"api/v1", ""},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := joinBasePath(tc.basePath, tc.path)
-			testutil.Require(t, got == tc.want, "joinBasePath(%q, %q) = %q, want %q", tc.basePath, tc.path, got, tc.want)
+		prefix := tc.prefix
+		t.Run(prefix, func(t *testing.T) {
+			paths := `{"/users/{id}":{"get":{"responses":{}}}}`
+			mod := parseInput(t, fmt.Sprintf(`{"swagger":"2.0","basePath":%q,"paths":%s}`, prefix, paths), ".json")
+			dir := t.TempDir()
+			input := fmt.Sprintf(`{"openapi":"3.0.3","servers":[{"url":%q}],"paths":%s}`, prefix, paths)
+			testutil.NoError(t, os.WriteFile(filepath.Join(dir, "openapi.json"), []byte(input), 0o644))
+			oas, err := openapi3.Parse(&sourceconfig.Source{Name: "demo", OpenAPI3: &sourceconfig.OpenAPI3Config{Files: []string{"openapi.json"}}}, dir)
+			testutil.NoError(t, err)
+			got, want := normalize.Normalize(mod)[0], normalize.Normalize(oas)[0]
+			testutil.Check(t, mod.Operations[0].Path == "/users/{id}", "raw path = %q", mod.Operations[0].Path)
+			testutil.Check(t, got.OperationID == "getUsersId" && got.OperationID == want.OperationID, "operation ID = %q, OpenAPI 3 = %q", got.OperationID, want.OperationID)
+			testutil.Check(t, got.Use == "get-users-id" && got.Use == want.Use, "use = %q, OpenAPI 3 = %q", got.Use, want.Use)
+			testutil.Check(t, got.PathTpl == tc.base+"/users/{id}" && got.PathTpl == want.PathTpl, "path template = %q, OpenAPI 3 = %q", got.PathTpl, want.PathTpl)
+			testutil.Check(t, mod.Operations[0].ServerBasePath == tc.base && mod.Operations[0].ServerBasePath == oas.Operations[0].ServerBasePath, "base path = %q, OpenAPI 3 = %q", mod.Operations[0].ServerBasePath, oas.Operations[0].ServerBasePath)
 		})
 	}
 }
 
 func TestParse_BasePathAppliedToOperations(t *testing.T) {
-	mod := parseInput(t, `{
-	  "swagger": "2.0",
-	  "basePath": "/api/v1",
-	  "paths": {
-	    "/users": {"get": {"operationId": "listUsers", "responses": {}}},
-	    "/repos/{owner}/{repo}/issues": {"get": {"operationId": "listIssues", "responses": {}}}
-	  }
-	}`, ".json")
-	paths := make(map[string]string, len(mod.Operations))
-	for _, op := range mod.Operations {
-		paths[op.OperationID] = op.Path
+	dir := t.TempDir()
+	inputs := []string{
+		`{"basePath":"/a","paths":{"/x":{"get":{"operationId":"getA","responses":{}}}}}`,
+		`{"paths":{"/y":{"get":{"operationId":"getB","responses":{}}}}}`,
+		`{"basePath":"/c","paths":{"/x":{"get":{"operationId":"getC","responses":{}}},"/z":{"get":{"operationId":"getZ","responses":{}}}}}`,
+		`{"basePath":"/a/","paths":{"/x":{"get":{"operationId":"discardDuplicate","responses":{}}}}}`,
 	}
-	testutil.Require(t, paths["listUsers"] == "/api/v1/users", "listUsers path = %q", paths["listUsers"])
-	testutil.Require(t, paths["listIssues"] == "/api/v1/repos/{owner}/{repo}/issues", "listIssues path = %q", paths["listIssues"])
+	var files []string
+	for i, input := range inputs {
+		file := fmt.Sprintf("%d.json", i)
+		files = append(files, file)
+		testutil.NoError(t, os.WriteFile(filepath.Join(dir, file), []byte(input), 0o644))
+	}
+	mod, err := Parse(&sourceconfig.Source{Name: "demo", Swagger: &sourceconfig.SwaggerConfig{Files: files}}, dir)
+	testutil.NoError(t, err)
+	want := map[string]string{"getA": "/a/x", "getB": "/y", "getC": "/c/x", "getZ": "/c/z"}
+	got := map[string]string{}
+	for _, spec := range normalize.Normalize(mod) {
+		got[spec.OperationID] = spec.PathTpl
+	}
+	testutil.Check(t, reflect.DeepEqual(got, want), "paths = %#v, want %#v", got, want)
 }

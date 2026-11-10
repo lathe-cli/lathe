@@ -132,6 +132,13 @@ Host resolution order is `--hostname`, `$ACMECTL_HOST`, the selected host,
 `http.default_hostname`, then the single logged-in host. With several hosts and
 none of the above, the command fails and lists them.
 
+Swagger `basePath` values are now part of generated operation paths. If an older
+CLI used a hostname with the same prefix, regenerate the CLI and remove that
+prefix from the hostname. Keep any other deployment path prefix. The runtime
+appends the operation path to the hostname path without removing duplicate
+prefixes. For example, `https://api.example.com/api/v1` plus
+`/api/v1/users` sends a request to `/api/v1/api/v1/users`, which can return 404.
+
 ```sh
 bin/acmectl auth use api.acme.com
 ```
@@ -415,6 +422,20 @@ stream collection. Unknown groups and conflicting root names fail codegen.
 Command overrides apply only to an exact command/match; unmatched command
 entries and most unmatched parameter entries are ignored. An `argument` entry
 for an unknown parameter fails validation.
+
+For Swagger operations, `match.path` must match the full generated path template
+exactly, including `basePath`. If the document uses `/api/v1`, change an old
+`/users` match to `/api/v1/users`. Codegen ignores an overlay entry whose
+`match.path` does not match and gives no warning.
+
+```yaml
+commands:
+  list-users:
+    match:
+      method: GET
+      path: /api/v1/users
+    short: List users
+```
 
 `ignore: true` removes a command. `hidden: true` keeps it out of normal help,
 search, and catalog output; `--include-hidden` can still inspect it. Root
