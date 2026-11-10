@@ -16,6 +16,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: make fmt-check
+        run: make fmt-check
+
       - name: go build
         run: go build ./...
 
