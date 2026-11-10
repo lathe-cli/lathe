@@ -457,3 +457,42 @@ func TestParse_FileParamContentType(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_BasePath(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		basePath string
+		path     string
+		want     string
+	}{
+		{"no basePath", "", "/users", "/users"},
+		{"root basePath", "/", "/users", "/users"},
+		{"api v1", "/api/v1", "/users", "/api/v1/users"},
+		{"trailing slash", "/api/v1/", "/users", "/api/v1/users"},
+		{"missing leading slash", "api/v1", "/users", "/api/v1/users"},
+		{"path without leading slash", "/api/v1", "users", "/api/v1/users"},
+		{"nested basePath", "/git/api/v1", "/repos/{owner}/{repo}", "/git/api/v1/repos/{owner}/{repo}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := joinBasePath(tc.basePath, tc.path)
+			testutil.Require(t, got == tc.want, "joinBasePath(%q, %q) = %q, want %q", tc.basePath, tc.path, got, tc.want)
+		})
+	}
+}
+
+func TestParse_BasePathAppliedToOperations(t *testing.T) {
+	mod := parseInput(t, `{
+	  "swagger": "2.0",
+	  "basePath": "/api/v1",
+	  "paths": {
+	    "/users": {"get": {"operationId": "listUsers", "responses": {}}},
+	    "/repos/{owner}/{repo}/issues": {"get": {"operationId": "listIssues", "responses": {}}}
+	  }
+	}`, ".json")
+	paths := make(map[string]string, len(mod.Operations))
+	for _, op := range mod.Operations {
+		paths[op.OperationID] = op.Path
+	}
+	testutil.Require(t, paths["listUsers"] == "/api/v1/users", "listUsers path = %q", paths["listUsers"])
+	testutil.Require(t, paths["listIssues"] == "/api/v1/repos/{owner}/{repo}/issues", "listIssues path = %q", paths["listIssues"])
+}
