@@ -51,10 +51,10 @@ git ls-remote --tags origin "refs/tags/$VERSION"
 gh run list --commit "$(git rev-parse HEAD)" --limit 6 --json databaseId,headSha,event,status,conclusion,workflowName,createdAt,updatedAt
 ```
 
-Set the baseline to the latest GitHub release tag unless the user gives another baseline.
+Use the latest release returned by `gh release list` as the baseline, unless the user gives another baseline. Include prereleases. The `releases/latest` endpoint returns the latest stable release. The publish step checks that a prerelease did not replace that release.
 
 ```bash
-BASELINE=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+BASELINE=$(gh release list --exclude-drafts --limit 1 --json tagName -q '.[0].tagName')
 git log --oneline --decorate --no-merges "$BASELINE"..HEAD
 git diff --stat "$BASELINE"..HEAD
 git diff --name-only "$BASELINE"..HEAD
@@ -179,7 +179,7 @@ for LANGUAGE in node go python rust; do
   jq -e --arg language "$LANGUAGE" \
     '.schema_version == 1 and .language == $language and .git.has_commits == false and .git.has_remote == false and .git.staged_files == 0 and (.next_command | length > 0)' \
     "$ROOT/init-$LANGUAGE.json" >/dev/null
-  (cd "$APP" && go mod edit -replace github.com/lathe-cli/lathe="$REPO")
+  (cd "$APP" && go mod edit -replace github.com/lathe-cli/lathe="$REPO" && go mod tidy)
 done
 
 (cd "$ROOT/init-node" && pnpm check)
@@ -193,7 +193,7 @@ done
 Dry-run the default user destination without writing it, then install at project scope inside the unique scratch directory. This covers destination resolution and the actual bundled write without touching real user configuration.
 
 ```bash
-"$ROOT/bin/lathe" skill install --scope user --agent codex --yes --dry-run | grep -F -- "lathe" >/dev/null
+"$ROOT/bin/lathe" skill install --scope user --agent codex --yes --force --dry-run | grep -F -- "lathe" >/dev/null
 SKILL_PROJECT="$ROOT/skill-project"
 mkdir -p "$SKILL_PROJECT"
 (cd "$SKILL_PROJECT" && "$ROOT/bin/lathe" skill install --scope project --agent codex --yes)
@@ -239,14 +239,29 @@ If GoReleaser is missing, report that artifact validation was not run.
 
 Only run this when the user explicitly asks to publish the target release and all required checks are green.
 
+For prerelease versions such as `vX.Y.Z-rc.N`, GoReleaser marks the release as a prerelease. The `.goreleaser.yml` file sets `release.prerelease: auto`. Record the current `releases/latest` tag before publishing. After the release workflow completes, make sure that the release is a prerelease and `releases/latest` still points to the recorded tag. Run both code blocks in the same shell session so `LATEST_RELEASE` remains set.
+
 ```bash
+if [[ "${VERSION%%+*}" == *-* ]]; then
+  LATEST_RELEASE=$(gh api repos/lathe-cli/lathe/releases/latest --jq .tag_name)
+fi
 git status --short --branch
-git tag "$VERSION"
-git push origin "$VERSION"
+git tag -a "$VERSION" -m "$VERSION" "$(git rev-parse HEAD)"
+git push origin "refs/tags/$VERSION"
+test "$(git ls-remote origin "refs/tags/$VERSION^{}" | cut -f1)" = "$(git rev-parse HEAD)"
 gh run list --limit 5
 ```
 
-Then monitor the release workflow and report the GitHub release URL or the failing job.
+Monitor the release workflow. For a prerelease version, confirm that GitHub marks the release as a prerelease and keeps the recorded latest release:
+
+```bash
+if [[ "${VERSION%%+*}" == *-* ]]; then
+  test "$(gh release view "$VERSION" --json isPrerelease --jq .isPrerelease)" = true
+  test "$(gh api repos/lathe-cli/lathe/releases/latest --jq .tag_name)" = "${LATEST_RELEASE:?record releases/latest before publishing}"
+fi
+```
+
+Report the GitHub release URL or the failing job.
 
 ## Final Report
 
