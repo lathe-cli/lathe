@@ -14,19 +14,16 @@ import (
 var errNestedObjectProperty = errors.New("nested objects are not supported")
 
 var reservedBodyFlagNames = map[string]bool{
-	"all":       true,
-	"debug":     true,
-	"dry-run":   true,
-	"file":      true,
-	"help":      true,
-	"hostname":  true,
-	"max-pages": true,
-	"output":    true,
-	"set":       true,
-	"set-str":   true,
-	"stream":    true,
-	"version":   true,
-	"wait":      true,
+	"all":         true,
+	"dry-run":     true,
+	"file":        true,
+	"max-pages":   true,
+	"output-file": true,
+	"set":         true,
+	"set-str":     true,
+	"stream":      true,
+	"version":     true,
+	"wait":        true,
 }
 
 func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, []string, error) {
@@ -86,7 +83,7 @@ func ExpandJSONBodyFlags(spec runtime.CommandSpec) ([]runtime.ParamSpec, []strin
 		if flag == "" {
 			return nil, nil, fmt.Errorf("property %q does not produce a flag name", name)
 		}
-		if reservedBodyFlagNames[flag] {
+		if reservedBodyFlagNames[flag] || reservedParamFlagNames[flag] {
 			return nil, nil, fmt.Errorf("property %q flag %q conflicts with a reserved flag", name, flag)
 		}
 		if existing[flag] || existing[name] {
@@ -137,7 +134,7 @@ func ValidateJSONBodyFlagParams(spec runtime.CommandSpec) error {
 			if name == "" {
 				continue
 			}
-			if param.In == runtime.InBody && reservedBodyFlagNames[name] {
+			if param.In == runtime.InBody && (reservedBodyFlagNames[name] || reservedParamFlagNames[name]) {
 				return fmt.Errorf("body property %q flag %q conflicts with a reserved flag", param.Name, name)
 			}
 		}

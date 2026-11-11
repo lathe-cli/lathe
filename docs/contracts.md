@@ -13,7 +13,9 @@ fails with a regeneration instruction on mismatch.
 
 This schema is a compiler coupling. It is not the agent-facing contract.
 Bump it when a generated command or mount contract changes in a way that
-requires regeneration.
+requires regeneration. Reserved parameter flag renames change flag values in
+existing fields. They do not change the generated code schema or the catalog
+schema. Regenerate and rebuild generated CLIs to use the new flag names.
 
 ## Capability contract
 

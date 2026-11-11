@@ -22,7 +22,7 @@ func MergeOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) ([]runt
 	if err != nil {
 		return nil, err
 	}
-	if err := validateJSONBodyFlagParams(merged); err != nil {
+	if err := validateParamFlags(merged); err != nil {
 		return nil, err
 	}
 	descriptions := make(map[string]string, len(specs))

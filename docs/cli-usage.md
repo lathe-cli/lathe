@@ -513,6 +513,20 @@ supported part fails the same way. Ignore that command in an overlay
 are not listed. File paths that contain commas need CSV quoting on `[]string`
 flags. Object parts are not checked as JSON before they are sent.
 
+### Reserved Flags
+
+Before overlays run, codegen renames spec parameter flags named `hostname`, `output`, `insecure`, `debug`, or `help`. It prefixes the flag with its parameter location. Form-data parameters use `body-`. If that flag is already used, codegen adds `-2`, `-3`, or a higher number. Codegen removes aliases that use those reserved names.
+
+For example, a query parameter named `output` uses `--query-output`. Use `-o json` for the global output format. The parameter still uses `output` on the wire. Codegen prints a warning with the source, operation, wire name, location, old flag, and final flag. Each value is quoted, with control characters escaped, so one warning stays on one line. In the rebuilt CLI, `--hostname` and `--insecure` select global runtime settings, not spec parameters. Update scripts that used those parameter flags to use their renamed flags.
+
+Runtime control flags such as `--dry-run` use a `lathe-` prefix when a parameter uses their usual name. Inspect `commands show <path...> --json` for the actual dry-run flag. Parameter flags `--o`, `--f`, and `--h` can coexist with short flags `-o`, `-f`, and `-h`.
+
+An overlay can set a safe flag name with `commands.<command>.params.<wire-name>.flag`. After overlays, codegen rejects reserved names and duplicate parameter flags.
+
+JSON body properties with typed flags are not renamed. Codegen rejects body flags that conflict with reserved names, including `--insecure` and `--output-file`.
+
+Regenerate and rebuild generated CLIs to use the renamed flags.
+
 ### Parameter Serialization
 
 Path array flags are comma-separated. Each item is escaped on its own, then joined in the path. Header array values are entered already joined, and the runtime copies that string into the header. Cookie flags are sent together in one `Cookie` header, appended after authentication cookies.
