@@ -9,8 +9,14 @@ import (
 )
 
 func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
+	specs, _ := NormalizeWithWarnings(mod)
+	return specs
+}
+
+func NormalizeWithWarnings(mod *rawir.RawModule) ([]runtime.CommandSpec, []FlagRename) {
 	trim := commonNoisePrefix(mod.Operations)
 	var specs []runtime.CommandSpec
+	var warnings []FlagRename
 	for _, op := range mod.Operations {
 
 		opID := op.OperationID
@@ -67,10 +73,11 @@ func Normalize(mod *rawir.RawModule) []runtime.CommandSpec {
 		spec.Output.Streaming = deriveStreaming(op)
 		applyRawOutputHints(&spec, op.Output)
 		spec.Security = deriveSecurity(op)
+		warnings = append(warnings, resolveReservedParamFlags(&spec)...)
 		specs = append(specs, spec)
 	}
 	slices.SortFunc(specs, func(a, b runtime.CommandSpec) int {
 		return cmp.Or(cmp.Compare(a.Group, b.Group), cmp.Compare(a.Use, b.Use), cmp.Compare(a.OperationID, b.OperationID), cmp.Compare(a.PathTpl, b.PathTpl), cmp.Compare(a.Method, b.Method))
 	})
-	return specs
+	return specs, warnings
 }

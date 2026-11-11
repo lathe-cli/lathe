@@ -54,7 +54,7 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 	if err != nil {
 		return err
 	}
-	if err := validateJSONBodyFlagParams(merged); err != nil {
+	if err := validateParamFlags(merged); err != nil {
 		return err
 	}
 	if err := validateGroupOverrides(merged, mod.Groups); err != nil {
@@ -63,10 +63,13 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 	return validateRuntimeSchemaBindings(specs, merged, mod)
 }
 
-func validateJSONBodyFlagParams(specs []runtime.CommandSpec) error {
+func validateParamFlags(specs []runtime.CommandSpec) error {
 	for _, spec := range specs {
 		if err := normalize.ValidateJSONBodyFlagParams(spec); err != nil {
 			return fmt.Errorf("command %q body.flags: %w", spec.Use, err)
+		}
+		if err := normalize.ValidateReservedParamFlags(spec); err != nil {
+			return fmt.Errorf("command %q: %w", spec.Use, err)
 		}
 	}
 	return nil

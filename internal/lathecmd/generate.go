@@ -44,7 +44,7 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 		return err
 	}
 
-	generated, err := buildGeneratedApp(cfg, overlays, syncRoot, manifest, skillDir, skillInclude)
+	generated, err := buildGeneratedApp(cfg, overlays, syncRoot, manifest, skillDir, skillInclude, output)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func runCodegen(sourcesPath string, manifestPath string, cacheRoot string, overl
 	return nil
 }
 
-func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Module, syncRoot string, manifest *config.Manifest, skillDir string, skillInclude render.SkillInclude) (*app.App, error) {
+func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Module, syncRoot string, manifest *config.Manifest, skillDir string, skillInclude render.SkillInclude, output io.Writer) (*app.App, error) {
 	generated := &app.App{Manifest: manifest}
 	if skillDir != "" {
 		generated.Skill = &app.Skill{Dir: skillDir, Include: skillInclude, Bundle: manifest.Skill.Bundle}
@@ -95,7 +95,7 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		}
 		parameterErrors := normalize.ValidateParameters(mod)
 
-		specs := normalize.Normalize(mod)
+		specs, renames := normalize.NormalizeWithWarnings(mod)
 		if src.DefaultHostname != nil {
 			for i := range specs {
 				specs[i].DefaultHostname = *src.DefaultHostname
@@ -110,6 +110,18 @@ func buildGeneratedApp(cfg *sourceconfig.Config, overlays map[string]overlay.Mod
 		}
 		if err := firstParameterError(src.Name, parameterErrors, specs); err != nil {
 			return nil, err
+		}
+		for _, rename := range renames {
+			for _, spec := range specs {
+				if spec.OperationID != rename.OperationID || spec.Method != rename.Method || spec.PathTpl != rename.Path {
+					continue
+				}
+				for _, param := range spec.Params {
+					if param.Name == rename.Name && param.In == rename.In {
+						fmt.Fprintf(output, "warning: source %q: %q %q (%q): %q parameter %q uses %q instead of reserved %q\n", src.Name, spec.Method, spec.PathTpl, spec.OperationID, param.In, param.Name, "--"+param.Flag, "--"+rename.From)
+					}
+				}
+			}
 		}
 		for i := range specs {
 			if _, overridden := overlays[src.Name].Groups[specs[i].Group]; !overridden && specs[i].GroupShort == "" {
