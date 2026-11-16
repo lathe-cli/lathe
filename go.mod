@@ -3,7 +3,7 @@ module github.com/lathe-cli/lathe
 go 1.26.0
 
 require (
-	github.com/gofrs/flock v0.13.1
+	github.com/gofrs/flock v0.13.2
 	github.com/lathe-cli/kitup/go v0.1.4
 	github.com/lathe-cli/kitup/go-cobra v0.1.4
 	github.com/rivo/uniseg v0.4.7
@@ -11,8 +11,8 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/vektah/gqlparser/v2 v2.5.64
-	golang.org/x/sys v0.49.0
-	golang.org/x/term v0.47.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.48.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260420184626-e10c466a9529
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
