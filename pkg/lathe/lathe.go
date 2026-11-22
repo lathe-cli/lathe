@@ -103,8 +103,6 @@ func rewriteCompletionHelp(cmd *cobra.Command, cliName string) {
 	}
 }
 
-// agentHint surfaces the catalog protocol in `<cli> --help` so agents
-// discover it without any preinstalled SKILL file.
 func agentHint(name, short string) string {
 	if short == "" {
 		short = name
@@ -112,8 +110,9 @@ func agentHint(name, short string) string {
 	return fmt.Sprintf(`%s
 
 For agents:
-  %s commands --json           machine-readable command catalog
-  %s commands show <path...>   precise spec for one command
-  %s search "<intent>"         find commands by keyword
+  %s search "<intent>"                  find candidate commands with compact output
+  %s commands show <path...> --json      inspect the exact contract for one command
+  %s commands --json                    full catalog (large for big CLIs)
+  For one command, use search, then commands show.
 `, short, name, name, name)
 }

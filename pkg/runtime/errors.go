@@ -82,6 +82,65 @@ func UsageError(cmd *cobra.Command, cause error) *LatheError {
 	return le
 }
 
+func bodyUsageError(cmd *cobra.Command, cause error, fileFlag, setFlag, stringSetFlag string) *LatheError {
+	le := UsageError(cmd, cause)
+	var original *LatheError
+	if errors.As(cause, &original) && original.Code == CodeUsage {
+		copy := *original
+		le = &copy
+		var de *usageDetailError
+		if le.Detail == "" && errors.As(cause, &de) {
+			le.Detail = de.detail
+		}
+	}
+	if fileFlag == "" {
+		fileFlag = "file"
+	}
+	if setFlag == "" {
+		setFlag = "set"
+	}
+	if stringSetFlag == "" {
+		stringSetFlag = "set-str"
+	}
+	var schemaFailure *staticBodySchemaFailure
+	if errors.As(cause, &schemaFailure) && cmd != nil {
+		for _, commands := range cmd.Root().Commands() {
+			if commands.Name() != "commands" {
+				continue
+			}
+			for _, show := range commands.Commands() {
+				if show.Name() == "show" {
+					path := strings.TrimPrefix(cmd.CommandPath(), cmd.Root().CommandPath()+" ")
+					le.Hint = fmt.Sprintf("run `%s commands show %s --json` to inspect body.schema, then correct --%s, --%s, or --%s", cmd.Root().Name(), path, setFlag, stringSetFlag, fileFlag)
+				}
+			}
+		}
+	}
+	var detail *bodyUsageDetailError
+	if errors.As(cause, &detail) {
+		le.Detail = sanitizeErrorDetail(detail.render(fileFlag, setFlag, stringSetFlag))
+	}
+	return le
+}
+
+type bodyUsageDetailError struct {
+	format string
+	args   []any
+}
+
+func (e *bodyUsageDetailError) render(fileFlag, setFlag, stringSetFlag string) string {
+	return fmt.Sprintf(e.format, append([]any{fileFlag, setFlag, stringSetFlag}, e.args...)...)
+}
+
+func (e *bodyUsageDetailError) Error() string {
+	return e.render("file", "set", "set-str")
+}
+
+func bodyUsageDetail(format string, args ...any) error {
+	err := &bodyUsageDetailError{format: format, args: args}
+	return WithUsageDetail(err, err.Error())
+}
+
 const maxErrorDetailRunes = 240
 
 type usageDetailError struct {

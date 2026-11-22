@@ -50,7 +50,7 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 			if !ok {
 				return runtime.UsageError(cmd, runtime.WithUsageDetail(
 					fmt.Errorf("generated command not found"),
-					fmt.Sprintf("no generated command at that path; run `%s commands` to list paths", cmd.Root().Name()),
+					fmt.Sprintf("no generated command at that path; run `%s search \"<intent>\"` or `%s commands` to list paths", cmd.Root().Name(), cmd.Root().Name()),
 				))
 			}
 			if jsonOut {

@@ -17,6 +17,8 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	var bodySets []string
 	var bodyStringSets []string
 	var bodyFileFlag string
+	var bodySetFlag string
+	var bodyStringSetFlag string
 	var paginateAll bool
 	var maxPages int
 	var waitPoll bool
@@ -79,7 +81,7 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			input.BodySets = bodySets
 			input.BodyStringSets = bodyStringSets
 			if err := validateOperationInput(s, input); err != nil {
-				return UsageError(cmd, err)
+				return bodyUsageError(cmd, err, bodyFileFlag, bodySetFlag, bodyStringSetFlag)
 			}
 
 			if s.Output.Binary && !dryRun && outputFile == "" {
@@ -152,10 +154,10 @@ func buildCmd(s CommandSpec) *cobra.Command {
 	}
 	if s.RequestBody != nil && !hasFormDataParams(s.Params) && !isMultipartMediaType(s.RequestBody.MediaType) {
 		bodyFileFlag = controlFlagName(cmd, "file")
-		bodySetFlag := controlFlagName(cmd, "set")
-		bodyStringSetFlag := controlFlagName(cmd, "set-str")
+		bodySetFlag = controlFlagName(cmd, "set")
+		bodyStringSetFlag = controlFlagName(cmd, "set-str")
 		fileHelp := "path to JSON body file, or '-' for stdin"
-		setHelp := fmt.Sprintf("set body field with type inference, e.g. --%s spec.replicas=3 (repeatable; nested via dots)", bodySetFlag)
+		setHelp := fmt.Sprintf("set body field, e.g. --%s spec.replicas=3; infer booleans, null, numbers, and []; use dotted paths, key[0]=value, or --%s for objects and non-empty arrays (repeatable)", bodySetFlag, bodyFileFlag)
 		setStrHelp := fmt.Sprintf("set body field as string, e.g. --%s spec.replicas=3 (repeatable; nested via dots)", bodyStringSetFlag)
 		if s.RequestBody.Required {
 			suffix := fmt.Sprintf(" (use --%s, --%s, or --%s)", bodyFileFlag, bodySetFlag, bodyStringSetFlag)
