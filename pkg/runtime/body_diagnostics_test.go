@@ -78,6 +78,12 @@ func TestBodyDiagnosticsContract(t *testing.T) {
 				t.Fatal("invalid body accepted")
 			}
 			le := ClassifyError(err)
+			if strings.Contains(le.Detail, "%!(") || strings.Contains(le.Hint, "%!(") {
+				t.Fatalf("invalid diagnostic formatting: detail=%q hint=%q", le.Detail, le.Hint)
+			}
+			if tc.name == "envelope invalid JSON" && le.Detail != "request body must contain one valid JSON value" {
+				t.Fatalf("invalid JSON detail = %q", le.Detail)
+			}
 			for _, want := range tc.want {
 				if !strings.Contains(le.Detail, want) {
 					t.Errorf("detail %q missing %q", le.Detail, want)
@@ -110,6 +116,9 @@ func TestMultipartBodyDiagnosticsContract(t *testing.T) {
 		le := ClassifyError(err)
 		if le == nil || le.Message != "multipart request bodies accept only part flags" || !strings.Contains(le.Detail, "part flags") {
 			t.Fatalf("multipart guidance missing: %#v", le)
+		}
+		if strings.Contains(le.Detail, "%!(") || strings.Contains(le.Hint, "%!(") {
+			t.Fatalf("invalid diagnostic formatting: detail=%q hint=%q", le.Detail, le.Hint)
 		}
 		var out strings.Builder
 		if FormatError(err, "json", &out) != ExitUsage || strings.Contains(out.String(), "secret-") {

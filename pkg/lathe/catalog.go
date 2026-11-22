@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lathe-cli/lathe/internal/diagnostic"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
@@ -48,9 +49,10 @@ func commandsShowCmd(m *config.Manifest) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			entry, ok := runtime.FindCatalogCommand(cmd.Root(), args, catalogOptions(m, includeHidden))
 			if !ok {
+				name := diagnostic.Identifier(cmd.Root().Name())
 				return runtime.UsageError(cmd, runtime.WithUsageDetail(
 					fmt.Errorf("generated command not found"),
-					fmt.Sprintf("no generated command at that path; run `%s search \"<intent>\"` or `%s commands` to list paths", cmd.Root().Name(), cmd.Root().Name()),
+					fmt.Sprintf("no generated command at that path; run `%s search \"<intent>\"` or `%s commands` to list paths", name, name),
 				))
 			}
 			if jsonOut {

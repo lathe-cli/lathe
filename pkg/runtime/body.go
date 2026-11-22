@@ -148,7 +148,7 @@ func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, st
 		var v any
 		if len(strings.TrimSpace(string(fileData))) > 0 {
 			if err := json.Unmarshal(fileData, &v); err != nil {
-				return nil, bodyUsageDetail("request body must contain one valid JSON value")
+				return nil, WithUsageDetail(fmt.Errorf("invalid --file JSON: %w", err), "request body must contain one valid JSON value")
 			}
 		}
 		if err := setNestedPath(envelope, mergePath, v); err != nil {
