@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/lathe-cli/lathe/internal/diagnostic"
 )
 
 const (
@@ -72,14 +74,89 @@ func NewError(code string, exitCode int, message, hint string, cause error) *Lat
 func UsageError(cmd *cobra.Command, cause error) *LatheError {
 	hint := "run the command with --help and correct the arguments"
 	if cmd != nil && cmd.CommandPath() != "" {
-		hint = fmt.Sprintf("run `%s --help` and correct the arguments", cmd.CommandPath())
+		hint = fmt.Sprintf("run `%s --help` and correct the arguments", diagnostic.Identifier(cmd.CommandPath()))
 	}
-	le := NewError(CodeUsage, ExitUsage, "invalid command usage", hint, cause)
+	le := NewError(CodeUsage, ExitUsage, "invalid command usage", sanitizeErrorDetail(hint), cause)
 	var de *usageDetailError
 	if errors.As(cause, &de) {
 		le.Detail = de.detail
 	}
 	return le
+}
+
+func bodyUsageError(cmd *cobra.Command, cause error, fileFlag, setFlag, stringSetFlag string) *LatheError {
+	le := UsageError(cmd, cause)
+	var original *LatheError
+	if errors.As(cause, &original) && original.Code == CodeUsage {
+		copy := *original
+		le = &copy
+		var de *usageDetailError
+		if le.Detail == "" && errors.As(cause, &de) {
+			le.Detail = de.detail
+		}
+	}
+	if fileFlag == "" {
+		fileFlag = "file"
+	}
+	if setFlag == "" {
+		setFlag = "set"
+	}
+	if stringSetFlag == "" {
+		stringSetFlag = "set-str"
+	}
+	fileFlag = diagnostic.Identifier(fileFlag)
+	setFlag = diagnostic.Identifier(setFlag)
+	stringSetFlag = diagnostic.Identifier(stringSetFlag)
+	var schemaFailure *staticBodySchemaFailure
+	if errors.As(cause, &schemaFailure) && cmd != nil {
+		for _, commands := range cmd.Root().Commands() {
+			if commands.Name() != "commands" {
+				continue
+			}
+			for _, show := range commands.Commands() {
+				if show.Name() == "show" {
+					path := strings.TrimPrefix(cmd.CommandPath(), cmd.Root().CommandPath()+" ")
+					includeHidden := ""
+					if show.Flags().Lookup("include-hidden") != nil {
+						for parent := cmd; parent != nil && parent != cmd.Root(); parent = parent.Parent() {
+							if parent.Hidden {
+								includeHidden = "--include-hidden "
+								break
+							}
+						}
+					}
+					le.Hint = fmt.Sprintf("run `%s commands show %s%s --json` to inspect body.schema, then correct --%s, --%s, or --%s", diagnostic.Identifier(cmd.Root().Name()), includeHidden, diagnostic.Identifier(path), setFlag, stringSetFlag, fileFlag)
+				}
+			}
+		}
+	}
+	var detail *bodyUsageDetailError
+	if errors.As(cause, &detail) {
+		le.Detail = sanitizeErrorDetail(detail.render(fileFlag, setFlag, stringSetFlag))
+	}
+	le.Hint = sanitizeErrorDetail(le.Hint)
+	return le
+}
+
+type bodyUsageDetailError struct {
+	format string
+	args   []any
+}
+
+func (e *bodyUsageDetailError) render(fileFlag, setFlag, stringSetFlag string) string {
+	if !strings.Contains(e.format, "%") && len(e.args) == 0 {
+		return e.format
+	}
+	return fmt.Sprintf(e.format, append([]any{fileFlag, setFlag, stringSetFlag}, e.args...)...)
+}
+
+func (e *bodyUsageDetailError) Error() string {
+	return e.render("file", "set", "set-str")
+}
+
+func bodyUsageDetail(format string, args ...any) error {
+	err := &bodyUsageDetailError{format: format, args: args}
+	return WithUsageDetail(err, err.Error())
 }
 
 const maxErrorDetailRunes = 240

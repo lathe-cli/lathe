@@ -129,7 +129,11 @@ func rejectBodyFlagSetConflict(path string, flagFields map[string]ParamSpec, set
 	if !ok {
 		return nil
 	}
-	return fmt.Errorf("body field %q cannot be set by both --%s and %s", param.Name, param.Flag, setFlag)
+	format := "body field %[4]q cannot be set by both --%[5]s and --%[2]s"
+	if setFlag == "--set-str" {
+		format = "body field %[4]q cannot be set by both --%[5]s and --%[3]s"
+	}
+	return bodyUsageDetail(format, param.Name, param.Flag)
 }
 
 func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
@@ -139,12 +143,12 @@ func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, st
 	}
 	if hasFile {
 		if mergePath == "" {
-			return nil, fmt.Errorf("--file is not supported for this command's body template")
+			return nil, bodyUsageDetail("--%[1]s is not supported for this command's body template; use body flags, --%[2]s, or --%[3]s")
 		}
 		var v any
 		if len(strings.TrimSpace(string(fileData))) > 0 {
 			if err := json.Unmarshal(fileData, &v); err != nil {
-				return nil, fmt.Errorf("invalid --file JSON: %w", err)
+				return nil, WithUsageDetail(fmt.Errorf("invalid --file JSON: %w", err), "request body must contain one valid JSON value")
 			}
 		}
 		if err := setNestedPath(envelope, mergePath, v); err != nil {
@@ -187,11 +191,11 @@ func joinBodyPath(prefix, path string) string {
 func parseSet(kv string, flag string) (string, string, error) {
 	eq := strings.Index(kv, "=")
 	if eq < 0 {
-		return "", "", fmt.Errorf("invalid %s %q (expected key=value)", flag, kv)
+		return "", "", bodySetSyntaxError(flag, "expects path=value; pass raw JSON with --%[1]s")
 	}
 	path := kv[:eq]
 	if path == "" {
-		return "", "", fmt.Errorf("invalid %s %q (empty key)", flag, kv)
+		return "", "", bodySetSyntaxError(flag, "requires a non-empty field path before '='")
 	}
 	return path, kv[eq+1:], nil
 }
@@ -272,7 +276,7 @@ func setNestedSegs(m map[string]any, segs []pathSegment, v any) error {
 			m[seg.key] = child
 			return setNestedSegs(child, rest, v)
 		default:
-			return fmt.Errorf("conflicting --set: %s is not an object", seg.key)
+			return bodyPathConflictError()
 		}
 	}
 
@@ -283,7 +287,7 @@ func setNestedSegs(m map[string]any, segs []pathSegment, v any) error {
 	case nil:
 		arr = []any{}
 	default:
-		return fmt.Errorf("conflicting --set: %s is not an array", seg.key)
+		return bodyPathConflictError()
 	}
 	for len(arr) <= seg.idx {
 		arr = append(arr, nil)
@@ -298,7 +302,7 @@ func setNestedSegs(m map[string]any, segs []pathSegment, v any) error {
 		case nil:
 			child = map[string]any{}
 		default:
-			return fmt.Errorf("conflicting --set: %s[%d] is not an object", seg.key, seg.idx)
+			return bodyPathConflictError()
 		}
 		if err := setNestedSegs(child, rest, v); err != nil {
 			return err
@@ -330,4 +334,15 @@ func inferValue(s string) any {
 		return f
 	}
 	return s
+}
+
+func bodyPathConflictError() error {
+	return bodyUsageDetail("conflicting --%[2]s/--%[3]s paths: cannot combine a scalar value with nested fields or array elements on the same path")
+}
+
+func bodySetSyntaxError(flag, detail string) error {
+	if flag == "--set-str" {
+		return bodyUsageDetail("--%[3]s " + detail)
+	}
+	return bodyUsageDetail("--%[2]s " + detail)
 }
