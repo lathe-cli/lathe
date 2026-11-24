@@ -47,6 +47,19 @@ func snipTestOptions() RunOptions {
 						{Name: "id", Flag: "id", In: runtime.InPath, GoType: "string", Required: true},
 					},
 				},
+				{
+					Group:       "Users",
+					Use:         "remove",
+					Short:       "Remove user",
+					OperationID: "Users_Remove",
+					Method:      "DELETE",
+					PathTpl:     "/users/{id}",
+					Params: []runtime.ParamSpec{
+						{Name: "id", Flag: "id", Argument: "id", In: runtime.InPath, GoType: "string", Required: true},
+						{Name: "reason", Flag: "reason", Argument: "reason", In: runtime.InQuery, GoType: "string"},
+						{Name: "note", Flag: "note", In: runtime.InQuery, GoType: "string"},
+					},
+				},
 			})
 		},
 	}
@@ -134,6 +147,27 @@ func TestSnipRejectsFlagSwallowingIntoPlaceholders(t *testing.T) {
 	testutil.Require(t, code == runtime.ExitOK, "escaped placeholder exit=%d stderr=%s", code, stderr)
 	testutil.Require(t, hits.Load() == 0, "dry-run hit server")
 	testutil.Require(t, strings.Contains(previewOut, `"role": "--literal-role"`), "previewOut = %s", previewOut)
+
+	code, _, stderr = runSnipCLI(t, "snip", "set", "del-dash", "--", "users", "remove", "--", "$1")
+	testutil.Require(t, code == runtime.ExitOK, "set del-dash exit=%d stderr=%s", code, stderr)
+
+	code, previewOut, stderr = runSnipCLI(t, "snip", "del-dash", "usr_99", "--dry-run")
+	testutil.Require(t, code == runtime.ExitOK, "del-dash --dry-run exit=%d stderr=%s", code, stderr)
+	testutil.Require(t, hits.Load() == 0, "del-dash --dry-run hit server")
+	testutil.Require(t, strings.HasSuffix(strings.TrimSpace(previewOut), "}") && strings.Contains(previewOut, "/users/usr_99") && !strings.Contains(previewOut, "reason="), "del-dash preview = %s", previewOut)
+
+	code, helpOut, stderr := runSnipCLI(t, "snip", "del-dash", "--help")
+	testutil.Require(t, code == runtime.ExitOK, "del-dash --help exit=%d stderr=%s", code, stderr)
+	testutil.Require(t, hits.Load() == 0 && strings.Contains(helpOut, "Remove user"), "del-dash --help hit=%d out=%s", hits.Load(), helpOut)
+
+	code, _, _ = runSnipCLI(t, "snip", "del-dash", "--note", "-h")
+	testutil.Require(t, code == runtime.ExitUsage, "missing $1 with --note -h exit=%d, want %d", code, runtime.ExitUsage)
+	testutil.Require(t, hits.Load() == 0, "--note -h hit server")
+
+	code, previewOut, stderr = runSnipCLI(t, "snip", "del-dash", "usr_42", "--note", "-h", "--dry-run")
+	testutil.Require(t, code == runtime.ExitOK, "del-dash usr_42 --note -h --dry-run exit=%d stderr=%s", code, stderr)
+	testutil.Require(t, hits.Load() == 0, "del-dash usr_42 --note -h --dry-run hit server")
+	testutil.Require(t, strings.Contains(previewOut, "/users/usr_42?note=-h"), "previewOut = %s", previewOut)
 }
 
 func TestSnipValidationAndErrorRedactionContract(t *testing.T) {
@@ -149,6 +183,8 @@ func TestSnipValidationAndErrorRedactionContract(t *testing.T) {
 		{"snip", "set", "unknown-cmd", "missing-group list"},
 		{"snip", "set", "gap-placeholder", "users update --id $2"},
 		{"snip", "set", "zero-placeholder", "users update --id $0"},
+		{"snip", "set", "dash-root", "--", "--", "users", "list"},
+		{"snip", "set", "dash-group", "users -- list"},
 	} {
 		code, _, _ := runSnipCLI(t, invalidArgs...)
 		testutil.Require(t, code == runtime.ExitUsage, "args %v exit=%d, want %d", invalidArgs, code, runtime.ExitUsage)

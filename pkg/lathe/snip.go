@@ -129,7 +129,7 @@ func snipSetCmd(m *config.Manifest) *cobra.Command {
 			if _, err := validatePlaceholders(tokens); err != nil {
 				return runtime.UsageError(cmd, runtime.WithUsageDetail(err, err.Error()))
 			}
-			if err := validateSnipTarget(cmd, cmd.Root(), m, tokens); err != nil {
+			if _, err := resolveSnipTarget(cmd, cmd.Root(), m, tokens); err != nil {
 				return err
 			}
 			canonical := formatSnipCommand(tokens)
@@ -294,13 +294,18 @@ func executeNamedSnip(cmd *cobra.Command, m *config.Manifest, rawArgs []string, 
 			err,
 		)
 	}
-	if err := validateSnipTarget(cmd, root, m, savedTokens); err != nil {
+	targetCmd, err := resolveSnipTarget(cmd, root, m, savedTokens)
+	if err != nil {
 		return err
 	}
 
-	expandedArgs, err := expandSnipArgs(cmd, savedTokens, leadingFlags, invokeArgs)
+	targetFs := targetCommandFlagSet(targetCmd)
+	expandedArgs, showTargetHelp, err := expandSnipArgs(cmd, targetFs, savedTokens, leadingFlags, invokeArgs)
 	if err != nil {
 		return err
+	}
+	if showTargetHelp {
+		return targetCmd.Help()
 	}
 
 	root.SetArgs(expandedArgs)
@@ -345,33 +350,33 @@ func isValidSnipName(s string) bool {
 	return len(s) > 0
 }
 
-func validateSnipTarget(errCmd, root *cobra.Command, m *config.Manifest, tokens []string) error {
+func resolveSnipTarget(errCmd, root *cobra.Command, m *config.Manifest, tokens []string) (*cobra.Command, error) {
 	cliName := diagnostic.Identifier(m.CLI.Name)
 	probe := make([]string, len(tokens))
 	for i, tok := range tokens {
 		probe[i] = replacePlaceholdersWithDummy(tok)
 	}
-	_, first, rest, helpOnly, err := splitLeadingRootFlags(root, probe)
+	_, first, rest, helpOnly, err := splitCommandStepFlags(root.PersistentFlags(), probe)
 	if err != nil {
-		return runtime.UsageError(errCmd, runtime.WithUsageDetail(
+		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(
 			err,
 			fmt.Sprintf("snip command has invalid global flags. Run `%s --help` to list flags", cliName),
 		))
 	}
 	if helpOnly || first == "" {
-		return runtime.UsageError(errCmd, runtime.WithUsageDetail(
+		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(
 			errors.New("missing target subcommand"),
 			fmt.Sprintf("snip command must start with a runnable `%s` subcommand", cliName),
 		))
 	}
 	if first == m.CLI.Name {
-		return runtime.UsageError(errCmd, runtime.WithUsageDetail(
+		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(
 			errors.New("leading binary name in snip command"),
 			fmt.Sprintf("omit the leading `%s` binary name and start with a subcommand", cliName),
 		))
 	}
 	if first == snipCommandName || first == metaCommandName || first == "help" || first == "completion" {
-		return runtime.UsageError(errCmd, runtime.WithUsageDetail(
+		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(
 			errors.New("unsupported snip target"),
 			"snip cannot target `snip`, `help`, `completion`, or internal control commands",
 		))
@@ -379,14 +384,14 @@ func validateSnipTarget(errCmd, root *cobra.Command, m *config.Manifest, tokens 
 
 	cur := findSubcommand(root, first)
 	if cur == nil {
-		return runtime.UsageError(errCmd, runtime.WithUsageDetail(
+		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(
 			errors.New("unknown target subcommand"),
 			fmt.Sprintf("snip command must target an existing `%s` command. Run `%s --help` to list commands", cliName, cliName),
 		))
 	}
 	remaining := rest
 	for len(remaining) > 0 && cur.HasSubCommands() {
-		_, nextName, nextRest, nextHelp, flagErr := splitLeadingCommandFlags(cur, remaining)
+		_, nextName, nextRest, nextHelp, flagErr := splitLeadingGroupFlags(cur, remaining)
 		if flagErr != nil || nextHelp || nextName == "" {
 			break
 		}
@@ -398,12 +403,12 @@ func validateSnipTarget(errCmd, root *cobra.Command, m *config.Manifest, tokens 
 		remaining = nextRest
 	}
 	if cur.HasSubCommands() || !cur.Runnable() {
-		return runtime.UsageError(errCmd, runtime.WithUsageDetail(
+		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(
 			errors.New("incomplete target subcommand"),
 			fmt.Sprintf("snip command points to a command group instead of a runnable `%s` command", cliName),
 		))
 	}
-	return nil
+	return cur, nil
 }
 
 func findSubcommand(parent *cobra.Command, name string) *cobra.Command {

@@ -14,21 +14,39 @@ import (
 )
 
 func splitLeadingRootFlags(root *cobra.Command, args []string) (leadingFlags []string, name string, rest []string, helpRequested bool, err error) {
-	return splitFlagsWithSet(root.PersistentFlags(), args)
+	return splitFlagsWithSet(root.PersistentFlags(), args, true)
 }
 
-func splitLeadingCommandFlags(cmd *cobra.Command, args []string) (leadingFlags []string, name string, rest []string, helpRequested bool, err error) {
+func splitCommandStepFlags(fs *pflag.FlagSet, args []string) (leadingFlags []string, name string, rest []string, helpRequested bool, err error) {
+	return splitFlagsWithSet(fs, args, false)
+}
+
+func splitLeadingGroupFlags(cmd *cobra.Command, args []string) (leadingFlags []string, name string, rest []string, helpRequested bool, err error) {
 	fs := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
-	fs.AddFlagSet(cmd.Root().PersistentFlags())
+	for p := cmd; p != nil; p = p.Parent() {
+		fs.AddFlagSet(p.PersistentFlags())
+	}
 	fs.AddFlagSet(cmd.Flags())
-	return splitFlagsWithSet(fs, args)
+	return splitFlagsWithSet(fs, args, false)
 }
 
-func splitFlagsWithSet(fs *pflag.FlagSet, args []string) (leadingFlags []string, name string, rest []string, helpRequested bool, err error) {
+func targetCommandFlagSet(target *cobra.Command) *pflag.FlagSet {
+	fs := pflag.NewFlagSet(target.Name(), pflag.ContinueOnError)
+	for p := target; p != nil; p = p.Parent() {
+		fs.AddFlagSet(p.PersistentFlags())
+	}
+	fs.AddFlagSet(target.Flags())
+	if nf := target.Flags().GetNormalizeFunc(); nf != nil {
+		fs.SetNormalizeFunc(nf)
+	}
+	return fs
+}
+
+func splitFlagsWithSet(fs *pflag.FlagSet, args []string, allowDashName bool) (leadingFlags []string, name string, rest []string, helpRequested bool, err error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
-			if i+1 < len(args) {
+			if allowDashName && i+1 < len(args) {
 				return leadingFlags, args[i+1], args[i+2:], helpRequested, nil
 			}
 			return leadingFlags, "", nil, helpRequested, nil
@@ -133,17 +151,13 @@ func validatePlaceholders(tokens []string) (int, error) {
 	return maxIdx, nil
 }
 
-func expandSnipArgs(errCmd *cobra.Command, savedTokens, leadingFlags, invokeArgs []string) ([]string, error) {
+func expandSnipArgs(errCmd *cobra.Command, targetFs *pflag.FlagSet, savedTokens, leadingFlags, invokeArgs []string) ([]string, bool, error) {
 	maxIdx, err := validatePlaceholders(savedTokens)
 	if err != nil {
-		return nil, runtime.UsageError(errCmd, runtime.WithUsageDetail(err, err.Error()))
+		return nil, false, runtime.UsageError(errCmd, runtime.WithUsageDetail(err, err.Error()))
 	}
-	if hasHelpFlag(invokeArgs) {
-		expanded := make([]string, len(savedTokens))
-		for i, tok := range savedTokens {
-			expanded[i] = replacePlaceholdersWithDummy(tok)
-		}
-		return mergeSnipArgSlices(expanded, leadingFlags, invokeArgs), nil
+	if scanForHelpFlag(targetFs, invokeArgs) {
+		return nil, true, nil
 	}
 
 	values := invokeArgs
@@ -151,15 +165,15 @@ func expandSnipArgs(errCmd *cobra.Command, savedTokens, leadingFlags, invokeArgs
 		if len(values) > 0 && values[0] == "--" {
 			values = values[1:]
 			if len(values) < maxIdx {
-				return nil, missingPlaceholderError(errCmd, maxIdx)
+				return nil, false, missingPlaceholderError(errCmd, maxIdx)
 			}
 		} else {
 			if len(values) < maxIdx {
-				return nil, missingPlaceholderError(errCmd, maxIdx)
+				return nil, false, missingPlaceholderError(errCmd, maxIdx)
 			}
 			for _, v := range values[:maxIdx] {
 				if looksLikeFlag(v) {
-					return nil, missingPlaceholderError(errCmd, maxIdx)
+					return nil, false, missingPlaceholderError(errCmd, maxIdx)
 				}
 			}
 		}
@@ -171,7 +185,7 @@ func expandSnipArgs(errCmd *cobra.Command, savedTokens, leadingFlags, invokeArgs
 	for i, tok := range savedTokens {
 		expanded[i] = applyPlaceholders(tok, posArgs)
 	}
-	return mergeSnipArgSlices(expanded, leadingFlags, trailing), nil
+	return mergeSnipArgSlices(targetFs, expanded, leadingFlags, trailing), false, nil
 }
 
 func missingPlaceholderError(cmd *cobra.Command, maxIdx int) error {
@@ -182,20 +196,109 @@ func missingPlaceholderError(cmd *cobra.Command, maxIdx int) error {
 	return runtime.UsageError(cmd, runtime.WithUsageDetail(errors.New("missing snip arguments"), detail))
 }
 
-func mergeSnipArgSlices(saved, leadingFlags, trailing []string) []string {
-	out := make([]string, 0, len(saved)+len(leadingFlags)+len(trailing))
+func mergeSnipArgSlices(targetFs *pflag.FlagSet, saved, leadingFlags, trailing []string) []string {
+	var out []string
 	dashIdx := slices.Index(saved, "--")
 	if dashIdx >= 0 {
+		trailingFlags, trailingPos := splitTrailingForSavedDash(targetFs, trailing)
 		out = append(out, saved[:dashIdx]...)
 		out = append(out, leadingFlags...)
+		out = append(out, trailingFlags...)
 		out = append(out, saved[dashIdx:]...)
-		out = append(out, trailing...)
+		out = append(out, trailingPos...)
 		return out
 	}
 	out = append(out, saved...)
 	out = append(out, leadingFlags...)
 	out = append(out, trailing...)
 	return out
+}
+
+func splitTrailingForSavedDash(targetFs *pflag.FlagSet, trailing []string) (flagTokens, posTokens []string) {
+	for i := 0; i < len(trailing); i++ {
+		tok := trailing[i]
+		if tok == "--" {
+			posTokens = append(posTokens, trailing[i+1:]...)
+			return flagTokens, posTokens
+		}
+		if strings.HasPrefix(tok, "--") {
+			flagTokens = append(flagTokens, tok)
+			flagName, _, hasEq := strings.Cut(tok[2:], "=")
+			if !hasEq && targetFs != nil {
+				if f := targetFs.Lookup(flagName); f != nil && f.NoOptDefVal == "" && i+1 < len(trailing) {
+					flagTokens = append(flagTokens, trailing[i+1])
+					i++
+				}
+			}
+			continue
+		}
+		if looksLikeFlag(tok) {
+			flagTokens = append(flagTokens, tok)
+			if len(tok) == 2 && targetFs != nil {
+				if f := targetFs.ShorthandLookup(tok[1:2]); f != nil && f.NoOptDefVal == "" && i+1 < len(trailing) {
+					flagTokens = append(flagTokens, trailing[i+1])
+					i++
+				}
+			}
+			continue
+		}
+		posTokens = append(posTokens, tok)
+	}
+	return flagTokens, posTokens
+}
+
+func scanForHelpFlag(targetFs *pflag.FlagSet, args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return false
+		}
+		if arg == "--help" || arg == "-h" || arg == "--help=true" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--") {
+			flagName, val, hasEq := strings.Cut(arg[2:], "=")
+			if flagName == "help" {
+				if !hasEq || val == "true" {
+					return true
+				}
+				continue
+			}
+			if !hasEq && targetFs != nil {
+				if f := targetFs.Lookup(flagName); f != nil && f.NoOptDefVal == "" {
+					i++
+				}
+			}
+			continue
+		}
+		if looksLikeFlag(arg) {
+			if len(arg) == 2 {
+				if arg[1] == 'h' {
+					return true
+				}
+				if targetFs != nil {
+					if f := targetFs.ShorthandLookup(arg[1:2]); f != nil && f.NoOptDefVal == "" {
+						i++
+					}
+				}
+				continue
+			}
+			for j := 1; j < len(arg); j++ {
+				if arg[j] == '=' {
+					break
+				}
+				if arg[j] == 'h' {
+					return true
+				}
+				if targetFs != nil {
+					if f := targetFs.ShorthandLookup(arg[j : j+1]); f != nil && f.NoOptDefVal == "" {
+						break
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 func applyPlaceholders(tok string, args []string) string {
@@ -242,18 +345,6 @@ func substitutePlaceholders(tok string, resolve func(idx int) (string, bool)) st
 		b.WriteByte(tok[i])
 	}
 	return b.String()
-}
-
-func hasHelpFlag(args []string) bool {
-	for _, arg := range args {
-		if arg == "--" {
-			return false
-		}
-		if arg == "--help" || arg == "-h" || arg == "--help=true" {
-			return true
-		}
-	}
-	return false
 }
 
 func looksLikeFlag(arg string) bool {

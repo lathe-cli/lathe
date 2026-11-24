@@ -253,24 +253,29 @@ func writeTable(cols []string, rows []map[string]any, hints OutputHints, w io.Wr
 	for i, path := range cols {
 		alignments[i] = columnAlignment(path, hints.ColumnAlignments, hints.ColumnFormats)
 	}
-	cells := make([]cell, (len(rows)+1)*len(cols))
+	header := make([]cell, len(cols))
+	cells := make([][]cell, len(rows))
 	widths := make([]int, len(cols))
-	for row := range len(rows) + 1 {
+	for col, path := range cols {
+		text := columnHeader(path, hints.ColumnLabels)
+		width := uniseg.StringWidth(text)
+		header[col] = cell{text: text, width: width}
+		widths[col] = max(widths[col], width)
+	}
+	for row := range rows {
+		rowCells := make([]cell, len(cols))
 		for col, path := range cols {
-			value := &cells[row*len(cols)+col]
-			if row == 0 {
-				value.text = columnHeader(path, hints.ColumnLabels)
-			} else {
-				value.text = lookupPath(rows[row-1], path, hints.ColumnFormats)
-			}
-			value.width = uniseg.StringWidth(value.text)
-			widths[col] = max(widths[col], value.width)
+			text := lookupPath(rows[row], path, hints.ColumnFormats)
+			width := uniseg.StringWidth(text)
+			rowCells[col] = cell{text: text, width: width}
+			widths[col] = max(widths[col], width)
 		}
+		cells[row] = rowCells
 	}
 	var output strings.Builder
-	for row := range len(rows) + 1 {
+	appendRow := func(rowCells []cell) {
 		for col := range cols {
-			value := cells[row*len(cols)+col]
+			value := rowCells[col]
 			pad := widths[col] - value.width
 			if alignments[col] == "right" {
 				output.WriteString(strings.Repeat(" ", pad))
@@ -286,6 +291,10 @@ func writeTable(cols []string, rows []map[string]any, hints OutputHints, w io.Wr
 			}
 		}
 		output.WriteByte('\n')
+	}
+	appendRow(header)
+	for _, rowCells := range cells {
+		appendRow(rowCells)
 	}
 	_, err := io.WriteString(w, output.String())
 	return err
