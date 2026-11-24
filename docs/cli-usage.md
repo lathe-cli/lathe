@@ -264,6 +264,33 @@ Omitted parameter flags leave schema-source context fallback available; explicit
 values, including empty strings, zero, and false, override it. The catalog schema
 is unchanged.
 
+### Saved Snips
+
+Each generated CLI includes a personal `snip` command for frequent invocations.
+The CLI saves snips in `snips.yml` inside the same configuration directory as `hosts.yml` (`$<CLI>_CONFIG_DIR`, `$XDG_CONFIG_HOME/<cli-name>`, or `~/.config/<cli-name>`).
+You do not need `cli.yaml` changes or code regeneration.
+
+```sh
+bin/acmectl snip set active-users "users list --status active --limit 20" -d "Active users"
+bin/acmectl snip set get-user "users get --id $1"
+bin/acmectl snip list
+bin/acmectl snip active-users --limit 50 -o json
+bin/acmectl snip get-user usr_123 --dry-run
+bin/acmectl snip delete active-users
+```
+
+Use `$1`, `$2`, and higher contiguous numbers for values that change on each run.
+Write `$$` for a literal dollar sign before digits.
+When you run the snip, pass all placeholder values before flags.
+If a placeholder value starts with `-`, pass `--` before the values.
+Trailing flags override saved scalar flags and matching `--set` or `--set-str` paths.
+Repeated slice flags append values through standard flag parsing.
+
+A snip must target a runnable command in the same CLI.
+A snip cannot target `snip`, `help`, `completion`, or `__lathe`.
+Saved snips are local operator state and do not appear in `commands --json` or `search`.
+Regenerate the CLI Skill with `lathe codegen` so generated `SKILL.md` files include `snip` guidance for agents.
+
 ### Generated Skill
 
 ```yaml
@@ -870,8 +897,8 @@ Rules:
    path, or `-` when piping to another program.
 
 Framework commands such as `auth`, `commands`, `completion`, `search`,
-`skill`, `update`, and `__lathe` are documented by `--help`; generated API
-operations and workflows are documented by the runtime catalog.
+`skill`, `snip`, `update`, and `__lathe` use `--help` for documentation.
+Generated API operations and workflows appear in the runtime catalog.
 
 ## Examples
 

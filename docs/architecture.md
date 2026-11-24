@@ -87,7 +87,7 @@ workflows, then bundled capabilities in a stable order.
 | `internal/codegen/render` | codegen | Renders generated Go and Agent Skill files. |
 | `internal/projectinit` | codegen | Implements the `lathe init` starter contract and Git postconditions. |
 | `internal/latheskill` | distribution | Embeds Lathe's own Agent Skill. |
-| `pkg/config` | runtime | Loads the embedded manifest and persists per-host credentials and active contexts. |
+| `pkg/config` | runtime | Loads the embedded manifest and persists per-host credentials, active contexts, and saved command snips. |
 | `pkg/runtime` | runtime | Builds operation/workflow commands, catalog data, requests, auth, body handling, pagination, streaming, polling, output, and stable errors. |
 | `internal/auth` | runtime | Implements `auth login`, `logout`, `status`, and context commands. |
 | `pkg/lathe` | runtime | Provides the generated-CLI entrypoint, framework commands, version/update support, and `__lathe verify`. |

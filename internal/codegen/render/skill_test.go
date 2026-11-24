@@ -146,6 +146,10 @@ func TestRenderSkillDirectory_GeneratesSkillStructure(t *testing.T) {
 		"never into the conversation",
 		"acmectl __lathe verify --json",
 		"provenance",
+		"## Saved Snips",
+		"acmectl snip list -o json",
+		"acmectl snip set <name>",
+		"suggest saving a snip without credentials",
 	} {
 		testutil.Check(t, strings.Contains(skill, want), "SKILL.md missing %q", want)
 	}

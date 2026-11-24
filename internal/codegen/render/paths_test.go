@@ -27,6 +27,7 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		{"reserved search", "auto", 1, []runtime.CommandSpec{{Group: "Search", Use: "query"}}, false, ""},
 		{"normalized search", "auto", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}}, false, ""},
 		{"reserved skill", "auto", 1, []runtime.CommandSpec{{Group: "Skill", Use: "install-skill"}}, false, ""},
+		{"reserved snip", "auto", 1, []runtime.CommandSpec{{Group: "Snip", Use: "list-snips"}}, false, ""},
 		{"normalized groups", "auto", 1, duplicateGroups, false, ""},
 		{"flat search", "flat", 1, []runtime.CommandSpec{{Group: "Search", Use: "query"}}, false, "conflicts"},
 		{"flat normalized search", "flat", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}}, false, "conflicts"},
@@ -86,7 +87,7 @@ func TestRewriteCommandExamples_NormalizesMultiWordGroupPaths(t *testing.T) {
 
 func TestValidateModuleNames(t *testing.T) {
 	testutil.NoError(t, ValidateModuleNames([]string{"pets", "billing"}))
-	for _, reserved := range []string{"__lathe", "auth", "commands", "completion", "help", "login", "search", "skill", "update"} {
+	for _, reserved := range []string{"__lathe", "auth", "commands", "completion", "help", "login", "search", "skill", "snip", "update"} {
 		err := ValidateModuleNames([]string{"pets", reserved})
 		testutil.Require(t, err != nil && strings.Contains(err.Error(), "reserved root command"), "module name %q should be rejected, got %v", reserved, err)
 	}

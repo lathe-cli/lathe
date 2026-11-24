@@ -55,8 +55,9 @@ reserved for operations whose method cannot be determined. Consumers that
 previously treated `unknown` as dangerous now see `write` for the same
 operations: handle it the same way, the classification is just more precise.
 
-Framework commands such as `auth`, `commands`, `search`, `skill`, `update`, and
-`__lathe` are discovered through `--help`; they are not operation entries.
+Framework commands such as `auth`, `commands`, `search`, `skill`, `snip`,
+`update`, and `__lathe` use `--help` for discovery. They are not operation
+entries.
 `catalog.cli.capabilities` reports compiled first-party capabilities such as
 `skill.bundle` and `workflow.dsl`.
 
