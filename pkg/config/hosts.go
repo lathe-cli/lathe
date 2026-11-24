@@ -153,6 +153,19 @@ func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
 	if err != nil {
 		return err
 	}
+	return withFileLock(ctx, p, func() error {
+		h, err := loadHostsPath(p)
+		if err != nil {
+			return err
+		}
+		if err := mutate(h); err != nil {
+			return err
+		}
+		return h.saveAtomic()
+	})
+}
+
+func withFileLock(ctx context.Context, p string, fn func() error) error {
 	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -169,15 +182,7 @@ func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
 		return fmt.Errorf("lock %s: unavailable", p)
 	}
 	defer func() { _ = fileLock.Unlock() }()
-
-	h, err := loadHostsPath(p)
-	if err != nil {
-		return err
-	}
-	if err := mutate(h); err != nil {
-		return err
-	}
-	return h.saveAtomic()
+	return fn()
 }
 
 func (h *Hosts) saveAtomic() error {

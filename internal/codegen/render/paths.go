@@ -166,6 +166,7 @@ var reservedRootCommands = map[string]bool{
 	"login":      true,
 	"search":     true,
 	"skill":      true,
+	"snip":       true,
 	"update":     true,
 }
 

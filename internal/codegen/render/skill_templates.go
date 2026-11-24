@@ -41,6 +41,13 @@ func renderSkillMD(manifest *config.Manifest, refs []moduleRef) string {
 	if len(manifest.Contexts) > 0 {
 		fmt.Fprintf(&b, "- `%s auth context status -o json`: effective account-scoped context values for the selected host.\n\n", cli)
 	}
+	b.WriteString("## Saved Snips\n\n")
+	b.WriteString("Personal command snips store frequent invocations in `snips.yml` inside the CLI configuration directory. ")
+	fmt.Fprintf(&b, "List saved snips with `%s snip list -o json` and run one with `%s snip <name> [args...]`. ", cli, cli)
+	fmt.Fprintf(&b, "Save one with `%s snip set <name> \"<command>\" -d \"<note>\"`, or remove one with `%s snip delete <name>`. ", cli, cli)
+	b.WriteString("Use `$1`, `$2`, and higher contiguous placeholders for values that change on each run.\n\n")
+	b.WriteString("If the user repeats the same command pattern or asks for a shortcut, suggest saving a snip without credentials. ")
+	b.WriteString("Before you run an unfamiliar snip, read its command from `snip list -o json` and follow the `commands show` rules.\n\n")
 	b.WriteString("## Maintenance Commands\n\n")
 	fmt.Fprintf(&b, "- `%s --version` or `%s -v`: print CLI build version.\n", cli, cli)
 	fmt.Fprintf(&b, "- `%s __lathe verify --json`: verify the compiled contract and read `provenance` (schema versions and per-source revision; `reproducible=false` marks local sources). The binary's report wins over this Skill.\n", cli)

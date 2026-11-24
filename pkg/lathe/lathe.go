@@ -69,6 +69,7 @@ func NewApp(m *config.Manifest) *cobra.Command {
 	cmd.AddCommand(auth.NewHiddenLoginCommand(m))
 	cmd.AddCommand(commandsCmd(m))
 	cmd.AddCommand(searchCmd(m))
+	cmd.AddCommand(snipCmd(m))
 	if m.Update.GitHub != nil {
 		cmd.AddCommand(updateCmd(m))
 	}
