@@ -44,6 +44,25 @@ func TestRunWithOutputs_VersionUsesStdout(t *testing.T) {
 	}
 }
 
+func TestRunWithOutputs_VersionFlagsMatchVersionCommand(t *testing.T) {
+	var baseStdout bytes.Buffer
+	var baseStderr bytes.Buffer
+	testutil.NoError(t, runWithOutputs([]string{"version"}, &baseStdout, &baseStderr))
+	want := baseStdout.String()
+	testutil.Require(t, strings.HasPrefix(want, "lathe "), "unexpected stdout: %q", want)
+	testutil.Require(t, baseStderr.String() == "", "stderr should be empty, got %q", baseStderr.String())
+
+	for _, flagArg := range []string{"--version", "-v"} {
+		t.Run(flagArg, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			testutil.NoError(t, runWithOutputs([]string{flagArg}, &stdout, &stderr))
+			testutil.Require(t, stdout.String() == want, "%s output = %q, want %q", flagArg, stdout.String(), want)
+			testutil.Require(t, stderr.String() == "", "%s stderr = %q, want empty", flagArg, stderr.String())
+		})
+	}
+}
+
 func TestRunWithOutput_SubcommandHelp(t *testing.T) {
 	for _, tc := range []struct {
 		command string
