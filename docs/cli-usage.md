@@ -13,7 +13,7 @@ compatibility belongs in [Machine contracts](contracts.md).
 | `lathe specsync` | Stage declared API specs and record sync state. |
 | `lathe codegen` | Generate Go command packages and optional Skill output. |
 | `lathe bootstrap` | Run `specsync` and `codegen` in sequence. |
-| `lathe version` | Print generator version metadata. |
+| `lathe version`, `--version`, `-v` | Print generator version metadata. |
 
 Use `lathe <command> --help` for the current flags. Application initialization
 has a separate [starter contract and maintenance guide](lathe-init-design.md).

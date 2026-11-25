@@ -8,13 +8,42 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_REF: refs/tags/${{ github.ref_name }}
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify SemVer release tag
+        id: semver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[1-9][0-9]*)?$ ]]; then
+            echo "::error::Invalid SemVer release tag: $RELEASE_TAG"
+            exit 1
+          fi
+          if [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "is_stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v7
         with:
+          ref: ${{ env.RELEASE_REF }}
           fetch-depth: 0
+
+      - name: Verify release tag commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]]; then
+            echo "::error::Checked out commit does not match tag $RELEASE_TAG"
+            exit 1
+          fi
 
       - uses: actions/setup-go@v7
         with:
@@ -30,3 +59,26 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dispatch Homebrew tap update
+        if: ${{ success() && steps.semver.outputs.is_stable == 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_PAT || secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Skipping Homebrew dispatch for non-stable tag: $RELEASE_TAG"
+            exit 0
+          fi
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::Missing HOMEBREW_TAP_PAT or GH_PAT secret for lathe-cli/homebrew-lathe dispatch"
+            exit 1
+          fi
+          jq -n \
+            --arg event_type "homebrew-package-release" \
+            --arg package "lathe" \
+            --arg version "${RELEASE_TAG#v}" \
+            --arg tag "${RELEASE_TAG}" \
+            '{event_type: $event_type, client_payload: {package: $package, version: $version, tag: $tag}}' |
+            gh api repos/lathe-cli/homebrew-lathe/dispatches --method POST --input -

@@ -40,7 +40,7 @@ func runWithOutputs(args []string, stdout io.Writer, stderr io.Writer) error {
 		return RunInit(args[1:], stdout, stderr)
 	case "skill":
 		return RunSkill(args[1:], stdout, stderr)
-	case "version":
+	case "version", "--version", "-v":
 		version, commit, date := lathe.VersionInfo()
 		fmt.Fprintf(stdout, "lathe %s (%s, %s)\n", version, commit, date)
 		return nil
@@ -124,6 +124,10 @@ Commands:
   lathe codegen    Generate runtime command specs and optional Skill files
   lathe bootstrap  Sync specs and generate code in one pass
   lathe version    Print version information
+
+Flags:
+  -h, --help       Print help information
+  -v, --version    Print version information
 
 Run "lathe <command> -h" for command-specific flags.
 `)
