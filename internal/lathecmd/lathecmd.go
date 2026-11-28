@@ -120,10 +120,10 @@ func printRootUsage(output io.Writer) {
 Commands:
   lathe init        Create a CLI-first application repository
   lathe skill       Manage the bundled Lathe Agent Skill
-  lathe specsync   Sync pinned upstream API specs into the local cache
-  lathe codegen    Generate runtime command specs and optional Skill files
-  lathe bootstrap  Sync specs and generate code in one pass
-  lathe version    Print version information
+  lathe specsync    Sync pinned upstream API specs into the local cache
+  lathe codegen     Generate runtime command specs and optional Skill files
+  lathe bootstrap   Sync specs and generate code in one pass
+  lathe version     Print version information
 
 Flags:
   -h, --help       Print help information
