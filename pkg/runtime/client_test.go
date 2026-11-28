@@ -268,3 +268,26 @@ func TestDoRawFull_StreamCancellationClosesResponse(t *testing.T) {
 		t.Fatal("stream call did not return after cancellation")
 	}
 }
+
+func TestBaseURLValidation(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"HTTPS://API.Example.COM:443/V1/", "https://api.example.com/V1"},
+		{"HTTP://API.Example.COM:80/V1/", "http://api.example.com/V1"},
+		{"https://[::1]:443/V1", "https://[::1]/V1"},
+		{"https://example.com?x=1", ""}, {"https://example.com?", ""},
+		{"https://example.com#fragment", ""}, {"https://example.com#", ""},
+		{"https://user:password@example.com", ""}, {"ftp://example.com", ""},
+		{"https:///path", ""}, {"https://example.com:99999", ""},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := BaseURL(tc.input)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("accepted invalid URL %q", got)
+				}
+			} else if err != nil || got != tc.want {
+				t.Fatalf("got %q, err=%v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}

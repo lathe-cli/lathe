@@ -202,3 +202,29 @@ func TestBuildWorkflows_CompositeOutputNullsSkippedStep(t *testing.T) {
 	testutil.Require(t, result["events"] != nil, "events should not be nil")
 	testutil.Require(t, result["neighbors"] == nil, "neighbors should be null, got %v", result["neighbors"])
 }
+
+func TestWorkflowInterpolationTrailingBrace(t *testing.T) {
+	isolateRuntime(t)
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query().Get("id")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	operation := CommandSpec{
+		Method: "GET", PathTpl: "/items", Security: &SecurityHint{Public: true},
+		Params: []ParamSpec{{Name: "id", Flag: "id", In: InQuery, GoType: "string"}},
+	}
+	workflow := WorkflowSpec{
+		Use:    "fetch",
+		Params: []ParamSpec{{Name: "id", Flag: "id", In: InInput, GoType: "string"}},
+		Steps:  []WorkflowStepSpec{{ID: "fetch", Operation: operation, Params: map[string]string{"id": "${input.id}-suffix}"}}},
+	}
+	root := newWorkflowRoot(io.Discard)
+	testutil.NoError(t, BuildWorkflows(root, []WorkflowSpec{workflow}))
+	root.SetArgs([]string{"--hostname", srv.URL, "fetch", "--id", "42"})
+	testutil.NoError(t, root.Execute())
+	if got != "42-suffix}" {
+		t.Fatalf("query id=%q", got)
+	}
+}

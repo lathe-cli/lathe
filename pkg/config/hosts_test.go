@@ -38,3 +38,22 @@ func TestHostsRoundTripOAuthLoginFields(t *testing.T) {
 		t.Fatalf("Selected = %q, want the last selection to be the only one", got)
 	}
 }
+
+func TestNormalizeHostnameURLValidation(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"HTTPS://API.Example.COM:443/V1/", "api.example.com/V1"},
+		{"HTTP://API.Example.COM:80/V1/", "http://api.example.com/V1"},
+		{"API.Example.COM:443/V1", "api.example.com/V1"},
+		{"https://[::1]:443/V1", "[::1]/V1"},
+		{"https://example.com?x=1", ""}, {"https://example.com?", ""},
+		{"https://example.com#fragment", ""}, {"https://example.com#", ""},
+		{"https://user:password@example.com", ""}, {"ftp://example.com", ""},
+		{"https:///path", ""}, {"https://example.com:99999", ""},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := NormalizeHostname(tc.input); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

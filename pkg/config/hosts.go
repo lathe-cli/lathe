@@ -3,9 +3,12 @@ package config
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,14 +16,49 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// https is the default and is stripped; http is an explicit downgrade and
-// is preserved so downstream BaseURL honors it.
 func NormalizeHostname(s string) string {
-	h := strings.TrimRight(strings.TrimSpace(s), "/")
-	if strings.HasPrefix(h, "http://") {
-		return h
+	h := strings.TrimSpace(s)
+	if h == "" || strings.ContainsAny(h, "?#") {
+		return ""
 	}
-	return strings.TrimPrefix(h, "https://")
+	if !strings.Contains(h, "://") {
+		h = "https://" + h
+	}
+	u, err := url.Parse(h)
+	if err != nil || u.User != nil || u.Opaque != "" || u.Hostname() == "" {
+		return ""
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if strings.Contains(host, ":") {
+		if net.ParseIP(host) == nil {
+			return ""
+		}
+		host = "[" + host + "]"
+	}
+	port := u.Port()
+	if strings.HasSuffix(u.Host, ":") {
+		return ""
+	}
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return ""
+		}
+		port = strconv.Itoa(n)
+	}
+	if port != "" && (u.Scheme != "https" || port != "443") && (u.Scheme != "http" || port != "80") {
+		host += ":" + port
+	}
+	u.Host = host
+	out := strings.TrimRight(u.String(), "/")
+	if u.Scheme == "https" {
+		return strings.TrimPrefix(out, "https://")
+	}
+	return out
 }
 
 type HostEntry struct {

@@ -3,10 +3,11 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -122,6 +123,31 @@ func validateOperationInput(s CommandSpec, input OperationInput) error {
 	if err != nil {
 		return err
 	}
+	if form, multipart := body.(multipartForm); multipart {
+		for _, paths := range form.Files {
+			for _, path := range paths {
+				if path == "-" {
+					continue
+				}
+				file, err := os.Open(path)
+				if err != nil {
+					return fmt.Errorf("read multipart file %q: %w", path, err)
+				}
+				info, statErr := file.Stat()
+				closeErr := file.Close()
+				if statErr != nil {
+					return fmt.Errorf("read multipart file %q: %w", path, statErr)
+				}
+				if info.IsDir() {
+					return fmt.Errorf("read multipart file %q: path is a directory", path)
+				}
+				if closeErr != nil {
+					return fmt.Errorf("read multipart file %q: %w", path, closeErr)
+				}
+			}
+		}
+		return nil
+	}
 	_, _, err = encodeRequestBody(body)
 	return err
 }
@@ -152,7 +178,11 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 		switch p.In {
 		case InPath:
 			if present {
-				path = strings.Replace(path, "{"+p.Name+"}", pathParamValue(p, v), 1)
+				value, err := pathParamValue(p, v)
+				if err != nil {
+					return "", nil, ClientOptions{}, err
+				}
+				path = strings.Replace(path, "{"+p.Name+"}", value, 1)
 			}
 		case InHeader:
 			hdrs[p.Name] = operationStringValue(v)
@@ -179,7 +209,11 @@ func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts Cli
 				}
 				clientOpts.sensitiveQueryParams[strings.ToLower(p.Name)] = true
 			}
-			pairs = append(pairs, queryParamPairs(p, v)...)
+			paramPairs, err := queryParamPairs(p, v)
+			if err != nil {
+				return "", nil, ClientOptions{}, err
+			}
+			pairs = append(pairs, paramPairs...)
 		}
 	}
 	if len(cookies) > 0 {
@@ -247,8 +281,14 @@ var reservedQueryReplacer = strings.NewReplacer(
 	"%3B", ";",
 )
 
-func pathParamValue(p ParamSpec, v any) string {
+func pathParamValue(p ParamSpec, v any) (string, error) {
+	if p.Style != "" && p.Style != "simple" && p.Style != "label" && p.Style != "matrix" {
+		return "", fmt.Errorf("unsupported path style %q for parameter %q", p.Style, p.Name)
+	}
 	items := pathParamItems(v)
+	if len(items) == 0 {
+		return "", fmt.Errorf("path parameter %q requires a nonempty value", p.Name)
+	}
 	escaped := make([]string, len(items))
 	for i, item := range items {
 		escaped[i] = url.PathEscape(item)
@@ -259,22 +299,22 @@ func pathParamValue(p ParamSpec, v any) string {
 		if p.Explode {
 			sep = "."
 		}
-		return "." + strings.Join(escaped, sep)
+		return "." + strings.Join(escaped, sep), nil
 	case "matrix":
 		prefix := ";" + url.PathEscape(p.Name) + "="
 		if p.Explode {
-			return prefix + strings.Join(escaped, prefix)
+			return prefix + strings.Join(escaped, prefix), nil
 		}
-		return prefix + strings.Join(escaped, ",")
+		return prefix + strings.Join(escaped, ","), nil
 	default:
-		return strings.Join(escaped, ",")
+		return strings.Join(escaped, ","), nil
 	}
 }
 
 func pathParamItems(v any) []string {
-	switch tv := v.(type) {
-	case []string:
-		return tv
+	switch v.(type) {
+	case []string, []int64, []float64, []bool:
+		return operationStringValues(v)
 	default:
 		return []string{operationStringValue(v)}
 	}
@@ -295,18 +335,19 @@ func queryEscape(p ParamSpec, value string) string {
 	return url.QueryEscape(value)
 }
 
-func queryParamPairs(p ParamSpec, v any) []queryPair {
-	switch tv := v.(type) {
-	case []string:
-		return queryArrayPairs(p, tv)
-	case int64:
-		return []queryPair{{key: p.Name, raw: queryEscape(p, strconv.FormatInt(tv, 10))}}
-	case bool:
-		return []queryPair{{key: p.Name, raw: queryEscape(p, strconv.FormatBool(tv))}}
-	case string:
-		return []queryPair{{key: p.Name, raw: queryEscape(p, tv)}}
+func queryParamPairs(p ParamSpec, v any) ([]queryPair, error) {
+	if p.Style != "" {
+		if _, ok := queryDelimiters[p.Style]; !ok {
+			return nil, fmt.Errorf("unsupported query style %q for parameter %q", p.Style, p.Name)
+		}
+	}
+	switch v.(type) {
+	case []string, []int64, []float64, []bool:
+		return queryArrayPairs(p, operationStringValues(v)), nil
+	case int64, float64, bool, string:
+		return []queryPair{{key: p.Name, raw: queryEscape(p, operationStringValue(v))}}, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unsupported query value for parameter %q", p.Name)
 	}
 }
 

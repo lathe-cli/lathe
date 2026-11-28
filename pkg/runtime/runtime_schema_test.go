@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
-	"github.com/lathe-cli/lathe/pkg/config"
-
 	"github.com/lathe-cli/lathe/internal/testutil"
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 func TestBuild_RuntimeSchemaContextFallback(t *testing.T) {
@@ -245,5 +245,26 @@ func TestInvokeOperation_RuntimeSchemaDoesNotLoadExternalRefs(t *testing.T) {
 	}
 	if externalHits.Load() != 0 || targetHits.Load() != 0 {
 		t.Fatalf("hits = external:%d target:%d", externalHits.Load(), targetHits.Load())
+	}
+}
+
+func TestRuntimeSchemaUsageDetail(t *testing.T) {
+	for _, tc := range []struct{ schema, body, keyword string }{
+		{`{"type":"object","required":["count"]}`, `{}`, "required"},
+		{`{"type":"object","properties":{"token":{"enum":["allowed"]}}}`, `{"token":"private-body-value"}`, "enum"},
+	} {
+		t.Run(tc.keyword, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tc.schema)) }))
+			defer srv.Close()
+			target := CommandSpec{Method: "POST", PathTpl: "/run", Security: &SecurityHint{Public: true}, RequestBody: &RequestBody{MediaType: "application/json", RuntimeSchema: &RuntimeSchemaSpec{Operation: CommandSpec{Method: "GET", PathTpl: "/schema", Security: &SecurityHint{Public: true}}}}}
+			_, err := InvokeOperation(t.Context(), target, OperationInput{HasFile: true, FileBody: []byte(tc.body)}, OperationOptions{Hostname: srv.URL})
+			if err == nil {
+				t.Fatal("expected schema rejection")
+			}
+			classified := ClassifyError(err)
+			if classified.Code != CodeUsage || !strings.Contains(classified.Detail, tc.keyword) || strings.Contains(classified.Detail, "private-body-value") {
+				t.Fatalf("code=%q detail=%q", classified.Code, classified.Detail)
+			}
+		})
 	}
 }

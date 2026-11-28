@@ -45,8 +45,12 @@ func evalWorkflowConditions(conditions []WorkflowCondition, state workflowState)
 			return false, err
 		}
 		matched := slices.Contains(cond.Values, actual)
-		if cond.Operator == "notin" {
+		switch cond.Operator {
+		case "in":
+		case "notin":
 			matched = !matched
+		default:
+			return false, fmt.Errorf("unsupported workflow condition operator %q", cond.Operator)
 		}
 		if !matched {
 			return false, nil
@@ -147,7 +151,7 @@ func evalWorkflowString(expr string, state workflowState, mode workflowExpressio
 
 func evalWorkflowValue(expr string, state workflowState, mode workflowExpressionMode) (any, error) {
 	trimmed := strings.TrimSpace(expr)
-	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") && strings.Count(trimmed, "${") == 1 {
+	if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") && strings.IndexByte(trimmed, '}') == len(trimmed)-1 {
 		return workflowRefValue(strings.TrimSpace(trimmed[2:len(trimmed)-1]), state)
 	}
 	return evalWorkflowString(expr, state, mode)

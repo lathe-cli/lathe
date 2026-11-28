@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -139,11 +140,20 @@ func runtimeSchemaReference(value string) (string, bool) {
 }
 
 func runtimeSchemaUsageError(cause error) error {
-	return NewError(
+	err := NewError(
 		CodeUsage,
 		ExitUsage,
 		"request body does not match the runtime schema",
 		"inspect the command schema and correct the request body",
 		cause,
 	)
+	err.Detail = "runtime schema validation failed; inspect the schema source and request body"
+	var validation *jsonschema.ValidationError
+	if errors.As(cause, &validation) {
+		for len(validation.Causes) > 0 {
+			validation = validation.Causes[0]
+		}
+		err.Detail = sanitizeErrorDetail("runtime schema constraint failed: " + strings.Join(validation.ErrorKind.KeywordPath(), "/"))
+	}
+	return err
 }
