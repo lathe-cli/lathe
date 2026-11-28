@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -121,7 +122,10 @@ func rejectBodyFlagSetConflict(path string, flagFields map[string]ParamSpec, set
 	if len(flagFields) == 0 {
 		return nil
 	}
-	segs := parsePath(path)
+	segs, err := parsePath(path)
+	if err != nil {
+		return err
+	}
 	if len(segs) == 0 {
 		return nil
 	}
@@ -202,34 +206,46 @@ func parseSet(kv string, flag string) (string, string, error) {
 
 type pathSegment struct {
 	key string
-	idx int // -1 = object field, >=0 = array index within key
+	idx int
 }
 
-func parsePath(path string) []pathSegment {
+func parsePath(path string) ([]pathSegment, error) {
 	parts := strings.Split(path, ".")
 	segs := make([]pathSegment, 0, len(parts))
 	for _, p := range parts {
 		if open := strings.Index(p, "["); open >= 0 && strings.HasSuffix(p, "]") {
 			key := p[:open]
-			if idx, err := strconv.Atoi(p[open+1 : len(p)-1]); err == nil {
+			index := p[open+1 : len(p)-1]
+			if strings.HasPrefix(index, "-") {
+				return nil, bodyUsageDetail("array index must be non-negative")
+			}
+			if idx, err := strconv.Atoi(index); err == nil {
 				segs = append(segs, pathSegment{key: key, idx: idx})
 				continue
 			}
 		}
 		segs = append(segs, pathSegment{key: p, idx: -1})
 	}
-	return segs
+	return segs, nil
 }
 
 func setNestedPath(m map[string]any, path string, v any) error {
-	return setNestedSegs(m, parsePath(path), v)
+	segs, err := parsePath(path)
+	if err != nil {
+		return err
+	}
+	return setNestedSegs(m, segs, v)
 }
 
 func getNestedPath(v any, path string) (any, bool) {
 	if path == "" {
 		return v, true
 	}
-	return getNestedSegs(v, parsePath(path))
+	segs, err := parsePath(path)
+	if err != nil {
+		return nil, false
+	}
+	return getNestedSegs(v, segs)
 }
 
 func getNestedSegs(v any, segs []pathSegment) (any, bool) {
@@ -256,6 +272,8 @@ func getNestedSegs(v any, segs []pathSegment) (any, bool) {
 	return getNestedSegs(next, rest)
 }
 
+const maxBodyArrayIndex = 9999
+
 func setNestedSegs(m map[string]any, segs []pathSegment, v any) error {
 	if len(segs) == 0 {
 		return nil
@@ -278,6 +296,10 @@ func setNestedSegs(m map[string]any, segs []pathSegment, v any) error {
 		default:
 			return bodyPathConflictError()
 		}
+	}
+
+	if seg.idx > maxBodyArrayIndex {
+		return bodyUsageDetail("array index exceeds maximum %[4]d", maxBodyArrayIndex)
 	}
 
 	var arr []any
@@ -324,13 +346,16 @@ func inferValue(s string) any {
 	case "[]":
 		return []any{}
 	}
+	if strings.Contains(s, "_") {
+		return s
+	}
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
 	}
 	if u, err := strconv.ParseUint(s, 10, 64); err == nil {
 		return u
 	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
+	if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
 		return f
 	}
 	return s

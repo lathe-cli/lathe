@@ -43,7 +43,7 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 	if err != nil {
 		return nil, err
 	}
-	if hasJSONBodyFlags(s.Params) && input.HasFile && (hasSets || len(flagFields) > 0) {
+	if input.HasFile && (hasSets || len(flagFields) > 0) {
 		return nil, bodyUsageDetail("--%[1]s cannot be combined with --%[2]s, --%[3]s, or body flags")
 	}
 	if len(flagFields) > 0 || (hasJSONBodyFlags(s.Params) && hasSets) {

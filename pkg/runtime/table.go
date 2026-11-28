@@ -28,13 +28,7 @@ var PreferredColumns = []string{
 const maxColumns = 6
 
 func renderTable(data []byte, w io.Writer, hints OutputHints) error {
-	var v any
-	var err error
-	if len(hints.ColumnFormats) == 0 {
-		err = json.Unmarshal(data, &v)
-	} else {
-		v, err = decodeNumberPreserving(data)
-	}
+	v, err := decodeNumberPreserving(data)
 	if err != nil {
 		_, werr := w.Write(data)
 		return werr
@@ -227,11 +221,7 @@ func stringify(v any) string {
 	case nil:
 		return ""
 	case json.Number:
-		value, err := x.Float64()
-		if err != nil {
-			return x.String()
-		}
-		return stringify(value)
+		return x.String()
 	case float64:
 		if x == float64(int64(x)) {
 			return fmt.Sprintf("%d", int64(x))

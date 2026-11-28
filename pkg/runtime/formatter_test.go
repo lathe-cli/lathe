@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
@@ -266,4 +267,22 @@ func TestFormatterNames(t *testing.T) {
 	for i := range want {
 		testutil.Require(t, got[i] == want[i], "got %v, want %v", got, want)
 	}
+}
+
+func TestRegisterFormatter_ConcurrentAccess(t *testing.T) {
+	const name = "concurrent-test"
+	defer func() { formattersMu.Lock(); defer formattersMu.Unlock(); delete(formatters, name) }()
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 100 {
+				RegisterFormatter(name, rawFormatter{})
+				if err := FormatOutput([]byte("value"), name, io.Discard, OutputHints{}); err != nil {
+					t.Error(err)
+				}
+				FormatterNames()
+			}
+		})
+	}
+	wg.Wait()
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -148,5 +149,34 @@ func TestReadSSE_StreamBoundaries(t *testing.T) {
 			})
 			testutil.Require(t, err == nil && reflect.DeepEqual(got, tc.want), "events = %#v, want %#v; error = %v", got, tc.want, err)
 		})
+	}
+}
+
+func TestReadSSE_RejectsOversizedLines(t *testing.T) {
+	for i, input := range []string{
+		":" + strings.Repeat("x", 1<<20) + "\n\n",
+		"data: " + strings.Repeat("x", 1<<20) + "\n\n",
+	} {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			calls := 0
+			err := readSSE(strings.NewReader(input), func(string, []byte) error { calls++; return nil })
+			if err == nil || calls != 0 {
+				t.Fatalf("oversized event: error=%v, dispatched=%d", err, calls)
+			}
+		})
+	}
+}
+
+func TestCollectStream_NestedErrorMessage(t *testing.T) {
+	hint := &StreamingHint{Strategy: "sse", Policy: &StreamPolicy{
+		DataFormat: "json", Collect: &StreamCollectHint{ErrorEvents: []string{"failed"}},
+	}}
+	outcome := OperationOutcomeCompleted
+	_, err := collectStream(strings.NewReader("event: failed\ndata: {\"error\":{\"message\":\"quota exhausted\"}}\n\n"), hint, nil, &outcome)
+	if err == nil || !strings.Contains(err.Error(), "quota exhausted") {
+		t.Fatalf("nested API error was lost: %v", err)
+	}
+	if classified := ClassifyError(err); classified == nil || classified.ExitCode != ExitAPIError {
+		t.Fatalf("nested API error classification: %#v", classified)
 	}
 }
