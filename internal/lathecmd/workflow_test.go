@@ -106,15 +106,23 @@ func conditionTestModules() []app.Module {
 	}}
 }
 
-func TestBuildWorkflowSpecsRejectsReservedInputFlags(t *testing.T) {
-	for _, flag := range []string{"output", "hostname", "insecure", "debug", "help"} {
-		t.Run(flag, func(t *testing.T) {
-			manifest := workflowManifestWithSteps([]config.WorkflowStep{{ID: "get", Uses: "console.Apps_Get"}})
-			manifest.Workflow.Commands[0].Inputs[0].Flag = flag
-			_, err := buildWorkflowSpecs(manifest, conditionTestModules(), nil)
-			if err == nil || !strings.Contains(err.Error(), "flag") {
-				t.Fatalf("expected reserved flag error, got %v", err)
-			}
-		})
+func TestBuildWorkflowSpecsRejectsDerivedInputFlagCollision(t *testing.T) {
+	manifest, err := config.Load([]byte(`cli:
+  name: console
+workflow:
+  version: 1
+  commands:
+    - use: deploy
+      inputs:
+        - name: api_key
+        - name: api-key-file
+      steps:
+        - id: get
+          uses: console.Apps_Get
+`))
+	testutil.NoError(t, err)
+	_, err = buildWorkflowSpecs(manifest, conditionTestModules(), nil)
+	if err == nil {
+		t.Fatal("expected derived input flag collision error")
 	}
 }
