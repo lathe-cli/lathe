@@ -45,6 +45,7 @@ func NormalizeWithWarnings(mod *rawir.RawModule) ([]runtime.CommandSpec, []FlagR
 				spec.Params = append(spec.Params, parameter(pp))
 			}
 		}
+		disambiguatePathParamFlags(spec.Params)
 		disambiguateCookieParamFlags(spec.Params)
 		if op.RequestBody != nil {
 			spec.RequestBody = &runtime.RequestBody{

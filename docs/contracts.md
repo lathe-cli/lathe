@@ -240,8 +240,8 @@ without regeneration.
 ## Structured errors
 
 `pkg/runtime/errors.go` defines machine-readable errors and exit codes. JSON
-and YAML errors contain `code`, `message`, and `hint`; `error.http` may contain
-only a numeric status. URLs, headers, bodies, credentials, and raw transport
+and YAML errors contain `code`, `message`, and `hint`; `error.http` includes at least the numeric HTTP
+status. URLs, headers, bodies, credentials, and raw transport
 errors are excluded.
 
 `error.detail` is optional. For `usage`, it describes local arguments and paths

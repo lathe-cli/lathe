@@ -14,7 +14,7 @@ func (g *generator) variableParamsForArg(arg *ast.ArgumentDefinition, defaults m
 		return []rawir.RawParameter{{
 			Name:        arg.Name,
 			In:          "variable",
-			Required:    arg.Type.NonNull,
+			Required:    arg.Type.NonNull && arg.DefaultValue == nil,
 			Type:        rawType(arg.Type),
 			Description: arg.Description,
 			Enum:        enumValues(arg.Type, def),

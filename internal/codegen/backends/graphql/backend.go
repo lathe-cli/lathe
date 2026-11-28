@@ -85,7 +85,11 @@ func (g *generator) operation(opType string, field *ast.FieldDefinition) (rawir.
 	variableDefaults := map[string]any{}
 	variablesSchema := &rawir.RawSchema{Type: "object", Properties: map[string]*rawir.RawSchema{}}
 	for _, arg := range field.Arguments {
-		varDefs = append(varDefs, "$"+arg.Name+": "+arg.Type.String())
+		definition := "$" + arg.Name + ": " + arg.Type.String()
+		if arg.DefaultValue != nil {
+			definition += " = " + arg.DefaultValue.String()
+		}
+		varDefs = append(varDefs, definition)
 		argList = append(argList, arg.Name+": $"+arg.Name)
 		argSchema := g.variableSchema(arg.Type, map[string]bool{})
 		if argSchema != nil {

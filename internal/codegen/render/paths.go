@@ -85,8 +85,13 @@ func validateCommandPaths(specs []runtime.CommandSpec) error {
 		index int
 	}
 	seen := map[string]commandName{}
+	groups := map[string]string{}
 	for specIndex, spec := range specs {
 		group := rootCommandName(spec.Group)
+		if previous, ok := groups[group]; ok && previous != spec.Group {
+			return fmt.Errorf("group %q conflicts with group %q at generated path %q", spec.Group, previous, group)
+		}
+		groups[group] = spec.Group
 		use := commandUseName(spec.Use)
 		if group == "" || use == "" {
 			return fmt.Errorf("command %q has empty generated path", commandIdentity(spec))
