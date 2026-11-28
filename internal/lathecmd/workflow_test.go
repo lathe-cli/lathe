@@ -105,3 +105,16 @@ func conditionTestModules() []app.Module {
 		}},
 	}}
 }
+
+func TestBuildWorkflowSpecsRejectsReservedInputFlags(t *testing.T) {
+	for _, flag := range []string{"output", "hostname", "insecure", "debug", "help"} {
+		t.Run(flag, func(t *testing.T) {
+			manifest := workflowManifestWithSteps([]config.WorkflowStep{{ID: "get", Uses: "console.Apps_Get"}})
+			manifest.Workflow.Commands[0].Inputs[0].Flag = flag
+			_, err := buildWorkflowSpecs(manifest, conditionTestModules(), nil)
+			if err == nil || !strings.Contains(err.Error(), "flag") {
+				t.Fatalf("expected reserved flag error, got %v", err)
+			}
+		})
+	}
+}

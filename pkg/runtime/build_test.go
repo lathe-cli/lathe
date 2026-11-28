@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -316,4 +317,58 @@ func TestBuild_MixedVisibilityGroup(t *testing.T) {
 	})
 	service := mustFindChild(t, root, "demo")
 	testutil.Require(t, !service.Hidden && !mustFindChild(t, service, "identity").Hidden, "mixed group or service was hidden")
+}
+
+func TestBuildRejectsGlobalParamFlags(t *testing.T) {
+	for mountName, mount := range map[string]func(*cobra.Command, string, []CommandSpec) error{"nested": Build, "flat": BuildFlat} {
+		for _, flag := range []string{"output", "hostname", "insecure", "debug", "help", "custom", "custom-file"} {
+			for _, alias := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/alias=%t", mountName, flag, alias), func(t *testing.T) {
+					root := newExecutionRoot("json")
+					parent := &cobra.Command{Use: "parent"}
+					parent.PersistentFlags().String("custom", "", "")
+					parent.PersistentFlags().String("custom-file", "", "")
+					parent.AddCommand(root)
+					param := ParamSpec{Name: "value", Flag: flag, GoType: "string"}
+					if alias {
+						param.Flag = "value"
+						param.Aliases = []string{flag}
+					}
+					err := mount(root, "demo", []CommandSpec{{Group: "Users", Use: "get", Params: []ParamSpec{param}}})
+					if err == nil || !strings.Contains(err.Error(), "flag") {
+						t.Fatalf("expected flag collision error, got %v", err)
+					}
+					if len(root.Commands()) != 0 {
+						t.Fatal("invalid commands were mounted")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestBuildRejectsCaseCollidingGroups(t *testing.T) {
+	root := newRootWithModuleGroup()
+	err := Build(root, "demo", []CommandSpec{{Group: "Users", Use: "get"}, {Group: "users", Use: "list"}})
+	if err == nil {
+		t.Fatal("expected group collision error")
+	}
+}
+
+func TestBuildControlsPreserveInheritedFlags(t *testing.T) {
+	root := newExecutionRoot("json")
+	root.PersistentFlags().StringP("file", "f", "", "")
+	root.PersistentFlags().String("lathe-file", "", "")
+	root.PersistentFlags().Bool("dry-run", false, "")
+	root.PersistentFlags().Bool("lathe-dry-run", false, "")
+	spec := CommandSpec{Group: "Users", Use: "create", Method: "POST", RequestBody: &RequestBody{MediaType: "application/json"}, Shortcuts: []CommandShortcut{{Use: "create-user"}}}
+	mustBuild(t, root, "demo", []CommandSpec{spec})
+	for _, cmd := range []*cobra.Command{mustFindChild(t, mustFindChild(t, mustFindChild(t, root, "demo"), "users"), "create"), mustFindChild(t, root, "create-user")} {
+		if cmd.Flags().Lookup("lathe-file-2") == nil || cmd.Flags().Lookup("lathe-dry-run-2") == nil {
+			t.Fatalf("%s: missing renamed controls", cmd.CommandPath())
+		}
+		if got := cmd.InheritedFlags().ShorthandLookup("f"); got == nil || got != root.PersistentFlags().Lookup("file") {
+			t.Fatalf("%s: inherited -f changed: %v", cmd.CommandPath(), got)
+		}
+	}
 }

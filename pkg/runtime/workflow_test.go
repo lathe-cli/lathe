@@ -191,3 +191,44 @@ func TestBuildWorkflows_RejectsInvalidInputEnum(t *testing.T) {
 	err := root.Execute()
 	testutil.Require(t, err != nil && strings.Contains(err.Error(), `invalid value "broken" for --mode`), "error = %v", err)
 }
+
+func TestBuildWorkflowsRejectsFlagCollisions(t *testing.T) {
+	cases := map[string][]ParamSpec{
+		"duplicate":  {{Name: "first", Flag: "value"}, {Name: "second", Flag: "value"}},
+		"safe input": {{Name: "token", Flag: "token", GoType: "string"}, {Name: "file", Flag: "token-file"}},
+	}
+	for _, flag := range []string{"output", "hostname", "insecure", "debug", "help", "custom"} {
+		cases[flag] = []ParamSpec{{Name: "value", Flag: flag}}
+		cases[flag+" alias"] = []ParamSpec{{Name: "value", Flag: "value", Aliases: []string{flag}}}
+	}
+	for name, params := range cases {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("flag collision panicked: %v", r)
+				}
+			}()
+			root := newWorkflowRoot(io.Discard)
+			root.PersistentFlags().String("custom", "", "")
+			err := BuildWorkflows(root, []WorkflowSpec{{Use: "doctor", Params: params}})
+			if err == nil {
+				t.Fatal("expected flag collision error")
+			}
+			if len(root.Commands()) != 0 {
+				t.Fatal("invalid workflow was mounted")
+			}
+		})
+	}
+}
+
+func TestBuildWorkflowsAcceptsInputAlias(t *testing.T) {
+	var out bytes.Buffer
+	root := newWorkflowRoot(&out)
+	err := BuildWorkflows(root, []WorkflowSpec{{Use: "echo", Params: []ParamSpec{{Name: "name", Flag: "name", Aliases: []string{"label"}, In: InInput, GoType: "string", Required: true}}, OutputFrom: "${input.name}"}})
+	testutil.NoError(t, err)
+	root.SetArgs([]string{"echo", "--label", "hello"})
+	testutil.NoError(t, root.Execute())
+	if strings.TrimSpace(out.String()) != `"hello"` {
+		t.Fatalf("output = %q", out.String())
+	}
+}

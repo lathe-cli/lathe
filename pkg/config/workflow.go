@@ -132,6 +132,10 @@ func normalizeWorkflow(workflow *WorkflowInfo) error {
 			if input.Flag == "" {
 				input.Flag = workflowInputFlag(input.Name)
 			}
+			switch input.Flag {
+			case "output", "hostname", "insecure", "debug", "help":
+				return fmt.Errorf("workflow command %q input %q flag %q conflicts with a reserved global flag", cmd.Use, input.Name, input.Flag)
+			}
 			if input.Type == "" {
 				input.Type = "string"
 			}

@@ -32,3 +32,64 @@ jobs:
 
       - name: go test
         run: go test -race ./...
+
+  generated-clis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate and verify example CLIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch=$(mktemp -d)
+          trap 'rm -rf "$scratch"' EXIT
+          go build -o "$scratch/lathe" ./cmd/lathe
+          for example in petstore richapi graphql; do
+            cp -R "examples/$example" "$scratch/$example"
+            (
+              cd "$scratch/$example"
+              go mod edit -replace "github.com/lathe-cli/lathe=$GITHUB_WORKSPACE"
+              args=(-cache fixtures)
+              if [[ "$example" == petstore ]]; then
+                args+=(-overlay overlays)
+              fi
+              "$scratch/lathe" codegen "${args[@]}"
+              go mod tidy
+              cli="$example"
+              if [[ "$example" == graphql ]]; then
+                cli=graphqlctl
+              fi
+              go build -o "$scratch/$cli-cli" "./cmd/$cli"
+              "$scratch/$cli-cli" __lathe verify --json
+              python3 - "$scratch/$cli-cli" <<'PYTHON'
+          import json
+          import re
+          import subprocess
+          import sys
+
+          cli = sys.argv[1]
+          catalog = json.loads(subprocess.check_output([cli, "commands", "--include-hidden", "--json"], text=True))
+          commands = catalog["commands"]
+          if not commands:
+              raise SystemExit("The generated command catalog is empty")
+          for command in commands:
+              path = command["path"]
+              help_text = subprocess.check_output(
+                  [cli, *path, "--output", "json", "--hostname", "https://example.invalid", "--help"], text=True
+              )
+              _, separator, global_flags = help_text.partition("Global Flags:")
+              if not separator:
+                  raise SystemExit(f"{path}: missing inherited flags")
+              for flag in ("output", "hostname"):
+                  if not re.search(rf"--{flag}(?:[ =]|$)", global_flags, re.MULTILINE):
+                      raise SystemExit(f"{path}: missing inherited --{flag}")
+          print(f"Verified inherited flags for {len(commands)} commands")
+          PYTHON
+            )
+          done

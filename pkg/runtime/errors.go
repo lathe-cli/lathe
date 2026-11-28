@@ -357,6 +357,9 @@ func Execute(cmd *cobra.Command) int {
 	if errors.As(err, &silent) {
 		return silent.SilentExitCode()
 	}
-	format, _ := cmd.PersistentFlags().GetString("output")
+	format, formatErr := cmd.Root().PersistentFlags().GetString("output")
+	if formatErr != nil {
+		format, _ = cmd.PersistentFlags().GetString("output")
+	}
 	return FormatError(err, format, cmd.ErrOrStderr())
 }

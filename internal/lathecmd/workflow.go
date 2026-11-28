@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/app"
+	"github.com/lathe-cli/lathe/internal/codegen/normalize"
 	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 )
@@ -48,6 +49,9 @@ func buildWorkflowSpecs(manifest *config.Manifest, modules []app.Module, shortcu
 				DefaultColumns:    append([]string(nil), command.Output.DefaultColumns...),
 				ResponseMediaType: command.Output.ResponseMediaType,
 			},
+		}
+		if err := normalize.ValidateReservedParamFlags(runtime.CommandSpec{Params: workflow.Params}); err != nil {
+			return nil, fmt.Errorf("workflow command %q: %w", command.Use, err)
 		}
 		for _, step := range command.Steps {
 			ref, err := lookup.resolve(step.Uses)

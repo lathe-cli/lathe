@@ -35,6 +35,9 @@ func (e *WorkflowError) Unwrap() error {
 
 func BuildWorkflows(root *cobra.Command, specs []WorkflowSpec) error {
 	for _, spec := range specs {
+		if err := validateParamFlagsForCommand(root, spec.Params); err != nil {
+			return fmt.Errorf("workflow command %q: %w", spec.Use, err)
+		}
 		if findChildCommand(root, spec.Use) != nil || spec.Use == completionRootName {
 			return fmt.Errorf("workflow command %q conflicts with existing root command", spec.Use)
 		}
@@ -103,6 +106,7 @@ func buildWorkflowCmd(spec WorkflowSpec) *cobra.Command {
 			return FormatOutput(data, format, cmd.OutOrStdout(), spec.Output)
 		},
 	}
+	configureParamFlagAliases(cmd, spec.Params)
 	for _, p := range spec.Params {
 		bindParamFlag(cmd, vals, p, false)
 	}
