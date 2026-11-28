@@ -43,6 +43,18 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) ([]runti
 	var matched []bool
 	var matchedLegacyUses []string
 	legacyUses := legacyOverlayUses(specs)
+	for key, override := range mod.Commands {
+		count := 0
+		for i, spec := range specs {
+			_, ok := commandOverride(overlay.Module{Commands: map[string]overlay.Override{key: override}}, spec, legacyUses[i])
+			if ok {
+				count++
+			}
+		}
+		if count == 0 {
+			return nil, fmt.Errorf("overlay command %q matches no operations", key)
+		}
+	}
 	for i, s := range specs {
 		o, ok := commandOverride(mod, s, legacyUses[i])
 		if ok && o.Ignore {
@@ -64,10 +76,30 @@ func mergeOverlaySpecs(specs []runtime.CommandSpec, mod overlay.Module) ([]runti
 			if err := applyBodyFlags(&merged[i], overrides[i]); err != nil {
 				return nil, fmt.Errorf("command %q body.flags: %w", merged[i].Use, err)
 			}
+			if err := validateArguments(merged[i], overrides[i].Params); err != nil {
+				return nil, fmt.Errorf("command %q: %w", merged[i].Use, err)
+			}
 			applyCommandOverride(&merged[i], overrides[i])
 		}
 	}
+	if err := validateOverlayCommandNames(merged); err != nil {
+		return nil, err
+	}
 	return merged, nil
+}
+
+func validateOverlayCommandNames(specs []runtime.CommandSpec) error {
+	seen := map[string]int{}
+	for i, spec := range specs {
+		for _, raw := range append([]string{spec.Use}, spec.Aliases...) {
+			key := rootCommandName(spec.Group) + " " + commandUseName(raw)
+			if previous, ok := seen[key]; ok && previous != i {
+				return fmt.Errorf("command path or alias %q conflicts between %q and %q", key, specs[previous].Use, spec.Use)
+			}
+			seen[key] = i
+		}
+	}
+	return nil
 }
 
 func legacyOverlayUses(specs []runtime.CommandSpec) []string {
@@ -261,21 +293,22 @@ func applyCommandOverride(spec *runtime.CommandSpec, override overlay.Override) 
 	if override.Hidden != nil {
 		spec.Hidden = *override.Hidden
 	}
-	if len(override.Params) > 0 {
-		for j := range spec.Params {
-			po, pok := override.Params[spec.Params[j].Name]
-			if !pok {
-				continue
-			}
-			setString(&spec.Params[j].Flag, po.Flag)
-			setString(&spec.Params[j].Argument, po.Argument)
-			setString(&spec.Params[j].Help, po.Help)
-			spec.Params[j].Required = spec.Params[j].Required || po.Required
-			setString(&spec.Params[j].Default, po.Default)
-			spec.Params[j].Deprecated = spec.Params[j].Deprecated || po.Deprecated || po.DeprecatedAlias
-			setString(&spec.Params[j].Context, po.Context)
+	params := append([]runtime.ParamSpec(nil), spec.Params...)
+	for key, po := range override.Params {
+		j, count := paramByNameOrFlag(params, key)
+		if count != 1 {
+			continue
 		}
+		setString(&spec.Params[j].Flag, po.Flag)
+		setString(&spec.Params[j].Argument, po.Argument)
+		setString(&spec.Params[j].Help, po.Help)
+		spec.Params[j].Required = spec.Params[j].Required || po.Required
+		setString(&spec.Params[j].Default, po.Default)
+		spec.Params[j].Deprecated = spec.Params[j].Deprecated || po.Deprecated
+		spec.Params[j].Hidden = spec.Params[j].Hidden || po.Hidden
+		setString(&spec.Params[j].Context, po.Context)
 	}
+
 	if override.Context != nil && override.Context.SetOnSuccess != nil {
 		set := override.Context.SetOnSuccess
 		spec.SetContext = &runtime.ContextSetHint{Name: set.Name, Param: set.FromParam}

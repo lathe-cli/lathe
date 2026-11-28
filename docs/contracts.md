@@ -9,7 +9,13 @@ internals. The defining constants and structs in code remain authoritative.
 `runtime.SchemaVersion` in `pkg/runtime/spec.go` couples generated
 `runtime.CommandSpec` literals to the runtime that executes them.
 `runtime.AssertSchema` checks the version when generated modules mount and
-fails with a regeneration instruction on mismatch.
+fails with a regeneration instruction on mismatch. The check requires exact equality,
+not a minimum version. The current generated schema is 24.
+
+Across `v1.x`, `pkg/**` follows SemVer 2.0.0. Generated mount code is pinned
+to `runtime.SchemaVersion`. After a schema bump, run `lathe codegen` and rebuild
+the generated CLI before using the new runtime. This requirement applies to
+API modules and generated workflows.
 
 This schema is a compiler coupling. It is not the agent-facing contract.
 Bump it when a generated command or mount contract changes in a way that
@@ -17,10 +23,44 @@ requires regeneration. Reserved parameter flag renames change flag values in
 existing fields. They do not change the generated code schema or the catalog
 schema. Regenerate and rebuild generated CLIs to use the new flag names.
 
+## Parameter identity and body input
+
+`runtime.ParamKey(in, name)` and `ParamSpec.Key()` return `<in>:<name>`.
+This key identifies a wire parameter independently of its flag spelling.
+Use it in `OperationInput.Values`, `OperationInput.Changed`, workflow step
+`params`, runtime-schema bindings, context sources, and shortcut presets.
+Unique flag names and unambiguous wire names remain accepted. If a wire name
+occurs in multiple locations, use a qualified key or a unique flag name.
+An ambiguous key fails before HTTP execution. A value for one location never
+supplies a parameter in another location.
+
+Catalog 31 exposes `flags[].key` alongside `name`, `flag`, and `location`.
+A parameter with overlay `hidden: true` remains executable by its explicit
+flag. Default help, `commands`, `commands show`, and generated Skill module
+references omit the flag. `--include-hidden` includes it in the catalog with
+`hidden: true`. Hidden parameters do not become deprecated.
+
+`--set` and `--set-str` reject sensitive body fields before execution and
+before a dry run. The restriction also applies to templated request envelopes.
+A typed body parameter is sensitive when its string format or credential name
+marks it as sensitive. Schema properties with `format: password` and credential
+names are sensitive at any target path segment. A sensitive child does not
+make a non-sensitive sibling sensitive. Use `--file` or `--file -` for sensitive
+body fields. Typed string flags also support `--<flag>-env`, `--<flag>-file`,
+and `--<flag>-stdin`. Non-sensitive `set_only_fields` still accept assignments.
+
+Overlay YAML rejects unknown fields and extra YAML documents. Empty files and
+`{}` remain valid. Command selectors and parameter keys must match an operation
+or parameter. Body flag expansion precedes parameter and argument validation.
+Command names and aliases must remain unique within each group after overrides.
+
 ## Capability contract
 
 The runtime catalog is the agent-facing capability contract. Its version is
-`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog_schema.go`. Agents must read
+`runtime.CatalogSchemaVersion` in `pkg/runtime/catalog_schema.go`, currently 31.
+The `error` and `__lathe verify` JSON envelopes are versioned independently.
+They are not catalog surfaces, and a catalog version does not version them.
+Agents must read
 the contract from the running CLI:
 
 ```sh
@@ -71,7 +111,7 @@ them per operation. Downstream CLIs must be regenerated to pick up
 
 When JSON body flags are enabled, `body.set_only_fields` lists body fields
 that received no typed flag (nested object properties); they remain settable
-through `--set`, `--set-str`, or `--file` (SchemaVersion 16,
+through `--set`, `--set-str`, or `--file`, except sensitive fields (SchemaVersion 16,
 CatalogSchemaVersion 23).
 
 Multipart commands expose `flags[].content_type`, the effective part media

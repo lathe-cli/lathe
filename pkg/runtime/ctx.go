@@ -111,21 +111,21 @@ func (r *hostReporter) noticeImplicitHost(w io.Writer, res HostResolution) {
 	fmt.Fprintf(w, "current host: %s\n", res.Hostname)
 }
 
-func LoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
-	res, opts, err := loadHostOptions(cmd, "", true)
+func loadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
+	res, opts, err := loadHostOptionsForHost(cmd, "", true)
 	return res.Hostname, opts, err
 }
 
-func loadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool) (HostResolution, ClientOptions, error) {
+func loadHostOptionsForHost(cmd *cobra.Command, defaultHostname string, refresh bool) (HostResolution, ClientOptions, error) {
 	return hostOptions(cmd, defaultHostname, refresh, false)
 }
 
-func TryLoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
-	res, opts, err := tryLoadHostOptions(cmd, "", true)
+func tryLoadHostOptions(cmd *cobra.Command) (string, ClientOptions, error) {
+	res, opts, err := tryLoadHostOptionsForHost(cmd, "", true)
 	return res.Hostname, opts, err
 }
 
-func tryLoadHostOptions(cmd *cobra.Command, defaultHostname string, refresh bool) (HostResolution, ClientOptions, error) {
+func tryLoadHostOptionsForHost(cmd *cobra.Command, defaultHostname string, refresh bool) (HostResolution, ClientOptions, error) {
 	return hostOptions(cmd, defaultHostname, refresh, true)
 }
 

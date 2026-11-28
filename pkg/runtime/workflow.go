@@ -52,7 +52,7 @@ func BuildWorkflows(root *cobra.Command, specs []WorkflowSpec) error {
 	}
 	for _, spec := range specs {
 		cmd := buildWorkflowCmd(spec)
-		AttachCatalogWorkflowCommand(cmd, spec)
+		attachCatalogWorkflowCommand(cmd, spec)
 		root.AddCommand(cmd)
 	}
 	return nil

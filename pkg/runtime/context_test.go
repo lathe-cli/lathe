@@ -64,6 +64,10 @@ func TestActiveContextPrecedenceAndSuccessfulSelectorPersistence(t *testing.T) {
 	testutil.NoError(t, run("demo", "apps", "list", "--workspace-id", "explicit"))
 	testutil.NoError(t, run("list-selected"))
 	testutil.Require(t, strings.Join(requested[:4], "|") == "/apps?workspace_id=stored|/apps?workspace_id=environment|/apps?workspace_id=explicit|/apps?workspace_id=preset", "requests = %#v", requested)
+	list.Params[0].Default = ""
+	t.Setenv("MYCTL_WORKSPACE_ID", "")
+	testutil.NoError(t, run("demo", "apps", "list"))
+	testutil.Require(t, requested[4] == "/apps?workspace_id=stored", "request = %s", requested[4])
 	testutil.NoError(t, run("demo", "apps", "use", "--workspace-id", "selected"))
 	if err := run("demo", "apps", "use", "--workspace-id", "bad"); err == nil {
 		t.Fatal("failed selector succeeded")

@@ -90,12 +90,9 @@ func operationChanged(input OperationInput, p ParamSpec) bool {
 }
 
 func operationValue(input OperationInput, p ParamSpec) (any, bool, error) {
-	v, ok := input.Values[boundParamKey(p)]
+	v, ok := input.Values[p.Key()]
 	if !ok {
-		v, ok = input.Values[p.Name]
-	}
-	if !ok {
-		v, ok = input.Values[p.Flag]
+		v, ok = input.Values[boundParamKey(p)]
 	}
 	if !ok {
 		if p.Default == "" {
@@ -216,12 +213,69 @@ func operationStringValue(v any) string {
 
 func operationValueProvided(param ParamSpec, input OperationInput) bool {
 	if input.Changed != nil {
-		return input.Changed[boundParamKey(param)] || input.Changed[param.Name] || input.Changed[param.Flag]
+		return input.Changed[param.Key()] || input.Changed[boundParamKey(param)]
 	}
-	for _, key := range []string{boundParamKey(param), param.Name, param.Flag} {
+	for _, key := range []string{param.Key(), boundParamKey(param)} {
 		if _, ok := input.Values[key]; ok {
 			return true
 		}
 	}
 	return false
+}
+
+func ParamKey(in, name string) string {
+	return in + ":" + name
+}
+
+func (p ParamSpec) Key() string {
+	return ParamKey(p.In, p.Name)
+}
+
+func canonicalOperationInput(params []ParamSpec, input OperationInput) (OperationInput, error) {
+	values := make(map[string]any, len(input.Values))
+	changed := make(map[string]bool, len(input.Changed))
+	for key, value := range input.Values {
+		index, ok := runtimeParamIndex(params, key)
+		if !ok {
+			if paramLookupMatches(params, key) {
+				return OperationInput{}, ambiguousParamError(key)
+			}
+			values[key] = value
+			continue
+		}
+		canonical := params[index].Key()
+		if _, exists := values[canonical]; exists {
+			return OperationInput{}, WithUsageDetail(fmt.Errorf("parameter %q is supplied more than once", canonical), "use one parameter key per value")
+		}
+		values[canonical] = value
+	}
+	for key, value := range input.Changed {
+		index, ok := runtimeParamIndex(params, key)
+		if !ok {
+			if value && paramLookupMatches(params, key) {
+				return OperationInput{}, ambiguousParamError(key)
+			}
+			changed[key] = value
+			continue
+		}
+		changed[params[index].Key()] = changed[params[index].Key()] || value
+	}
+	input.Values = values
+	if input.Changed != nil {
+		input.Changed = changed
+	}
+	return input, nil
+}
+
+func paramLookupMatches(params []ParamSpec, key string) bool {
+	for _, p := range params {
+		if key == p.Name || key == p.Flag || key == p.Key() || key == boundParamKey(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func ambiguousParamError(key string) error {
+	return WithUsageDetail(fmt.Errorf("parameter %q is ambiguous", key), "use in:name or a unique flag name")
 }

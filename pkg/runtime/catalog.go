@@ -42,7 +42,7 @@ func WiredDryRunFlag(cmd *cobra.Command) string {
 	return cmd.Annotations[catalogDryRunWiredAnnotation]
 }
 
-func AttachCatalogWorkflowCommand(cmd *cobra.Command, spec WorkflowSpec) {
+func attachCatalogWorkflowCommand(cmd *cobra.Command, spec WorkflowSpec) {
 	entry := catalogWorkflowCommand(spec, nil)
 	raw, err := json.Marshal(entry)
 	if err != nil {
@@ -138,6 +138,9 @@ func FindCatalogCommand(root *cobra.Command, path []string, opts CatalogOptions)
 	if !ok || (!opts.IncludeHidden && cmd.Hidden) {
 		return findCatalogShortcut(root, path, opts)
 	}
+	if !opts.IncludeHidden {
+		cmd.Flags = visibleCatalogFlags(cmd.Flags)
+	}
 	return cmd, true
 }
 
@@ -162,6 +165,9 @@ func walkCatalog(cmd *cobra.Command, path []string, opts CatalogOptions, out *[]
 	}
 	if cc, ok := catalogCommandFromAnnotation(cmd, path); ok {
 		if opts.IncludeHidden || !cc.Hidden {
+			if !opts.IncludeHidden {
+				cc.Flags = visibleCatalogFlags(cc.Flags)
+			}
 			*out = append(*out, cc)
 		}
 	}
@@ -193,4 +199,14 @@ func findChildCommand(parent *cobra.Command, name string) *cobra.Command {
 		}
 	}
 	return nil
+}
+
+func visibleCatalogFlags(flags []CatalogFlag) []CatalogFlag {
+	out := make([]CatalogFlag, 0, len(flags))
+	for _, flag := range flags {
+		if !flag.Hidden {
+			out = append(out, flag)
+		}
+	}
+	return out
 }

@@ -163,7 +163,7 @@ commands:
 	testutil.Check(t, sp.Deprecated, "param deprecated = false, want true")
 	testutil.Check(t, sp.Context == "workspace", "param context = %q", sp.Context)
 	lp := cu.Params["legacy"]
-	testutil.Check(t, lp.DeprecatedAlias, "legacy param hidden alias = false, want true")
+	testutil.Check(t, lp.Hidden, "legacy param hidden = false, want true")
 	du := mod.Commands["delete-user"]
 	testutil.Check(t, du.Ignore, "delete-user ignore = false, want true")
 	gu := mod.Commands["get-user"]
@@ -173,4 +173,21 @@ commands:
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
 	testutil.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+}
+
+func TestLoadDirStrictFields(t *testing.T) {
+	for _, input := range []string{"typo: true", "commands:\n  get:\n    params:\n      id:\n        hiden: true", "{}\n---\ncommands: {}"} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "api.yaml"), input)
+		if _, err := LoadDir(dir); err == nil {
+			t.Fatalf("invalid overlay accepted: %s", input)
+		}
+	}
+	for _, input := range []string{"", "{}"} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "api.yaml"), input)
+		if _, err := LoadDir(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

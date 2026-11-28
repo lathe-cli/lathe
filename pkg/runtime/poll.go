@@ -31,7 +31,7 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 		}
 		return context.Cause(pollCtx)
 	}
-	base, err := BaseURL(hostname)
+	base, err := baseURL(hostname)
 	if err != nil {
 		return nil, err
 	}

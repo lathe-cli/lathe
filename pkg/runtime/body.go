@@ -52,10 +52,6 @@ func readStdin(ctx context.Context, r io.Reader) ([]byte, error) {
 	}
 }
 
-func BuildBodyFromSet(sets []string) ([]byte, error) {
-	return buildBodyFromSet(sets, nil)
-}
-
 func buildBodyFromSet(sets []string, stringSets []string) ([]byte, error) {
 	out := map[string]any{}
 	if err := mergeJSONBodySets(out, nil, sets, stringSets); err != nil {
@@ -140,7 +136,10 @@ func rejectBodyFlagSetConflict(path string, flagFields map[string]ParamSpec, set
 	return bodyUsageDetail(format, param.Name, param.Flag)
 }
 
-func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
+func buildEnvelopeBody(spec CommandSpec, template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
+	if err := validateSensitiveBodySets(spec, sets, stringSets); err != nil {
+		return nil, err
+	}
 	var envelope map[string]any
 	if err := json.Unmarshal([]byte(template), &envelope); err != nil {
 		return nil, fmt.Errorf("invalid request body template: %w", err)

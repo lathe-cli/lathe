@@ -104,8 +104,8 @@ func TestLoadHostOptionsRefreshesExpiredOAuthToken(t *testing.T) {
 	root.PersistentFlags().String("hostname", srv.URL, "")
 	root.PersistentFlags().Bool("insecure", false, "")
 
-	host, opts, err := loadHostOptions(root, "", true)
-	testutil.Require(t, err == nil, "loadHostOptions: %v", err)
+	host, opts, err := loadHostOptionsForHost(root, "", true)
+	testutil.Require(t, err == nil, "loadHostOptionsForHost: %v", err)
 	testutil.Require(t, host.Hostname == config.NormalizeHostname(srv.URL), "hostname = %q", host.Hostname)
 	auth, ok := opts.Auth.(BearerAuth)
 	testutil.Require(t, ok && auth.Token == "access-new", "auth = %#v", opts.Auth)

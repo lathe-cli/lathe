@@ -45,22 +45,20 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		})
 	}
 
-	renamed := mustMergeOverlay(t, []runtime.CommandSpec{
+	_, err := MergeOverlay([]runtime.CommandSpec{
 		{Group: "Repos", Use: "create-repo", OperationID: "Repos_CreateRepo"},
 		{Group: "Repos", Use: "create", OperationID: "Repos_Create"},
 	}, map[string]overlay.Override{
 		"create-repo": {Use: "create"},
 	})
-	_, err := ResolveFlatCommandPath("namespaced", 1, renamed)
-	testutil.Require(t, err != nil && strings.Contains(err.Error(), `command path "repos create" conflicts`), "expected renamed command conflict error, got %v", err)
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), `"repos create" conflicts`), "expected renamed command conflict error, got %v", err)
 
-	aliased := mustMergeOverlay(t, []runtime.CommandSpec{
+	_, err = MergeOverlay([]runtime.CommandSpec{
 		{Group: "Users", Use: "get-user", OperationID: "Users_GetUser", Method: "GET", PathTpl: "/users/{id}"},
 		{Group: "Users", Use: "remove-user", OperationID: "Users_RemoveUser", Method: "DELETE", PathTpl: "/users/{id}"},
 	}, map[string]overlay.Override{
 		"remove-user": {Aliases: []string{"get-user"}},
 	})
-	_, err = ResolveFlatCommandPath("namespaced", 1, aliased)
 	testutil.Require(t, err != nil && strings.Contains(err.Error(), "alias"), "expected canonical command alias conflict error, got %v", err)
 }
 

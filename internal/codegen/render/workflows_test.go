@@ -89,3 +89,12 @@ func TestRenderWorkflows_EmitsStepConditions(t *testing.T) {
 		testutil.Check(t, containsGo(got, want), "output missing %q:\n%s", want, got)
 	}
 }
+
+func TestRenderWorkflowsChecksRuntimeSchema(t *testing.T) {
+	chdirWithGeneratedRoot(t)
+	testutil.NoError(t, RenderWorkflows(nil))
+	got := generatedFile(t, "workflows/workflows_gen.go")
+	if !containsGo(got, `if err := runtime.AssertSchema(generatedSchemaVersion); err != nil { return err }`) {
+		t.Fatal("workflow mount lacks schema check")
+	}
+}

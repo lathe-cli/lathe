@@ -63,7 +63,7 @@ func buildCmd(s CommandSpec, parent *cobra.Command) *cobra.Command {
 			if err := resolveCommandContexts(cmd, s, &input); err != nil {
 				return err
 			}
-			if err := validateRequiredParams(s.Params, s.RequestBody != nil, changed); err != nil {
+			if err := validateRequiredParams(s.Params, s.RequestBody != nil, input.Changed); err != nil {
 				return UsageError(cmd, err)
 			}
 

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,8 +35,10 @@ func TestDryRun_BodyNumberPrecisionAndRedaction(t *testing.T) {
 					"--set", "v=" + value, "--set", "nested.v=" + value, "--set", "items[0]=" + value,
 					"--set", "flag=true", "--set", "empty=null", "--set", "fraction=1.5", "--set", "text=plain"}
 				if mode == "redacted" {
-					args = append(args, "--set", "password=private-value", "--set", "confidential="+value,
-						"--set", "envVars[0].key=COUNT", "--set", "envVars[0].value="+value)
+					body := `{"v":` + value + `,"nested":{"v":` + value + `},"items":[` + value + `],"flag":true,"empty":null,"fraction":1.5,"text":"plain","password":"private-value","confidential":` + value + `,"envVars":[{"key":"COUNT","value":` + value + `}]}`
+					path := filepath.Join(t.TempDir(), "body.json")
+					testutil.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+					args = []string{"demo", "values", "create", "--hostname", "http://127.0.0.1:1", "--dry-run", "--file", path}
 				}
 				root.SetArgs(args)
 				testutil.NoError(t, root.Execute())

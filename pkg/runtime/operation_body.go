@@ -36,7 +36,7 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 		return nil, nil
 	}
 	if s.RequestBody.Template != "" {
-		return buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, vars, input.BodySets, input.BodyStringSets, input.FileBody, input.HasFile)
+		return buildEnvelopeBody(s, s.RequestBody.Template, s.RequestBody.MergePath, vars, input.BodySets, input.BodyStringSets, input.FileBody, input.HasFile)
 	}
 	hasSets := len(input.BodySets) > 0 || len(input.BodyStringSets) > 0
 	flagBody, flagFields, err := jsonBodyFromFlags(s, input)

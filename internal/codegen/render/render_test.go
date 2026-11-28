@@ -247,7 +247,7 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 		"list-users": {
 			Params: map[string]overlay.ParamOverride{
 				"status": {Flag: "user-status", Argument: "state", Help: "override help", Default: "active", Deprecated: true},
-				"legacy": {DeprecatedAlias: true},
+				"legacy": {Hidden: true},
 			},
 		},
 	}
@@ -259,7 +259,7 @@ func TestRenderModule_ParamOverride(t *testing.T) {
 	testutil.Check(t, containsGo(got, `"override help"`), "help should be overridden")
 	testutil.Check(t, containsGo(got, `Default: "active"`), "default should be set to active")
 	testutil.Check(t, !containsGo(got, `"original help"`), "original help should not appear")
-	testutil.Check(t, strings.Count(got, `Deprecated: true`) == 2, "deprecated and legacy hidden alias should both mark params deprecated; output:\n%s", got)
+	testutil.Check(t, strings.Count(got, `Deprecated: true`) == 1 && containsGo(got, `Hidden: true`), "deprecated and hidden must remain separate; output:\n%s", got)
 	testutil.Check(t, containsGo(got, `Argument: "state"`), "positional mapping should be generated; output:\n%s", got)
 }
 

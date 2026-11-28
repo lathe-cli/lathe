@@ -230,12 +230,8 @@ func shortcutName(use string, target string) (string, error) {
 }
 
 func shortcutParamIndex(spec CommandSpec, key string) int {
-	for i, param := range spec.Params {
-		if key == param.Name || key == param.Flag {
-			return i
-		}
-	}
-	return -1
+	index, _ := runtimeParamIndex(spec.Params, key)
+	return index
 }
 
 func validateShortcutParamValue(p ParamSpec, value string) error {

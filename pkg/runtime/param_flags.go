@@ -40,6 +40,11 @@ func bindParamFlag(cmd *cobra.Command, vals map[string]any, p ParamSpec, hasRequ
 	if (p.Required || p.In == InPath) && p.Default == "" && p.Argument == "" && p.Context == "" && p.In != InBody && (p.In != InVariable || !hasRequestBody) && !isSensitiveStringParam(p) {
 		_ = cmd.MarkFlagRequired(p.Flag)
 	}
+	if p.Hidden {
+		for _, binding := range paramFlagBindings(p) {
+			_ = cmd.Flags().MarkHidden(binding.name)
+		}
+	}
 	if p.Deprecated {
 		_ = cmd.Flags().MarkDeprecated(p.Flag, "this flag is deprecated")
 	}
@@ -182,7 +187,7 @@ func validateRequiredParams(params []ParamSpec, hasRequestBody bool, changed map
 		if !requiredFlagParam(p, hasRequestBody) {
 			continue
 		}
-		if !changed[boundParamKey(p)] {
+		if !operationValueProvided(p, OperationInput{Changed: changed}) {
 			return WithUsageDetail(fmt.Errorf("required flag(s) \"%s\" not set", p.Flag), "missing required: --"+p.Flag)
 		}
 	}

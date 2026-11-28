@@ -18,9 +18,7 @@ func ValidateOverlayModule(specs []runtime.CommandSpec, mod overlay.Module) erro
 		if !ok {
 			continue
 		}
-		if err := validateArguments(spec, override.Params); err != nil {
-			return fmt.Errorf("command %q: %w", spec.Use, err)
-		}
+
 		if override.Output != nil {
 			if err := validateDefaultColumnsOverride(override.Output.DefaultColumns); err != nil {
 				return fmt.Errorf("command %q output: %w", spec.Use, err)
@@ -96,21 +94,17 @@ func validateArguments(spec runtime.CommandSpec, overrides map[string]overlay.Pa
 	seenNames := map[string]bool{}
 	for _, paramName := range slices.Sorted(maps.Keys(overrides)) {
 		override := overrides[paramName]
+		_, matches := paramByNameOrFlag(spec.Params, paramName)
+		if matches == 0 {
+			return fmt.Errorf("parameter %q does not exist", paramName)
+		}
+		if matches > 1 {
+			return fmt.Errorf("parameter %q is ambiguous; use in:name", paramName)
+		}
 		if override.Argument == "" {
 			continue
 		}
-		matches := 0
-		for _, param := range spec.Params {
-			if param.Name == paramName {
-				matches++
-			}
-		}
-		if matches == 0 {
-			return fmt.Errorf("argument parameter %q does not exist", paramName)
-		}
-		if matches > 1 {
-			return fmt.Errorf("argument parameter %q is ambiguous", paramName)
-		}
+
 		if !validArgumentName(override.Argument) {
 			return fmt.Errorf("argument name %q must contain only letters, digits, dots, underscores, or hyphens", override.Argument)
 		}

@@ -35,3 +35,18 @@ func TestValidateMultipartBody_AllOfRequiredUnsupported(t *testing.T) {
 	err := (&App{Modules: []Module{{CLIName: "api", Specs: []runtime.CommandSpec{spec}}}}).Validate()
 	testutil.Require(t, err != nil && strings.Contains(err.Error(), "extra"), "error = %v", err)
 }
+
+func TestValidateQualifiedContextSource(t *testing.T) {
+	manifest := &config.Manifest{Contexts: map[string]config.ContextInfo{"workspace": {}}}
+	spec := runtime.CommandSpec{Params: []runtime.ParamSpec{
+		{Name: "id", Flag: "query-id", In: runtime.InQuery, GoType: "string"},
+		{Name: "id", Flag: "header-id", In: runtime.InHeader, GoType: "string"},
+	}, SetContext: &runtime.ContextSetHint{Name: "workspace", Param: "header:id"}}
+	if err := validateCommandContexts(manifest, spec); err != nil {
+		t.Fatal(err)
+	}
+	spec.SetContext.Param = "id"
+	if err := validateCommandContexts(manifest, spec); err == nil {
+		t.Fatal("ambiguous context source accepted")
+	}
+}

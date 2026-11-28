@@ -51,6 +51,11 @@ type operationOutput struct {
 }
 
 func invokeOperation(ctx context.Context, s CommandSpec, input OperationInput, opts OperationOptions, output operationOutput) (OperationResult, error) {
+	var err error
+	input, err = canonicalOperationInput(s.Params, input)
+	if err != nil {
+		return OperationResult{}, err
+	}
 	path, body, clientOpts, err := resolveOperationRequest(s, input, opts.Client)
 	if err != nil {
 		return OperationResult{}, err
@@ -153,6 +158,15 @@ func validateOperationInput(s CommandSpec, input OperationInput) error {
 }
 
 func resolveOperationRequest(s CommandSpec, input OperationInput, clientOpts ClientOptions) (string, any, ClientOptions, error) {
+	var err error
+	input, err = canonicalOperationInput(s.Params, input)
+	if err != nil {
+		return "", nil, ClientOptions{}, err
+	}
+	if err := validateSensitiveBodySets(s, input.BodySets, input.BodyStringSets); err != nil {
+		return "", nil, ClientOptions{}, err
+	}
+
 	if err := validateRequiredOperationParams(s, input); err != nil {
 		return "", nil, ClientOptions{}, err
 	}

@@ -43,8 +43,9 @@ type SkillBundleMount struct {
 }
 
 type workflowCtx struct {
-	RuntimePkg string
-	Specs      []runtime.WorkflowSpec
+	SchemaVersion int
+	RuntimePkg    string
+	Specs         []runtime.WorkflowSpec
 }
 
 const RuntimePkg = "github.com/lathe-cli/lathe/pkg/runtime"
@@ -114,7 +115,7 @@ func RenderModulesGenWithOptions(modules []ModuleMount, opts ModulesGenOptions) 
 
 func RenderWorkflows(specs []runtime.WorkflowSpec) error {
 	outPath := filepath.Join(WorkflowsDir, "workflows_gen.go")
-	if err := writeGoFile(outPath, workflowsTmpl, workflowCtx{RuntimePkg: RuntimePkg, Specs: specs}); err != nil {
+	if err := writeGoFile(outPath, workflowsTmpl, workflowCtx{RuntimePkg: RuntimePkg, Specs: specs, SchemaVersion: runtime.SchemaVersion}); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s: %d workflows\n", outPath, len(specs))
