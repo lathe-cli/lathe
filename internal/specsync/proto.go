@@ -3,6 +3,7 @@ package specsync
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,9 +70,12 @@ func syncProto(src *sourceconfig.Source, workDir, syncDir, workRoot string) erro
 }
 
 func copyProtoTree(from, to string) error {
-	return filepath.Walk(from, func(path string, info os.FileInfo, err error) error {
+	return filepath.WalkDir(from, func(path string, info fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if info.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsafe path: symlink at %s", path)
 		}
 		if info.IsDir() {
 			return nil
@@ -83,7 +87,10 @@ func copyProtoTree(from, to string) error {
 		if err != nil {
 			return err
 		}
-		dst := filepath.Join(to, rel)
+		dst, err := safeJoin(to, rel)
+		if err != nil {
+			return err
+		}
 		if existing, err := os.ReadFile(dst); err == nil {
 			incoming, err := os.ReadFile(path)
 			if err != nil {

@@ -2,6 +2,7 @@ package sourceconfig
 
 import (
 	"fmt"
+	"go/token"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,9 @@ func validateSourceID(name string) error {
 	}
 	if name == "." || strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("unsafe path source ID: %q", name)
+	}
+	if name == "_" || !token.IsIdentifier(name) || strings.ToLower(name) != name || strings.ContainsFunc(name, func(r rune) bool { return r > 127 }) {
+		return fmt.Errorf("source ID %q must be a lowercase ASCII Go identifier other than a keyword or underscore", name)
 	}
 	return nil
 }
@@ -92,7 +96,7 @@ func floatingRefError(ref string) error {
 }
 
 func allHex(s string) bool {
-	return strings.Trim(s, "0123456789abcdef") == ""
+	return strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
 
 func validateStaging(field string, entries []StagingEntry) error {

@@ -2,6 +2,7 @@ package specsync
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -23,6 +24,20 @@ func safeJoin(root, rel string) (string, error) {
 	}
 	if inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("unsafe path source path: %q", rel)
+	}
+	current := rootAbs
+	for _, part := range append([]string{"."}, strings.Split(inside, string(filepath.Separator))...) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("inspect source path: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("unsafe path: symlink at %s", current)
+		}
 	}
 	return full, nil
 }

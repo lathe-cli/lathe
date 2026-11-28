@@ -1,6 +1,7 @@
 package sourceconfig
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 	"unicode"
@@ -39,4 +40,24 @@ func PublicRepoURL(raw string) string {
 		return ""
 	}
 	return raw
+}
+
+func validateRepoURL(raw string) error {
+	colon := strings.IndexByte(raw, ':')
+	remoteHelper := colon >= 0 && strings.HasPrefix(raw[colon:], "::")
+	if strings.HasPrefix(raw, "-") || remoteHelper || strings.ContainsFunc(raw, unicode.IsControl) {
+		return fmt.Errorf("repo_url contains an option, remote helper, or control character")
+	}
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("repo_url is not a valid repository URL")
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "https", "http", "ssh", "git", "file":
+		default:
+			return fmt.Errorf("repo_url uses an unsupported scheme")
+		}
+	}
+	return nil
 }

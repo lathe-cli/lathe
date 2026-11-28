@@ -7,10 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/lathe-cli/lathe/internal/sourceconfig"
 )
 
-// ensureRepo publishes a complete checkout atomically so concurrent syncs
-// never mutate the same worktree.
 func ensureRepo(workDir, repoURL, tag string) (string, error) {
 	gitDir := filepath.Join(workDir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
@@ -22,9 +22,8 @@ func ensureRepo(workDir, repoURL, tag string) (string, error) {
 			return "", err
 		}
 		defer func() { _ = os.RemoveAll(cloneDir) }()
-		fmt.Fprintf(os.Stderr, "=> clone %s\n", repoURL)
-		cmd := exec.Command("git", "clone", "--filter=blob:none", "--quiet", repoURL, cloneDir)
-		cmd.Stderr = os.Stderr
+		fmt.Fprintf(os.Stderr, "=> clone %s\n", sourceconfig.PublicRepoURL(repoURL))
+		cmd := exec.Command("git", "clone", "--filter=blob:none", "--quiet", "--", repoURL, cloneDir)
 		if err := cmd.Run(); err != nil {
 			return "", fmt.Errorf("git clone: %w", err)
 		}
@@ -33,7 +32,6 @@ func ensureRepo(workDir, repoURL, tag string) (string, error) {
 			checkoutRef = qualifiedTagRef(tag)
 		}
 		checkout := exec.Command("git", "-C", cloneDir, "-c", "advice.detachedHead=false", "checkout", "--quiet", checkoutRef)
-		checkout.Stderr = os.Stderr
 		if err := checkout.Run(); err != nil {
 			return "", fmt.Errorf("git checkout %s: %w", tag, err)
 		}
@@ -71,14 +69,13 @@ func verifiedRepoSHA(workDir, repoURL, ref string) (string, error) {
 
 func remoteRefSHA(repoURL, ref string) (string, error) {
 	if len(ref) == 40 && isHex(ref) {
-		return ref, nil
+		return strings.ToLower(ref), nil
 	}
 	tagRef := qualifiedTagRef(ref)
 	peeledRef := tagRef + "^{}"
 	var out bytes.Buffer
-	cmd := exec.Command("git", "ls-remote", repoURL, tagRef, peeledRef)
+	cmd := exec.Command("git", "ls-remote", "--", repoURL, tagRef, peeledRef)
 	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git ls-remote %s: %w", ref, err)
 	}
@@ -116,7 +113,6 @@ func repoSHA(workDir string) (string, error) {
 	var out bytes.Buffer
 	rev := exec.Command("git", "-C", workDir, "rev-parse", "HEAD")
 	rev.Stdout = &out
-	rev.Stderr = os.Stderr
 	if err := rev.Run(); err != nil {
 		return "", fmt.Errorf("git rev-parse: %w", err)
 	}
@@ -128,5 +124,5 @@ func repoSHA(workDir string) (string, error) {
 }
 
 func isHex(s string) bool {
-	return strings.Trim(s, "0123456789abcdef") == ""
+	return strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
