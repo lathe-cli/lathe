@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -287,6 +288,26 @@ func TestBaseURLValidation(t *testing.T) {
 				}
 			} else if err != nil || got != tc.want {
 				t.Fatalf("got %q, err=%v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDoRawPreservesInternationalHostnameDestination(t *testing.T) {
+	for _, tc := range []struct{ hostname, destination string }{
+		{"http://İbm.test", "xn--ibm-8dc.test:80"},
+		{"http://straẞe.test", "strasse.test:80"},
+	} {
+		t.Run(tc.hostname, func(t *testing.T) {
+			var destination string
+			transport := &http.Transport{DialContext: func(_ context.Context, _, address string) (net.Conn, error) {
+				destination = address
+				return nil, errors.New("probe stopped before network access")
+			}}
+			defer transport.CloseIdleConnections()
+			_, err := DoRaw(t.Context(), tc.hostname, "GET", "/items", nil, ClientOptions{Transport: transport})
+			if err == nil || destination != tc.destination {
+				t.Fatalf("destination=%q error=%v, want %q", destination, err, tc.destination)
 			}
 		})
 	}

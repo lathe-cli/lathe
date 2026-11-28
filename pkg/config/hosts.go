@@ -32,7 +32,12 @@ func NormalizeHostname(s string) string {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return ""
 	}
-	host := strings.ToLower(u.Hostname())
+	host := strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, u.Hostname())
 	if strings.Contains(host, ":") {
 		if net.ParseIP(host) == nil {
 			return ""
