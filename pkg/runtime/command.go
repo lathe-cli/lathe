@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-func buildCmd(s CommandSpec) *cobra.Command {
+func buildCmd(s CommandSpec, parent *cobra.Command) *cobra.Command {
 	vals := make(map[string]any, len(s.Params))
 	var bodyFile string
 	var bodySets []string
@@ -153,9 +153,9 @@ func buildCmd(s CommandSpec) *cobra.Command {
 		bindParamFlag(cmd, vals, s.Params[i], s.RequestBody != nil)
 	}
 	if s.RequestBody != nil && !hasFormDataParams(s.Params) && !isMultipartMediaType(s.RequestBody.MediaType) {
-		bodyFileFlag = controlFlagName(cmd, "file")
-		bodySetFlag = controlFlagName(cmd, "set")
-		bodyStringSetFlag = controlFlagName(cmd, "set-str")
+		bodyFileFlag = controlFlagName(cmd, "file", parent)
+		bodySetFlag = controlFlagName(cmd, "set", parent)
+		bodyStringSetFlag = controlFlagName(cmd, "set-str", parent)
 		fileHelp := "path to JSON body file, or '-' for stdin"
 		setHelp := fmt.Sprintf("set body field, e.g. --%s spec.replicas=3; infer booleans, null, numbers, and []; use dotted paths, key[0]=value, or --%s for objects and non-empty arrays (repeatable)", bodySetFlag, bodyFileFlag)
 		setStrHelp := fmt.Sprintf("set body field as string, e.g. --%s spec.replicas=3 (repeatable; nested via dots)", bodyStringSetFlag)
@@ -170,27 +170,31 @@ func buildCmd(s CommandSpec) *cobra.Command {
 			setHelp += suffix
 			setStrHelp += suffix
 		}
-		cmd.Flags().StringVarP(&bodyFile, bodyFileFlag, "f", "", fileHelp)
+		shorthand := "f"
+		if cmd.Flags().ShorthandLookup(shorthand) != nil || parent.PersistentFlags().ShorthandLookup(shorthand) != nil || parent.InheritedFlags().ShorthandLookup(shorthand) != nil {
+			shorthand = ""
+		}
+		cmd.Flags().StringVarP(&bodyFile, bodyFileFlag, shorthand, "", fileHelp)
 		cmd.Flags().StringArrayVar(&bodySets, bodySetFlag, nil, setHelp)
 		cmd.Flags().StringArrayVar(&bodyStringSets, bodyStringSetFlag, nil, setStrHelp)
 	}
 	if s.Output.Binary {
-		outputFileFlag = controlFlagName(cmd, "output-file")
+		outputFileFlag = controlFlagName(cmd, "output-file", parent)
 		cmd.Flags().StringVar(&outputFile, outputFileFlag, "", "write the binary response to a new file, or '-' for stdout")
 	}
 	if s.Output.Pagination != nil {
-		allFlag := controlFlagName(cmd, "all")
-		maxPagesFlag := controlFlagName(cmd, "max-pages")
+		allFlag := controlFlagName(cmd, "all", parent)
+		maxPagesFlag := controlFlagName(cmd, "max-pages", parent)
 		cmd.Flags().BoolVar(&paginateAll, allFlag, false, "fetch all pages")
 		cmd.Flags().IntVar(&maxPages, maxPagesFlag, DefaultMaxPages, "maximum pages to fetch with --"+allFlag)
 	}
 	if !s.Output.Binary && (s.Method == "POST" || s.Method == "PUT" || s.Method == "DELETE" || s.Method == "PATCH") {
-		cmd.Flags().BoolVar(&waitPoll, controlFlagName(cmd, "wait"), false, "poll until long-running operation completes")
+		cmd.Flags().BoolVar(&waitPoll, controlFlagName(cmd, "wait", parent), false, "poll until long-running operation completes")
 	}
 	if s.Output.Streaming != nil && s.Output.Streaming.Policy != nil && s.Output.Streaming.Policy.Live != nil {
-		cmd.Flags().BoolVar(&liveStream, controlFlagName(cmd, "stream"), false, "print configured stream fields as they arrive (requires -o table)")
+		cmd.Flags().BoolVar(&liveStream, controlFlagName(cmd, "stream", parent), false, "print configured stream fields as they arrive (requires -o table)")
 	}
-	dryRunFlag := controlFlagName(cmd, "dry-run")
+	dryRunFlag := controlFlagName(cmd, "dry-run", parent)
 	cmd.Flags().BoolVar(&dryRun, dryRunFlag, false, "print resolved request JSON without sending it")
 	if cmd.Annotations == nil {
 		cmd.Annotations = map[string]string{}
@@ -275,17 +279,20 @@ func outputFormatDetail() string {
 	return "--output accepts: " + strings.Join(FormatterNames(), ", ")
 }
 
-func controlFlagName(cmd *cobra.Command, name string) string {
-	if cmd.Flags().Lookup(name) == nil {
+func controlFlagName(cmd *cobra.Command, name string, parent *cobra.Command) string {
+	exists := func(name string) bool {
+		return commandFlagExists(cmd, name) || persistentFlagExists(parent, name)
+	}
+	if !exists(name) {
 		return name
 	}
 	base := "lathe-" + name
-	if cmd.Flags().Lookup(base) == nil {
+	if !exists(base) {
 		return base
 	}
 	for i := 2; ; i++ {
 		candidate := fmt.Sprintf("%s-%d", base, i)
-		if cmd.Flags().Lookup(candidate) == nil {
+		if !exists(candidate) {
 			return candidate
 		}
 	}

@@ -71,6 +71,29 @@ func ValidateParamFlags(params []ParamSpec) error {
 	return nil
 }
 
+func validateParamFlagsForCommand(cmd *cobra.Command, params []ParamSpec) error {
+	if err := ValidateParamFlags(params); err != nil {
+		return err
+	}
+	for _, param := range params {
+		for _, binding := range paramFlagBindings(param) {
+			reserved := false
+			switch binding.name {
+			case "output", "hostname", "insecure", "debug", "help":
+				reserved = true
+			}
+			if reserved || persistentFlagExists(cmd, binding.name) {
+				return fmt.Errorf("parameter %q flag %q conflicts with a global flag", param.Name, binding.name)
+			}
+		}
+	}
+	return nil
+}
+
+func commandFlagExists(cmd *cobra.Command, name string) bool {
+	return cmd.Flags().Lookup(name) != nil || persistentFlagExists(cmd, name)
+}
+
 type paramFlagBinding struct {
 	name   string
 	target string
@@ -265,4 +288,8 @@ func sensitiveNameKey(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func persistentFlagExists(cmd *cobra.Command, name string) bool {
+	return cmd.PersistentFlags().Lookup(name) != nil || cmd.InheritedFlags().Lookup(name) != nil
 }

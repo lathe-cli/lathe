@@ -26,7 +26,7 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) error {
 	if findChildCommand(root, service) != nil || service == completionRootName {
 		return fmt.Errorf("module command %q conflicts with an existing root command", service)
 	}
-	groups, err := buildGroups(service, specs)
+	groups, err := buildGroups(root, service, specs)
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func Build(root *cobra.Command, service string, specs []CommandSpec) error {
 }
 
 func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
-	groups, err := buildGroups(service, specs)
+	groups, err := buildGroups(root, service, specs)
 	if err != nil {
 		return err
 	}
@@ -68,13 +68,14 @@ func BuildFlat(root *cobra.Command, service string, specs []CommandSpec) error {
 	return mountShortcuts(root, service, specs)
 }
 
-func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) {
+func buildGroups(root *cobra.Command, service string, specs []CommandSpec) ([]*cobra.Command, error) {
 	groups := map[string]*cobra.Command{}
+	groupNames := map[string]string{}
 	commandPaths := map[string]*cobra.Command{}
 	ordered := make([]*cobra.Command, 0)
 	for i := range specs {
 		s := specs[i]
-		if err := ValidateParamFlags(s.Params); err != nil {
+		if err := validateParamFlagsForCommand(root, s.Params); err != nil {
 			return nil, fmt.Errorf("command %q: %w", s.Use, err)
 		}
 		groupShort := s.GroupShort
@@ -83,6 +84,11 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 		}
 		g, ok := groups[s.Group]
 		if !ok {
+			name := strings.ToLower(s.Group)
+			if prior, exists := groupNames[name]; exists {
+				return nil, fmt.Errorf("group %q conflicts with group %q", s.Group, prior)
+			}
+			groupNames[name] = s.Group
 			g = helpCommand(strings.ToLower(s.Group), groupShort)
 			g.Hidden = true
 			groups[s.Group] = g
@@ -90,7 +96,7 @@ func buildGroups(service string, specs []CommandSpec) ([]*cobra.Command, error) 
 		} else if g.Long != groupShort {
 			return nil, fmt.Errorf("group %q has conflicting descriptions", s.Group)
 		}
-		c := buildCmd(s)
+		c := buildCmd(s, root)
 		for _, name := range append([]string{c.Name()}, c.Aliases...) {
 			path := g.Name() + " " + name
 			if existing := commandPaths[path]; existing != nil && existing != c {
@@ -125,7 +131,7 @@ func mountShortcuts(root *cobra.Command, service string, specs []CommandSpec) er
 			if err != nil {
 				return err
 			}
-			cmd := buildCmd(target)
+			cmd := buildCmd(target, root)
 			cmd.GroupID = ModuleGroupID
 			if spec.Hidden {
 				AttachCatalogCommand(cmd, service, target)

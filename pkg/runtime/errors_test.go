@@ -226,3 +226,20 @@ func TestExecuteSilentExitError(t *testing.T) {
 		t.Fatalf("exit = %d, want %d", code, ExitUsage)
 	}
 }
+
+func TestExecuteSubcommandUsesRootOutput(t *testing.T) {
+	root := &cobra.Command{Use: "test", SilenceUsage: true}
+	root.PersistentFlags().String("output", "json", "")
+	child := &cobra.Command{Use: "fail", RunE: func(*cobra.Command, []string) error { return errors.New("failed") }}
+	root.AddCommand(child)
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"fail"})
+	if code := Execute(child); code != ExitGeneral {
+		t.Fatalf("exit code = %d", code)
+	}
+	var envelope errorEnvelope
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || envelope.Error.Code != CodeGeneral {
+		t.Fatalf("expected JSON error envelope, got %q: %v", stderr.String(), err)
+	}
+}
