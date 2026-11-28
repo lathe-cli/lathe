@@ -212,7 +212,9 @@ func TestBuildMultipartStdinCancellation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		_ = writer.Close()
-		<-done
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("multipart stdin ignored cancellation: %v", err)
+		}
 		t.Fatal("multipart stdin ignored cancellation")
 	}
 }
