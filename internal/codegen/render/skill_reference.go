@@ -111,10 +111,10 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					}
 					enum := ""
 					if len(p.Enum) > 0 {
-						enum = ", one of: " + strings.Join(referenceValues(p.Enum), " | ")
+						enum = ", one of: `" + strings.Join(referenceCodeValues(p.Enum), "` | `") + "`"
 					}
 					if len(p.ItemEnum) > 0 {
-						enum = ", items one of: " + strings.Join(referenceValues(p.ItemEnum), " | ")
+						enum = ", items one of: `" + strings.Join(referenceCodeValues(p.ItemEnum), "` | `") + "`"
 					}
 					contentType := ""
 					if notable := notablePartContentType(p); notable != "" {
@@ -562,14 +562,6 @@ func referenceCodeValues(values []string) []string {
 	out := make([]string, len(values))
 	for i, value := range values {
 		out[i] = referenceCode(value)
-	}
-	return out
-}
-
-func referenceValues(values []string) []string {
-	out := make([]string, len(values))
-	for i, value := range values {
-		out[i] = referenceText(value)
 	}
 	return out
 }
