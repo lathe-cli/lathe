@@ -66,19 +66,47 @@ func variableFlagName(name string) string {
 	return strings.ReplaceAll(camelToKebab(name), ".", "-")
 }
 
+func shellFlagName(name string) string {
+	return strings.Trim(collapseDashes(strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.' {
+			return r
+		}
+		return '-'
+	}, name)), "-")
+}
+
 func normalizeParamFlags(params []runtime.ParamSpec) {
 	desired := make([]string, len(params))
 	desiredCount := make(map[string]int, len(params))
+	used := make(map[string]bool, len(params))
 	for i, param := range params {
-		desired[i] = strings.Trim(collapseDashes(strings.ReplaceAll(param.Flag, "_", "-")), "-")
+		desired[i] = shellFlagName(param.Flag)
 		desiredCount[desired[i]]++
+		used[param.Flag] = true
+		for _, alias := range param.Aliases {
+			used[alias] = true
+		}
 	}
 	for i := range params {
-		if desired[i] == "" || desired[i] == params[i].Flag || desiredCount[desired[i]] > 1 {
-			continue
+		original := params[i].Flag
+		candidate := desired[i]
+		legacy := strings.Trim(collapseDashes(strings.ReplaceAll(original, "_", "-")), "-")
+		if candidate == legacy {
+			if candidate == "" || candidate == original || desiredCount[candidate] > 1 {
+				continue
+			}
+		} else {
+			if candidate == "" {
+				candidate = "param"
+			}
+			base := candidate
+			for n := 2; used[candidate] || desiredCount[candidate] > 1; n++ {
+				candidate = fmt.Sprintf("%s-%d", base, n)
+			}
 		}
-		params[i].Aliases = []string{params[i].Flag}
-		params[i].Flag = desired[i]
+		params[i].Aliases = append(params[i].Aliases, original)
+		params[i].Flag = candidate
+		used[candidate] = true
 	}
 }
 
@@ -368,6 +396,29 @@ func multipartContentType(declared, fallback string) string {
 		return fallback
 	}
 	return strings.Join(kept, ", ")
+}
+
+func disambiguatePathParamFlags(params []runtime.ParamSpec) {
+	used := make(map[string]bool, len(params))
+	nonPath := make(map[string]bool, len(params))
+	for _, param := range params {
+		used[param.Flag] = true
+		if param.In != runtime.InPath && param.In != runtime.InCookie {
+			nonPath[param.Name] = true
+		}
+	}
+	for i := range params {
+		if params[i].In != runtime.InPath || !nonPath[params[i].Name] {
+			continue
+		}
+		base := "path-" + params[i].Flag
+		flag := base
+		for suffix := 2; used[flag]; suffix++ {
+			flag = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		params[i].Flag = flag
+		used[flag] = true
+	}
 }
 
 func disambiguateCookieParamFlags(params []runtime.ParamSpec) {

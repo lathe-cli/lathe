@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/lathe-cli/lathe/internal/sourceconfig"
 	"github.com/lathe-cli/lathe/pkg/config"
@@ -17,25 +18,25 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 	cli := manifest.CLI.Name
 	specs := visibleSpecs(mod.Specs)
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Module `%s`\n\n", moduleName(mod))
+	fmt.Fprintf(&b, "# Module `%s`\n\n", referenceText(moduleName(mod)))
 	b.WriteString("## Source\n\n")
 	if mod.Source != nil {
 		p := SourceProvenance(mod.Source, mod.State)
-		fmt.Fprintf(&b, "- Backend: `%s`\n", p.Backend)
+		fmt.Fprintf(&b, "- Backend: `%s`\n", referenceText(p.Backend))
 		if mod.Source.DefaultHostname != nil {
-			fmt.Fprintf(&b, "- Default hostname: `%s`\n", *mod.Source.DefaultHostname)
+			fmt.Fprintf(&b, "- Default hostname: `%s`\n", referenceText(*mod.Source.DefaultHostname))
 		}
-		fmt.Fprintf(&b, "- Source kind: `%s`\n", p.Kind)
+		fmt.Fprintf(&b, "- Source kind: `%s`\n", referenceText(p.Kind))
 		if p.Kind == "git" {
-			fmt.Fprintf(&b, "- Repository: `%s`\n", cmp.Or(p.RepoURL, "unknown"))
-			fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(p.PinnedTag))
+			fmt.Fprintf(&b, "- Repository: `%s`\n", referenceText(cmp.Or(p.RepoURL, "unknown")))
+			fmt.Fprintf(&b, "- Pinned tag: `%s`\n", valueOrUnknown(referenceText(p.PinnedTag)))
 		}
 		for _, line := range sourceInputs(mod.Source) {
 			fmt.Fprintf(&b, "- %s\n", line)
 		}
 		if p.Kind == "git" {
 			if p.ResolvedSHA != "" {
-				fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", p.ResolvedSHA)
+				fmt.Fprintf(&b, "- Resolved SHA: `%s`\n", referenceText(p.ResolvedSHA))
 			}
 			if p.Reproducible {
 				b.WriteString("- Reproducible: yes\n")
@@ -55,11 +56,11 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 				shortcutSection = true
 			}
 			for _, shortcut := range spec.Shortcuts {
-				fmt.Fprintf(&b, "### `%s %s`\n\n", cli, shortcut.Use)
+				fmt.Fprintf(&b, "### `%s %s`\n\n", referenceText(cli), referenceText(shortcut.Use))
 				if spec.Short != "" {
-					fmt.Fprintf(&b, "- Summary: %s\n", oneLine(spec.Short))
+					fmt.Fprintf(&b, "- Summary: %s\n", referenceText(spec.Short))
 				}
-				fmt.Fprintf(&b, "- HTTP: `%s %s`\n", spec.Method, spec.PathTpl)
+				fmt.Fprintf(&b, "- HTTP: `%s %s`\n", referenceText(spec.Method), referenceText(spec.PathTpl))
 				fmt.Fprintf(&b, "- Auth: %s\n", authSummary(spec.Security))
 				fmt.Fprintf(&b, "- Body: %s\n", bodySummary(spec.RequestBody))
 				if preset := shortcutPreset(spec, shortcut); preset != "" {
@@ -76,17 +77,17 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 	groups := groupSpecs(specs)
 	module := moduleName(mod)
 	for _, group := range slices.Sorted(maps.Keys(groups)) {
-		fmt.Fprintf(&b, "## %s\n\n", group)
+		fmt.Fprintf(&b, "## %s\n\n", referenceText(group))
 		if description := groups[group][0].GroupShort; description != "" {
-			fmt.Fprintf(&b, "- Description: %s\n\n", oneLine(description))
+			fmt.Fprintf(&b, "- Description: %s\n\n", referenceText(description))
 		}
 		for _, spec := range groups[group] {
 			path := commandPath(cli, module, spec, flat)
-			fmt.Fprintf(&b, "### `%s`\n\n", strings.Join(path, " "))
+			fmt.Fprintf(&b, "### `%s`\n\n", referenceText(strings.Join(path, " ")))
 			if spec.Short != "" {
-				fmt.Fprintf(&b, "- Summary: %s\n", oneLine(spec.Short))
+				fmt.Fprintf(&b, "- Summary: %s\n", referenceText(spec.Short))
 			}
-			fmt.Fprintf(&b, "- HTTP: `%s %s`\n", spec.Method, spec.PathTpl)
+			fmt.Fprintf(&b, "- HTTP: `%s %s`\n", referenceText(spec.Method), referenceText(spec.PathTpl))
 			fmt.Fprintf(&b, "- Auth: %s\n", authSummary(spec.Security))
 			fmt.Fprintf(&b, "- Body: %s\n", bodySummary(spec.RequestBody))
 			writeShortcuts(&b, cli, spec)
@@ -102,22 +103,22 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					}
 					def := ""
 					if p.Default != "" {
-						def = fmt.Sprintf(", default `%s`", p.Default)
+						def = fmt.Sprintf(", default `%s`", referenceText(p.Default))
 					}
 					format := ""
 					if p.Format != "" {
-						format = ", " + p.Format
+						format = ", " + referenceText(p.Format)
 					}
 					enum := ""
 					if len(p.Enum) > 0 {
-						enum = ", one of: " + strings.Join(p.Enum, "|")
+						enum = ", one of: " + strings.Join(referenceValues(p.Enum), " | ")
 					}
 					if len(p.ItemEnum) > 0 {
-						enum = ", items one of: " + strings.Join(p.ItemEnum, "|")
+						enum = ", items one of: " + strings.Join(referenceValues(p.ItemEnum), " | ")
 					}
 					contentType := ""
 					if notable := notablePartContentType(p); notable != "" {
-						contentType = ", part content type `" + strings.ReplaceAll(oneLine(notable), "`", "'") + "`"
+						contentType = ", part content type `" + strings.ReplaceAll(referenceText(notable), "`", "'") + "`"
 					}
 					deprecated := ""
 					if p.Deprecated {
@@ -125,25 +126,25 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 					}
 					if p.Context != "" {
 						info := manifest.Contexts[p.Context]
-						contextSource := ", context `" + p.Context + "`"
+						contextSource := ", context `" + referenceText(p.Context) + "`"
 						if info.Env != "" {
-							contextSource += " via `" + info.Env + "`"
+							contextSource += " via `" + referenceText(info.Env) + "`"
 						}
 						deprecated += contextSource
 					}
-					input := fmt.Sprintf("`--%s`", p.Flag)
+					input := fmt.Sprintf("`--%s`", referenceText(p.Flag))
 					if p.Argument != "" {
 						position++
-						input = fmt.Sprintf("argument %d `[%s]` or `--%s`", position, p.Argument, p.Flag)
+						input = fmt.Sprintf("argument %d `[%s]` or `--%s`", position, referenceText(p.Argument), referenceText(p.Flag))
 					}
-					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s%s): %s\n", input, p.In, req, def, format, enum, contentType, deprecated, oneLine(stripHelpMeta(p.Help)))
+					fmt.Fprintf(&b, "  - %s (%s%s%s%s%s%s%s): %s\n", input, referenceText(p.In), req, def, format, enum, contentType, deprecated, referenceText(stripHelpMeta(p.Help)))
 				}
 
 			}
 			if spec.RequestBody != nil && len(spec.RequestBody.UnsupportedFields) > 0 {
 				quoted := make([]string, len(spec.RequestBody.UnsupportedFields))
 				for i, name := range spec.RequestBody.UnsupportedFields {
-					quoted[i] = "`" + strings.ReplaceAll(oneLine(name), "`", "'") + "`"
+					quoted[i] = "`" + strings.ReplaceAll(referenceText(name), "`", "'") + "`"
 				}
 				fmt.Fprintf(&b, "- Unsupported properties: %s cannot be sent by this command.\n", strings.Join(quoted, ", "))
 			}
@@ -166,10 +167,10 @@ func writeShortcuts(b *strings.Builder, cli string, spec runtime.CommandSpec) {
 	for _, shortcut := range spec.Shortcuts {
 		preset := shortcutPreset(spec, shortcut)
 		if preset == "" {
-			fmt.Fprintf(b, "  - `%s %s`\n", cli, shortcut.Use)
+			fmt.Fprintf(b, "  - `%s %s`\n", referenceText(cli), referenceText(shortcut.Use))
 			continue
 		}
-		fmt.Fprintf(b, "  - `%s %s` preset %s\n", cli, shortcut.Use, preset)
+		fmt.Fprintf(b, "  - `%s %s` preset %s\n", referenceText(cli), referenceText(shortcut.Use), preset)
 	}
 }
 
@@ -189,7 +190,7 @@ func shortcutPreset(spec runtime.CommandSpec, shortcut runtime.CommandShortcut) 
 		if flag == "" {
 			flag = key
 		}
-		parts = append(parts, fmt.Sprintf("`--%s=%s`", flag, shortcut.Params[key]))
+		parts = append(parts, fmt.Sprintf("`--%s=%s`", referenceText(flag), referenceText(shortcut.Params[key])))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -219,7 +220,7 @@ func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
 	if len(spec.SearchTerms) > 0 {
 		terms := make([]string, 0, len(spec.SearchTerms))
 		for _, term := range spec.SearchTerms {
-			terms = append(terms, "`"+strings.ReplaceAll(oneLine(term), "`", "'")+"`")
+			terms = append(terms, "`"+strings.ReplaceAll(referenceText(term), "`", "'")+"`")
 		}
 		fmt.Fprintf(b, "- Search terms: %s\n", strings.Join(terms, ", "))
 	}
@@ -228,7 +229,7 @@ func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
 		if index, count := paramByNameOrFlag(spec.Params, param); count == 1 {
 			param = spec.Params[index].Flag
 		}
-		fmt.Fprintf(b, "- Sets context `%s` from parameter `%s` after success.\n", spec.SetContext.Name, strings.ReplaceAll(oneLine(param), "`", "'"))
+		fmt.Fprintf(b, "- Sets context `%s` from parameter `%s` after success.\n", referenceText(spec.SetContext.Name), strings.ReplaceAll(referenceText(param), "`", "'"))
 	}
 	if len(spec.KnownErrors) == 0 {
 		return
@@ -239,7 +240,7 @@ func writeOperationContext(b *strings.Builder, spec runtime.CommandSpec) {
 		if err.Status != 0 {
 			label = fmt.Sprintf("HTTP %d", err.Status)
 		}
-		cause := oneLine(err.Cause)
+		cause := referenceText(err.Cause)
 		if cause == "" {
 			fmt.Fprintf(b, "  - %s\n", label)
 			continue
@@ -254,7 +255,7 @@ func writeStringList(b *strings.Builder, label string, values []string) {
 	}
 	fmt.Fprintf(b, "- %s:\n", label)
 	for _, value := range values {
-		fmt.Fprintf(b, "  - %s\n", oneLine(value))
+		fmt.Fprintf(b, "  - %s\n", referenceText(value))
 	}
 }
 
@@ -265,7 +266,7 @@ func writeExample(b *strings.Builder, example string) {
 		fmt.Fprintf(b, "- Example:\n\n%s\n%s\n%s\n", fence, text, fence)
 		return
 	}
-	fmt.Fprintf(b, "- Example: `%s`\n", strings.ReplaceAll(oneLine(text), "`", "'"))
+	fmt.Fprintf(b, "- Example: `%s`\n", referenceCode(text))
 }
 
 func writeExamples(b *strings.Builder, cli, module string, spec runtime.CommandSpec, flat bool) {
@@ -285,29 +286,29 @@ func writeExamples(b *strings.Builder, cli, module string, spec runtime.CommandS
 	}
 	b.WriteString("- Examples:\n")
 	for _, example := range examples {
-		summary := oneLine(example.Summary)
+		summary := referenceText(example.Summary)
 		if summary == "" {
 			summary = "Example"
 		}
 		fmt.Fprintf(b, "  - %s\n", summary)
 		if example.Command != "" {
-			fmt.Fprintf(b, "    Command: `%s`\n", strings.ReplaceAll(oneLine(commandExample(example.Command, cli, module, spec, flat)), "`", "'"))
+			fmt.Fprintf(b, "    Command: `%s`\n", referenceCode(commandExample(example.Command, cli, module, spec, flat)))
 		}
 		if len(example.BodyShape) > 0 {
-			fmt.Fprintf(b, "    Body shape: `%s`\n", strings.ReplaceAll(oneLine(string(example.BodyShape)), "`", "'"))
+			fmt.Fprintf(b, "    Body shape: `%s`\n", referenceCode(string(example.BodyShape)))
 		}
 		if example.OutputHints != nil {
 			if example.OutputHints.IDPath != "" {
-				fmt.Fprintf(b, "    Output ID path: `%s`\n", example.OutputHints.IDPath)
+				fmt.Fprintf(b, "    Output ID path: `%s`\n", referenceText(example.OutputHints.IDPath))
 			}
 			if example.OutputHints.ListPath != "" {
-				fmt.Fprintf(b, "    Output list path: `%s`\n", example.OutputHints.ListPath)
+				fmt.Fprintf(b, "    Output list path: `%s`\n", referenceText(example.OutputHints.ListPath))
 			}
 		}
 		if len(example.FollowUpCommands) > 0 {
 			b.WriteString("    Follow-up commands:\n")
 			for _, command := range example.FollowUpCommands {
-				fmt.Fprintf(b, "      - `%s`\n", strings.ReplaceAll(oneLine(commandExample(command, cli, module, spec, flat)), "`", "'"))
+				fmt.Fprintf(b, "      - `%s`\n", referenceCode(commandExample(command, cli, module, spec, flat)))
 			}
 		}
 	}
@@ -365,13 +366,13 @@ func moduleName(mod SkillModule) string {
 func sourceInputs(src *sourceconfig.Source) []string {
 	switch src.Backend {
 	case sourceconfig.BackendSwagger:
-		return []string{"Files: `" + strings.Join(src.Swagger.Files, "`, `") + "`"}
+		return []string{"Files: `" + strings.Join(referenceValues(src.Swagger.Files), "`, `") + "`"}
 	case sourceconfig.BackendOpenAPI3:
-		return []string{"Files: `" + strings.Join(src.OpenAPI3.Files, "`, `") + "`"}
+		return []string{"Files: `" + strings.Join(referenceValues(src.OpenAPI3.Files), "`, `") + "`"}
 	case sourceconfig.BackendProto:
-		lines := []string{"Entries: `" + strings.Join(src.Proto.Entries, "`, `") + "`"}
+		lines := []string{"Entries: `" + strings.Join(referenceValues(src.Proto.Entries), "`, `") + "`"}
 		if len(src.Proto.ImportRoots) > 0 {
-			lines = append(lines, "Import roots: `"+strings.Join(src.Proto.ImportRoots, "`, `")+"`")
+			lines = append(lines, "Import roots: `"+strings.Join(referenceValues(src.Proto.ImportRoots), "`, `")+"`")
 		}
 		if len(src.Proto.Staging) > 0 {
 			lines = append(lines, fmt.Sprintf("Staging entries: `%d`", len(src.Proto.Staging)))
@@ -381,13 +382,13 @@ func sourceInputs(src *sourceconfig.Source) []string {
 		if src.GraphQL == nil {
 			return nil
 		}
-		lines := []string{"Schema: `" + src.GraphQL.Schema + "`"}
+		lines := []string{"Schema: `" + referenceText(src.GraphQL.Schema) + "`"}
 		if src.GraphQL.Expose != nil {
 			if len(src.GraphQL.Expose.Queries) > 0 {
-				lines = append(lines, "Expose queries: `"+strings.Join(src.GraphQL.Expose.Queries, "`, `")+"`")
+				lines = append(lines, "Expose queries: `"+strings.Join(referenceValues(src.GraphQL.Expose.Queries), "`, `")+"`")
 			}
 			if len(src.GraphQL.Expose.Mutations) > 0 {
-				lines = append(lines, "Expose mutations: `"+strings.Join(src.GraphQL.Expose.Mutations, "`, `")+"`")
+				lines = append(lines, "Expose mutations: `"+strings.Join(referenceValues(src.GraphQL.Expose.Mutations), "`, `")+"`")
 			}
 		}
 		if len(src.GraphQL.Groups) > 0 {
@@ -443,7 +444,7 @@ func authSummary(security *runtime.SecurityHint) string {
 	} else if security != nil && len(security.Scopes) > 0 {
 		scopes := make([]string, len(security.Scopes))
 		for i, scope := range security.Scopes {
-			scopes[i] = "`" + strings.ReplaceAll(oneLine(scope), "`", "'") + "`"
+			scopes[i] = "`" + strings.ReplaceAll(referenceText(scope), "`", "'") + "`"
 		}
 		summary = "required; scopes: " + strings.Join(scopes, ", ")
 	}
@@ -462,7 +463,7 @@ func securityAccepts(security *runtime.SecurityHint) string {
 		}
 		parts := make([]string, len(req.Schemes))
 		for j, scheme := range req.Schemes {
-			parts[j] = "`" + strings.ReplaceAll(oneLine(scheme.String()), "`", "'") + "`"
+			parts[j] = "`" + strings.ReplaceAll(referenceText(scheme.String()), "`", "'") + "`"
 		}
 		alts[i] = strings.Join(parts, " + ")
 	}
@@ -494,10 +495,10 @@ func bodySummary(body *runtime.RequestBody) string {
 		if merge == "" {
 			merge = "the document root"
 		}
-		return state + "; templated body, set inputs under `" + merge + "` with --set/--set-str/--file"
+		return state + "; templated body, set inputs under `" + referenceText(merge) + "` with --set/--set-str/--file"
 	}
 	if body.MediaType != "" {
-		state += "; media type `" + body.MediaType + "`"
+		state += "; media type `" + referenceText(body.MediaType) + "`"
 	}
 	if body.RuntimeSchema != nil {
 		state += "; runtime schema preflight"
@@ -508,24 +509,24 @@ func bodySummary(body *runtime.RequestBody) string {
 func outputSummary(out runtime.OutputHints) string {
 	parts := make([]string, 0, 6)
 	if out.ListPath != "" {
-		parts = append(parts, "list path `"+out.ListPath+"`")
+		parts = append(parts, "list path `"+referenceText(out.ListPath)+"`")
 	}
 	if len(out.DefaultColumns) > 0 {
-		parts = append(parts, "columns `"+strings.Join(out.DefaultColumns, "`, `")+"`")
+		parts = append(parts, "columns `"+strings.Join(referenceValues(out.DefaultColumns), "`, `")+"`")
 	}
 	for _, path := range out.DefaultColumns {
 		if out.ColumnFormats[path].Kind == "count" {
-			parts = append(parts, "table array count `"+path+"` (empty array: 0; missing, null, or non-array: blank)")
+			parts = append(parts, "table array count `"+referenceText(path)+"` (empty array: 0; missing, null, or non-array: blank)")
 		}
 	}
 	if out.ResponseMediaType != "" {
-		parts = append(parts, "response media `"+out.ResponseMediaType+"`")
+		parts = append(parts, "response media `"+referenceText(out.ResponseMediaType)+"`")
 	}
 	if out.Pagination != nil {
-		parts = append(parts, "pagination `"+out.Pagination.Strategy+"`")
+		parts = append(parts, "pagination `"+referenceText(out.Pagination.Strategy)+"`")
 	}
 	if out.Streaming != nil {
-		streaming := "streaming `" + out.Streaming.Strategy + "`"
+		streaming := "streaming `" + referenceText(out.Streaming.Strategy) + "`"
 		if out.Streaming.Policy != nil {
 			streaming += ", collected"
 			if out.Streaming.Policy.Live != nil {
@@ -541,7 +542,28 @@ func outputSummary(out runtime.OutputHints) string {
 }
 
 func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, strings.Join(strings.Fields(s), " "))
+}
+
+func referenceText(s string) string {
+	return strings.ReplaceAll(referenceCode(s), "<", "&lt;")
+}
+
+func referenceCode(s string) string {
+	return strings.NewReplacer("`", "'", "|", "&#124;", "#", "&#35;").Replace(oneLine(s))
+}
+
+func referenceValues(values []string) []string {
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = referenceText(value)
+	}
+	return out
 }
 
 func stripHelpMeta(s string) string {

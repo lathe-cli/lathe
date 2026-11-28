@@ -3,8 +3,10 @@ package render
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -58,7 +60,8 @@ func normalizeSkillInclude(include SkillInclude) (SkillInclude, error) {
 		return include, nil
 	}
 	out := SkillInclude{Path: include.Path, Files: map[string]SkillFileAction{}}
-	for raw, action := range include.Files {
+	for _, raw := range slices.Sorted(maps.Keys(include.Files)) {
+		action := include.Files[raw]
 		rel, err := normalizeSkillRel(raw)
 		if err != nil {
 			return SkillInclude{}, err
@@ -108,7 +111,8 @@ func defaultSkillFileAction(rel string) (SkillFileAction, error) {
 }
 
 func validateSkillIncludePolicy(include SkillInclude, generated map[string]skillFile) error {
-	for rel, action := range include.Files {
+	for _, rel := range slices.Sorted(maps.Keys(include.Files)) {
+		action := include.Files[rel]
 		switch action {
 		case SkillFileReplace:
 			if !canReplaceGeneratedSkillFile(rel) {
@@ -175,13 +179,14 @@ func mergeSkillIncludes(files map[string]skillFile, generated map[string]skillFi
 		return err
 	}
 	covered := map[string]bool{}
-	for rel, action := range include.Files {
+	for _, rel := range slices.Sorted(maps.Keys(include.Files)) {
+		action := include.Files[rel]
 		covered[rel] = true
 		if err := applySkillIncludeAction(files, generated, includeFiles, rel, action); err != nil {
 			return err
 		}
 	}
-	for rel := range includeFiles {
+	for _, rel := range slices.Sorted(maps.Keys(includeFiles)) {
 		if covered[rel] {
 			continue
 		}

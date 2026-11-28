@@ -1,11 +1,12 @@
 package openapi3
 
 import (
-	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/backends/document"
@@ -42,6 +43,9 @@ type pathItem struct {
 	Put        *operation  `json:"put,omitempty" yaml:"put,omitempty"`
 	Delete     *operation  `json:"delete,omitempty" yaml:"delete,omitempty"`
 	Patch      *operation  `json:"patch,omitempty" yaml:"patch,omitempty"`
+	Head       *operation  `json:"head,omitempty" yaml:"head,omitempty"`
+	Options    *operation  `json:"options,omitempty" yaml:"options,omitempty"`
+	Trace      *operation  `json:"trace,omitempty" yaml:"trace,omitempty"`
 }
 
 type operation struct {
@@ -56,6 +60,7 @@ type operation struct {
 	Servers     *[]server              `json:"servers,omitempty" yaml:"servers,omitempty"`
 
 	serverBasePath string
+	pathParams     []parameter
 }
 
 type parameter struct {
@@ -88,6 +93,20 @@ type response struct {
 	Content map[string]mediaType `json:"content,omitempty" yaml:"content,omitempty"`
 }
 
+type operationPath struct {
+	path     string
+	basePath string
+}
+
+type methodOperation struct {
+	method string
+	op     *operation
+}
+
+func (p *pathItem) operations() []methodOperation {
+	return []methodOperation{{"GET", p.Get}, {"POST", p.Post}, {"PUT", p.Put}, {"DELETE", p.Delete}, {"PATCH", p.Patch}, {"HEAD", p.Head}, {"OPTIONS", p.Options}, {"TRACE", p.Trace}}
+}
+
 func applyServerBasePaths(doc *oas3Doc, module, origin string, override *string) {
 	var rootBasePath string
 	if override != nil {
@@ -95,12 +114,14 @@ func applyServerBasePaths(doc *oas3Doc, module, origin string, override *string)
 	} else {
 		rootBasePath = resolveServerBasePath(doc.Servers, module, origin)
 	}
-	for _, item := range doc.Paths {
+	for _, path := range slices.Sorted(maps.Keys(doc.Paths)) {
+		item := doc.Paths[path]
 		basePath := rootBasePath
 		if override == nil && item.Servers != nil {
 			basePath = resolveServerBasePath(*item.Servers, module, origin)
 		}
-		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+		for _, pair := range item.operations() {
+			op := pair.op
 			if op == nil {
 				continue
 			}
@@ -117,8 +138,10 @@ func applyEffectiveSecurity(doc *oas3Doc) {
 		return
 	}
 	security := doc.Security
-	for _, item := range doc.Paths {
-		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+	for _, path := range slices.Sorted(maps.Keys(doc.Paths)) {
+		item := doc.Paths[path]
+		for _, pair := range item.operations() {
+			op := pair.op
 			if op != nil && op.Security == nil {
 				op.Security = &security
 			}
@@ -134,7 +157,8 @@ func resolveServerBasePath(servers []server, module, origin string) string {
 	if raw == "" {
 		return ""
 	}
-	for name, variable := range servers[0].Variables {
+	for _, name := range slices.Sorted(maps.Keys(servers[0].Variables)) {
+		variable := servers[0].Variables[name]
 		raw = strings.ReplaceAll(raw, "{"+name+"}", variable.Default)
 	}
 	basePath, err := document.ServerBasePath(raw)
@@ -155,7 +179,7 @@ func unmarshalAuto(path string, data []byte, v any) error {
 	}
 }
 
-func mergeDoc(dst, add *oas3Doc, module, origin string) {
+func mergeDoc(dst, add *oas3Doc, paths map[operationPath]map[string]*operation, module, origin string) error {
 	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
 	if add.Components != nil {
 		if dst.Components == nil {
@@ -170,16 +194,22 @@ func mergeDoc(dst, add *oas3Doc, module, origin string) {
 		document.MergeNamed(dst.Components.Schemas, add.Components.Schemas, "schema", module, origin)
 		document.MergeNamed(dst.Components.SecuritySchemes, add.Components.SecuritySchemes, "security scheme", module, origin)
 	}
-	for path, item := range add.Paths {
-		if _, exists := dst.Paths[path]; !exists {
-			dst.Paths[path] = item
-			continue
+	for _, path := range slices.Sorted(maps.Keys(add.Paths)) {
+		item := add.Paths[path]
+		for _, pair := range item.operations() {
+			if pair.op == nil {
+				continue
+			}
+			key := operationPath{path: path, basePath: pair.op.serverBasePath}
+			if paths[key] == nil {
+				paths[key] = map[string]*operation{}
+			}
+			if _, exists := paths[key][pair.method]; exists {
+				return fmt.Errorf("%s: duplicate %s %s with base path %q in %s", module, pair.method, path, key.basePath, origin)
+			}
+			pair.op.pathParams = item.Parameters
+			paths[key][pair.method] = pair.op
 		}
-		existing := dst.Paths[path]
-		existing.Get = cmp.Or(existing.Get, item.Get)
-		existing.Post = cmp.Or(existing.Post, item.Post)
-		existing.Put = cmp.Or(existing.Put, item.Put)
-		existing.Delete = cmp.Or(existing.Delete, item.Delete)
-		existing.Patch = cmp.Or(existing.Patch, item.Patch)
 	}
+	return nil
 }

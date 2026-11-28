@@ -2,10 +2,13 @@ package swagger
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/lathe-cli/lathe/internal/codegen/backends/document"
@@ -153,14 +156,16 @@ func mergeDoc(dst *swaggerDoc, paths map[operationPath]map[string]operation, add
 	dst.Tags = document.MergeTags(dst.Tags, add.Tags, module, origin)
 	document.MergeNamed(dst.Definitions, add.Definitions, "definition", module, origin)
 	document.MergeNamed(dst.SecurityDefinitions, add.SecurityDefinitions, "security scheme", module, origin)
-	for path, methods := range add.Paths {
+	for _, path := range slices.Sorted(maps.Keys(add.Paths)) {
+		methods := add.Paths[path]
 		key := operationPath{path: path, basePath: basePath}
 		bucket, ok := paths[key]
 		if !ok {
 			bucket = map[string]operation{}
 			paths[key] = bucket
 		}
-		for m, op := range methods {
+		for _, m := range slices.Sorted(maps.Keys(methods)) {
+			op := methods[m]
 			if _, exists := bucket[m]; exists {
 				fmt.Fprintf(os.Stderr, "warn: %s: duplicate %s %s in %s (kept first)\n", module, strings.ToUpper(m), path, origin)
 				continue
@@ -182,7 +187,10 @@ func toRawIR(name string, doc *swaggerDoc, paths map[operationPath]map[string]op
 	for _, tag := range doc.Tags {
 		mod.GroupDescriptions[tag.Name] = tag.Description
 	}
-	for path, methods := range paths {
+	for _, path := range slices.SortedFunc(maps.Keys(paths), func(a, b operationPath) int {
+		return cmp.Or(cmp.Compare(a.path, b.path), cmp.Compare(a.basePath, b.basePath))
+	}) {
+		methods := paths[path]
 		for _, m := range []string{"get", "post", "put", "delete", "patch"} {
 			op, ok := methods[m]
 			if !ok {

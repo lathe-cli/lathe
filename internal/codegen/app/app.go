@@ -40,9 +40,6 @@ type Skill struct {
 	Bundle  bool
 }
 
-// Validate rejects app compositions that would produce a conflicting root
-// command tree. Flat modules are skipped: their module name is never mounted,
-// and flat root conflicts are rejected by ResolveFlatCommandPath.
 func (a *App) Validate() error {
 	names := make([]string, 0, len(a.Modules))
 	for _, m := range a.Modules {
@@ -73,6 +70,11 @@ func (a *App) Validate() error {
 			if err := validateCommandContexts(a.Manifest, step.Operation); err != nil {
 				return fmt.Errorf("workflow %q step %q: %w", workflow.Use, step.ID, err)
 			}
+		}
+	}
+	if a.Skill != nil {
+		if err := render.ValidateSkillDirectoryWithInclude(a.Skill.Dir, a.Manifest, a.Skill.Modules, a.Skill.Include); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -191,8 +193,10 @@ func multipartMediaType(mediaType string) bool {
 	return err == nil && parsed == "multipart/form-data"
 }
 
-// Write renders every collected output.
 func (a *App) Write() error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
 	mounts := make([]render.ModuleMount, 0, len(a.Modules))
 	sources := make([]runtime.SourceProvenance, 0, len(a.Modules))
 	for _, m := range a.Modules {

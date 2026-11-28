@@ -28,7 +28,7 @@ func TestResolveFlatCommandPath(t *testing.T) {
 		{"normalized search", "auto", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}}, false, ""},
 		{"reserved skill", "auto", 1, []runtime.CommandSpec{{Group: "Skill", Use: "install-skill"}}, false, ""},
 		{"reserved snip", "auto", 1, []runtime.CommandSpec{{Group: "Snip", Use: "list-snips"}}, false, ""},
-		{"normalized groups", "auto", 1, duplicateGroups, false, ""},
+		{"normalized groups", "auto", 1, duplicateGroups, false, "conflicts"},
 		{"flat search", "flat", 1, []runtime.CommandSpec{{Group: "Search", Use: "query"}}, false, "conflicts"},
 		{"flat normalized search", "flat", 1, []runtime.CommandSpec{{Group: "Search API", Use: "query"}}, false, "conflicts"},
 		{"flat skill", "flat", 1, []runtime.CommandSpec{{Group: "Skill", Use: "install-skill"}}, false, "conflicts"},

@@ -3,8 +3,10 @@ package render
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -41,39 +43,53 @@ func RenderSkillDirectoryWithInclude(root string, manifest *config.Manifest, mod
 	return renderSkillDirectory(root, manifest, modules, include)
 }
 
+func ValidateSkillDirectoryWithInclude(root string, manifest *config.Manifest, modules []SkillModule, include SkillInclude) error {
+	_, _, err := prepareSkillDirectory(root, manifest, modules, include)
+	return err
+}
+
 func renderSkillDirectory(root string, manifest *config.Manifest, modules []SkillModule, include SkillInclude) error {
+	files, count, err := prepareSkillDirectory(root, manifest, modules, include)
+	if err != nil {
+		return err
+	}
+	clean := filepath.Clean(root)
+	if err := writeSkillDirectory(clean, files); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", clean, count)
+	return nil
+}
+
+func prepareSkillDirectory(root string, manifest *config.Manifest, modules []SkillModule, include SkillInclude) (map[string]skillFile, int, error) {
 	clean := filepath.Clean(root)
 	if root == "" || clean == "." || clean == string(filepath.Separator) {
-		return fmt.Errorf("invalid skill output directory %q", root)
+		return nil, 0, fmt.Errorf("invalid skill output directory %q", root)
 	}
 	if err := verifySkillDirectoryOwned(clean); err != nil {
-		return err
+		return nil, 0, err
 	}
 	include, err := normalizeSkillInclude(include)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	if err := ValidateSkillIncludeRoot(filepath.Dir(clean), include.Path); err != nil {
-		return err
+		return nil, 0, err
 	}
 	allRefs, err := moduleReferences(manifest.CLI.CommandPath, modules)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	allGenerated := renderSkillFiles(manifest, allRefs)
 	if err := validateSkillIncludePolicy(include, allGenerated); err != nil {
-		return err
+		return nil, 0, err
 	}
 	refs := filterOmittedModuleRefs(allRefs, include)
 	files := renderSkillFiles(manifest, refs)
 	if err := mergeSkillIncludes(files, allGenerated, include); err != nil {
-		return err
+		return nil, 0, err
 	}
-	if err := writeSkillDirectory(clean, files); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "wrote %s: %d modules\n", clean, len(refs))
-	return nil
+	return files, len(refs), nil
 }
 
 func renderSkillFiles(manifest *config.Manifest, refs []moduleRef) map[string]skillFile {
@@ -108,7 +124,8 @@ func writeSkillDirectory(root string, files map[string]skillFile) error {
 			_ = os.RemoveAll(tmp)
 		}
 	}()
-	for rel, file := range files {
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
+		file := files[rel]
 		target := filepath.Join(tmp, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err

@@ -80,7 +80,8 @@ func validateGroupOverrides(specs []runtime.CommandSpec, groups map[string]overl
 	for _, spec := range specs {
 		known[spec.Group] = true
 	}
-	for name, group := range groups {
+	for _, name := range slices.Sorted(maps.Keys(groups)) {
+		group := groups[name]
 		if !known[name] {
 			return fmt.Errorf("group %q does not exist after command overrides", name)
 		}
@@ -93,7 +94,8 @@ func validateGroupOverrides(specs []runtime.CommandSpec, groups map[string]overl
 
 func validateArguments(spec runtime.CommandSpec, overrides map[string]overlay.ParamOverride) error {
 	seenNames := map[string]bool{}
-	for paramName, override := range overrides {
+	for _, paramName := range slices.Sorted(maps.Keys(overrides)) {
+		override := overrides[paramName]
 		if override.Argument == "" {
 			continue
 		}
@@ -256,9 +258,9 @@ func validateStreamingOverride(spec runtime.CommandSpec, stream overlay.Streamin
 		return fmt.Errorf("require_stop needs a terminal event")
 	}
 	terminal := map[string]string{}
-	for kind, events := range map[string][]string{
-		"stop": stream.Collect.StopEvents, "pause": stream.Collect.PauseEvents, "error": stream.Collect.ErrorEvents,
-	} {
+	eventGroups := map[string][]string{"stop": stream.Collect.StopEvents, "pause": stream.Collect.PauseEvents, "error": stream.Collect.ErrorEvents}
+	for _, kind := range slices.Sorted(maps.Keys(eventGroups)) {
+		events := eventGroups[kind]
 		for _, event := range events {
 			if event == "" {
 				return fmt.Errorf("%s event must not be empty", kind)

@@ -500,7 +500,7 @@ func TestModuleReference_GroupDescriptionMarkdown(t *testing.T) {
 	manifest := &config.Manifest{CLI: config.CLIInfo{Name: "demo"}}
 	module := SkillModule{Specs: []runtime.CommandSpec{{Group: "Users", GroupShort: "```\nManage users", Use: "list", Method: "GET"}}}
 	got := renderModuleReference(manifest, module, true)
-	testutil.Require(t, strings.Contains(got, "- Description: ``` Manage users\n\n### `demo users list`"), "description must not open a code fence: %s", got)
+	testutil.Require(t, strings.Contains(got, "- Description: ''' Manage users\n\n### `demo users list`"), "description must not open a code fence: %s", got)
 }
 
 func TestModuleReference_HiddenCommandShortcut(t *testing.T) {

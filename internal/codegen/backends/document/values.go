@@ -73,7 +73,8 @@ func Security(requirements []map[string][]string, schemes map[string]SecuritySch
 }
 
 func MergeNamed[T any](dst, add map[string]T, kind, module, origin string) {
-	for k, v := range add {
+	for _, k := range slices.Sorted(maps.Keys(add)) {
+		v := add[k]
 		if existing, exists := dst[k]; exists {
 			if !EqualJSON(existing, v) {
 				fmt.Fprintf(os.Stderr, "warn: %s: diverging %s %q in %s (kept first)\n", module, kind, k, origin)

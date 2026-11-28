@@ -1,6 +1,7 @@
 package openapi3
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -14,9 +15,8 @@ import (
 )
 
 func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
-	all := &oas3Doc{
-		Paths: map[string]*pathItem{},
-	}
+	all := &oas3Doc{}
+	paths := map[operationPath]map[string]*operation{}
 	allowedOperationIDs := map[string]bool{}
 	matchedOperationIDs := map[string]int{}
 	if src.OpenAPI3.Expose != nil {
@@ -37,9 +37,11 @@ func Parse(src *sourceconfig.Source, syncDir string) (*rawir.RawModule, error) {
 		applyServerBasePaths(&doc, src.Name, p, src.BasePath)
 		applyEffectiveSecurity(&doc)
 		countExposedOperationIDs(&doc, allowedOperationIDs, matchedOperationIDs)
-		mergeDoc(all, &doc, src.Name, p)
+		if err := mergeDoc(all, &doc, paths, src.Name, p); err != nil {
+			return nil, err
+		}
 	}
-	mod := toRawIR(src.Name, all)
+	mod := toRawIR(src.Name, all, paths)
 	if src.OpenAPI3.Expose == nil {
 		return mod, nil
 	}
@@ -51,7 +53,8 @@ func countExposedOperationIDs(doc *oas3Doc, allowed map[string]bool, matched map
 		return
 	}
 	for _, item := range doc.Paths {
-		for _, op := range []*operation{item.Get, item.Post, item.Put, item.Delete, item.Patch} {
+		for _, pair := range item.operations() {
+			op := pair.op
 			if op != nil && allowed[op.OperationID] {
 				matched[op.OperationID]++
 			}
@@ -88,7 +91,7 @@ func filterExposedOperations(source string, mod *rawir.RawModule, operationIDs [
 	return mod, nil
 }
 
-func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
+func toRawIR(name string, doc *oas3Doc, paths map[operationPath]map[string]*operation) *rawir.RawModule {
 	mod := &rawir.RawModule{
 		Name:    name,
 		Schemas: map[string]*rawir.RawSchema{},
@@ -104,22 +107,13 @@ func toRawIR(name string, doc *oas3Doc) *rawir.RawModule {
 	for _, tag := range doc.Tags {
 		mod.GroupDescriptions[tag.Name] = tag.Description
 	}
-	for path, item := range doc.Paths {
-		pathParams := item.Parameters
-		for _, pair := range []struct {
-			method string
-			op     *operation
-		}{
-			{"GET", item.Get},
-			{"POST", item.Post},
-			{"PUT", item.Put},
-			{"DELETE", item.Delete},
-			{"PATCH", item.Patch},
-		} {
-			if pair.op == nil {
-				continue
-			}
-			mod.Operations = append(mod.Operations, convertOp(pair.op, pair.method, path, pathParams, doc.Security, schemes))
+	keys := slices.SortedFunc(maps.Keys(paths), func(a, b operationPath) int {
+		return cmp.Or(cmp.Compare(a.path, b.path), cmp.Compare(a.basePath, b.basePath))
+	})
+	for _, path := range keys {
+		for _, method := range slices.Sorted(maps.Keys(paths[path])) {
+			op := paths[path][method]
+			mod.Operations = append(mod.Operations, convertOp(op, method, path.path, op.pathParams, doc.Security, schemes))
 		}
 	}
 	return mod
@@ -141,11 +135,11 @@ func convertOp(op *operation, method, path string, pathParams []parameter, globa
 
 	seen := map[string]bool{}
 	for _, p := range op.Parameters {
-		seen[p.Name] = true
+		seen[p.In+"\x00"+p.Name] = true
 		out.Parameters = append(out.Parameters, convertParam(p))
 	}
 	for _, p := range pathParams {
-		if seen[p.Name] {
+		if seen[p.In+"\x00"+p.Name] {
 			continue
 		}
 		out.Parameters = append(out.Parameters, convertParam(p))
