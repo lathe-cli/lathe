@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -57,8 +58,12 @@ func Load(bytes []byte) (*Manifest, error) {
 	if err := yaml.Unmarshal(bytes, &m); err != nil {
 		return nil, fmt.Errorf("parse cli.yaml: %w", err)
 	}
+	m.CLI.Name = strings.TrimSpace(m.CLI.Name)
 	if m.CLI.Name == "" {
 		return nil, fmt.Errorf("cli.name is required")
+	}
+	if !cliNamePattern.MatchString(m.CLI.Name) {
+		return nil, fmt.Errorf("cli.name must start with a letter and contain only letters, digits, dots, hyphens, or underscores")
 	}
 	if err := normalizeContexts(m.Contexts); err != nil {
 		return nil, err
@@ -86,7 +91,15 @@ func Load(bytes []byte) (*Manifest, error) {
 	default:
 		return nil, fmt.Errorf("cli.command_path must be one of %q, %q, or %q", CommandPathAuto, CommandPathFlat, CommandPathNamespaced)
 	}
-	upper := strings.ToUpper(m.CLI.Name)
+	upper := strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
+			return r
+		}
+		return '_'
+	}, strings.ToUpper(m.CLI.Name))
+	m.CLI.ConfigDir = strings.TrimSpace(m.CLI.ConfigDir)
+	m.CLI.HostEnv = strings.TrimSpace(m.CLI.HostEnv)
+	m.CLI.ConfigDirEnv = strings.TrimSpace(m.CLI.ConfigDirEnv)
 	if m.CLI.ConfigDir == "" {
 		m.CLI.ConfigDir = m.CLI.Name
 	}
@@ -95,6 +108,15 @@ func Load(bytes []byte) (*Manifest, error) {
 	}
 	if m.CLI.HostEnv == "" {
 		m.CLI.HostEnv = upper + "_HOST"
+	}
+	if err := validateConfigDir(m.CLI.ConfigDir); err != nil {
+		return nil, err
+	}
+	if !envNamePattern.MatchString(m.CLI.HostEnv) || !envNamePattern.MatchString(m.CLI.ConfigDirEnv) {
+		return nil, fmt.Errorf("cli.host_env and cli.config_dir_env must be valid environment variable names")
+	}
+	if strings.EqualFold(m.CLI.HostEnv, m.CLI.ConfigDirEnv) {
+		return nil, fmt.Errorf("cli.host_env and cli.config_dir_env must use different environment variable names")
 	}
 	for name, info := range m.Contexts {
 		if info.Env != "" && (strings.EqualFold(info.Env, m.CLI.HostEnv) || strings.EqualFold(info.Env, m.CLI.ConfigDirEnv)) {
@@ -126,6 +148,14 @@ func normalizeContexts(contexts map[string]ContextInfo) error {
 	return nil
 }
 
+func validateConfigDir(name string) error {
+	if !filepath.IsLocal(name) || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("cli.config_dir must be a local directory name without path separators")
+	}
+	return nil
+}
+
+var cliNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
 var contextNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 

@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
@@ -124,4 +126,60 @@ func TestMutateHostsRejectsCollidingLegacyKeysWithoutWriting(t *testing.T) {
 	after, err := os.ReadFile(path)
 	testutil.NoError(t, err)
 	testutil.Require(t, string(before) == string(after), "colliding hostname credential mutation changed hosts.yml")
+}
+
+func TestConfigDirRejectsUnsafeBoundManifest(t *testing.T) {
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	for _, dir := range []string{".", "..", "../outside", "a/b", `a\b`, "/tmp"} {
+		Bind(&Manifest{CLI: CLIInfo{Name: "demo", ConfigDir: dir, ConfigDirEnv: "DEMO_CONFIG_DIR"}})
+		if _, err := configDir(); err == nil {
+			t.Errorf("accepted config_dir %q", dir)
+		}
+	}
+	Bind(&Manifest{CLI: CLIInfo{Name: "demo", ConfigDir: " demo ", ConfigDirEnv: "DEMO_CONFIG_DIR"}})
+	if _, err := configDir(); err != nil {
+		t.Fatal(err)
+	}
+	Bind(&Manifest{CLI: CLIInfo{Name: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR"}})
+	if _, err := configDir(); err != nil {
+		t.Fatal(err)
+	}
+	Bind(&Manifest{CLI: CLIInfo{ConfigDirEnv: "DEMO_CONFIG_DIR"}})
+	if _, err := configDir(); err == nil {
+		t.Error("accepted empty config directory and CLI name")
+	}
+}
+
+func TestHostsSaveWaitsForFileLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts.yml")
+	hosts := &Hosts{path: path, entries: map[string]HostEntry{"api.example.com": {User: "demo"}}}
+	requireSaveWaitsForFileLock(t, path, hosts.Save)
+	loaded, err := loadHostsPath(path)
+	testutil.NoError(t, err)
+	if entry, ok := loaded.Get("api.example.com"); !ok || entry.User != "demo" {
+		t.Fatalf("entry = %+v, found = %t", entry, ok)
+	}
+}
+
+func requireSaveWaitsForFileLock(t *testing.T, path string, save func() error) {
+	t.Helper()
+	lock := flock.New(path + ".lock")
+	testutil.NoError(t, lock.Lock())
+	defer func() { _ = lock.Unlock() }()
+	done := make(chan error, 1)
+	started := make(chan struct{})
+	go func() { close(started); done <- save() }()
+	<-started
+	select {
+	case err := <-done:
+		t.Fatalf("Save completed while lock was held: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	testutil.NoError(t, lock.Unlock())
+	select {
+	case err := <-done:
+		testutil.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Save did not complete after lock release")
+	}
 }

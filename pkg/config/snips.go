@@ -16,7 +16,9 @@ type SnipEntry struct {
 	Description string `yaml:"description,omitempty"`
 }
 
-func (e *SnipEntry) UnmarshalYAML(value *yaml.Node) error {
+type snipEntryYAML struct{ SnipEntry }
+
+func (e *snipEntryYAML) UnmarshalYAML(value *yaml.Node) error {
 	switch value.Kind {
 	case yaml.ScalarNode:
 		if value.Tag == "!!null" {
@@ -107,7 +109,7 @@ func loadSnipsPath(p string) (*Snips, error) {
 	if root.Content[0].Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("parse %s: snips root must be a mapping", p)
 	}
-	raw := map[string]SnipEntry{}
+	raw := map[string]snipEntryYAML{}
 	if err := root.Content[0].Decode(&raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
@@ -122,15 +124,15 @@ func loadSnipsPath(p string) (*Snips, error) {
 		if _, exists := s.entries[name]; exists {
 			return nil, fmt.Errorf("parse %s: duplicate snip %q", p, name)
 		}
-		s.entries[name] = v
+		s.entries[name] = v.SnipEntry
 	}
 	return s, nil
 }
 
-func (s *Snips) Set(name string, e SnipEntry) {
+func (s *Snips) Set(name string, e SnipEntry) error {
 	name = strings.TrimSpace(name)
 	if name == "" || strings.TrimSpace(e.Command) == "" {
-		return
+		return fmt.Errorf("snip name and command must not be empty")
 	}
 	if s.entries == nil {
 		s.entries = map[string]SnipEntry{}
@@ -139,6 +141,7 @@ func (s *Snips) Set(name string, e SnipEntry) {
 		Command:     strings.TrimSpace(e.Command),
 		Description: strings.TrimSpace(e.Description),
 	}
+	return nil
 }
 
 func (s *Snips) Get(name string) (SnipEntry, bool) {
@@ -165,7 +168,10 @@ func (s *Snips) Names() []string {
 }
 
 func (s *Snips) Save() error {
-	return s.saveAtomic()
+	if s.path == "" {
+		return s.saveAtomic()
+	}
+	return withFileLock(context.Background(), s.path, s.saveAtomic)
 }
 
 func MutateSnips(ctx context.Context, mutate func(*Snips) error) error {

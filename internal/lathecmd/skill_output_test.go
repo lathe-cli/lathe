@@ -241,3 +241,22 @@ func TestSkillOutputDirRejectsUnsafeRoots(t *testing.T) {
 		}
 	}
 }
+
+func TestCodegenRejectsUnknownManifestFields(t *testing.T) {
+	for _, input := range []string{
+		"cli: {name: demo}\nunknown: true\n",
+		"cli: {name: demo, host_en: DEMO_HOST}\n",
+		"cli: {name: demo}\nauth: {unknown: true}\n",
+		"cli: {name: demo}\ncontexts: {workspace: {unknown: true}}\n",
+		"cli: {name: demo}\nupdate: {github: {owner: demo, repo: demo, asset: demo, unknown: true}}\n",
+		"cli: {name: demo}\nskill: {bundel: true}\n",
+		"cli: {name: demo}\nworkflow: {commands: [{use: probe, steps: [{id: get, uses: get}], unknown: true}]}\n",
+		"cli: {name: demo}\nworkflow: {commands: [{use: probe, steps: [{id: get, uses: get, when: [{value: x, operator: in, values: [1.0], unknown: true}]}]}]}\n",
+	} {
+		path := filepath.Join(t.TempDir(), "cli.yaml")
+		testutil.NoError(t, os.WriteFile(path, []byte(input), 0o600))
+		if _, _, _, err := loadCodegenManifest(path); err == nil {
+			t.Errorf("accepted unknown field in %s", input)
+		}
+	}
+}

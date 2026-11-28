@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lathe-cli/lathe/pkg/config"
 	"github.com/lathe-cli/lathe/pkg/runtime"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
@@ -142,7 +143,10 @@ func TestVerifyGeneratedSkillInstall(t *testing.T) {
 	skill.AddCommand(install)
 	root.AddCommand(skill)
 
-	report := verifyGenerated(root, testManifest())
+	m := testManifest()
+	m.CLI.HostEnv = "MYCTL_HOST"
+	m.CLI.ConfigDirEnv = "MYCTL_CONFIG_DIR"
+	report := verifyGenerated(root, m)
 	testutil.Require(t, verifyReportHasCheck(report, "skill_install"), "report missing skill_install: %+v", report.Checks)
 	testutil.Require(t, hookRan, "skill install hook did not run")
 	testutil.Require(t, os.Getenv("USERPROFILE") == originalProfile, "USERPROFILE was not restored")
@@ -171,7 +175,10 @@ func TestVerifyGeneratedHiddenWorkflowContract(t *testing.T) {
 		}},
 	}}))
 
-	report := verifyGenerated(root, testManifest())
+	m := testManifest()
+	m.CLI.HostEnv = "MYCTL_HOST"
+	m.CLI.ConfigDirEnv = "MYCTL_CONFIG_DIR"
+	report := verifyGenerated(root, m)
 	testutil.Require(t, report.OK, "report = %+v", report)
 	testutil.Require(t, verifyReportHasCheck(report, "workflow_contract"), "report missing workflow_contract: %+v", report.Checks)
 }
@@ -308,4 +315,26 @@ func verifyReportHasCheck(report verifyReport, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestVerifyEnvironmentVariables(t *testing.T) {
+	for _, env := range []string{"", "BAD-HOST", "1HOST", " HOST", "HOST=VALUE", "HÖST"} {
+		for _, host := range []bool{true, false} {
+			m := &config.Manifest{CLI: config.CLIInfo{HostEnv: "DEMO_HOST", ConfigDirEnv: "DEMO_CONFIG_DIR"}}
+			if host {
+				m.CLI.HostEnv = env
+			} else {
+				m.CLI.ConfigDirEnv = env
+			}
+			if err := verifyEnvironmentVariables(m); err == nil {
+				t.Errorf("accepted env %q host=%t", env, host)
+			}
+		}
+	}
+	if err := verifyEnvironmentVariables(nil); err == nil {
+		t.Error("accepted nil manifest")
+	}
+	if err := verifyEnvironmentVariables(&config.Manifest{CLI: config.CLIInfo{HostEnv: "_HOST_2", ConfigDirEnv: "demo_config"}}); err != nil {
+		t.Fatal(err)
+	}
 }

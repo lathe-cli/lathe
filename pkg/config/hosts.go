@@ -91,6 +91,13 @@ type Hosts struct {
 
 func configDir() (string, error) {
 	m := Active().CLI
+	m.ConfigDir = strings.TrimSpace(m.ConfigDir)
+	if m.ConfigDir == "" {
+		m.ConfigDir = strings.TrimSpace(m.Name)
+	}
+	if err := validateConfigDir(m.ConfigDir); err != nil {
+		return "", err
+	}
 	if v := os.Getenv(m.ConfigDirEnv); v != "" {
 		return v, nil
 	}
@@ -191,7 +198,10 @@ func (h *Hosts) Select(hostname string) {
 }
 
 func (h *Hosts) Save() error {
-	return h.saveAtomic()
+	if h.path == "" {
+		return h.saveAtomic()
+	}
+	return withFileLock(context.Background(), h.path, h.saveAtomic)
 }
 
 func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
