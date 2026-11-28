@@ -18,6 +18,7 @@ type OperationInput struct {
 	HasFile        bool
 	BodySets       []string
 	BodyStringSets []string
+	bodyValues     []bodyValue
 }
 
 type OperationOptions struct {

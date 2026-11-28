@@ -48,6 +48,10 @@ names are sensitive at any target path segment. A sensitive child does not
 make a non-sensitive sibling sensitive. Use `--file` or `--file -` for sensitive
 body fields. Typed string flags also support `--<flag>-env`, `--<flag>-file`,
 and `--<flag>-stdin`. Non-sensitive `set_only_fields` still accept assignments.
+`OperationInput.BodySets` and `BodyStringSets` follow the same restriction.
+Workflow `set` and `set_str` resolve step data separately from command-line
+assignments. They accept sensitive values from workflow input references,
+including nested body fields and templated envelopes.
 
 Overlay YAML rejects unknown fields and extra YAML documents. Empty files and
 `{}` remain valid. Command selectors and parameter keys must match an operation

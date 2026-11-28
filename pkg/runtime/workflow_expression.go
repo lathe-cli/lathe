@@ -68,29 +68,32 @@ func workflowOperationInput(step WorkflowStepSpec, state workflowState) (Operati
 		}
 		values[key] = value
 	}
-	sets, err := evalWorkflowAssignments(step.BodySets, state)
+	sets, err := evalWorkflowAssignments(step.BodySets, state, "--set")
 	if err != nil {
 		return OperationInput{}, fmt.Errorf("step %s body set: %w", step.ID, err)
 	}
-	stringSets, err := evalWorkflowAssignments(step.BodyStringSets, state)
+	stringSets, err := evalWorkflowAssignments(step.BodyStringSets, state, "--set-str")
 	if err != nil {
 		return OperationInput{}, fmt.Errorf("step %s body set-str: %w", step.ID, err)
 	}
 	return OperationInput{
-		Values:         values,
-		BodySets:       sets,
-		BodyStringSets: stringSets,
+		Values:     values,
+		bodyValues: append(sets, stringSets...),
 	}, nil
 }
 
-func evalWorkflowAssignments(values []WorkflowValue, state workflowState) ([]string, error) {
-	out := make([]string, 0, len(values))
+func evalWorkflowAssignments(values []WorkflowValue, state workflowState, flag string) ([]bodyValue, error) {
+	out := make([]bodyValue, 0, len(values))
 	for _, value := range values {
 		evaluated, err := evalWorkflowString(value.Value, state, workflowStrict)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, value.Name+"="+evaluated)
+		var body any = evaluated
+		if flag == "--set" {
+			body = inferValue(evaluated)
+		}
+		out = append(out, bodyValue{path: value.Name, value: body, flag: flag})
 	}
 	return out, nil
 }

@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,71 @@ import (
 
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
+
+func TestBuildWorkflowsSensitiveBodyFromSafeInput(t *testing.T) {
+	for _, template := range []bool{false, true} {
+		for _, stringSet := range []bool{false, true} {
+			t.Run(fmt.Sprintf("template=%t/string=%t", template, stringSet), func(t *testing.T) {
+				isolateRuntime(t)
+				t.Setenv("WORKFLOW_TEST_PASSWORD", "synthetic-safe-value")
+				var bodies []map[string]any
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					bodies = append(bodies, body)
+					_, _ = io.WriteString(w, `{}`)
+				}))
+				defer srv.Close()
+				body := &RequestBody{Required: true, MediaType: "application/json", Schema: &SchemaSpec{
+					Type: "object", Properties: map[string]*SchemaSpec{
+						"credentials": {Type: "object", Properties: map[string]*SchemaSpec{"pin": {Type: "string", Format: "password"}}},
+					},
+				}}
+				location := InBody
+				if template {
+					body.Template = `{"query":"login","variables":{"retained":true}}`
+					body.MergePath = "variables"
+					location = InVariable
+				}
+				step := WorkflowStepSpec{
+					ID: "login", Operation: CommandSpec{
+						Method: "POST", PathTpl: "/login", Security: &SecurityHint{Public: true}, RequestBody: body,
+						Params: []ParamSpec{{Name: "username", Flag: "username", In: location, GoType: "string"}},
+					},
+					Params:   map[string]string{"username": "alice"},
+					BodySets: []WorkflowValue{{Name: "attempt", Value: "2"}},
+				}
+				assignment := WorkflowValue{Name: "credentials.pin", Value: "${input.password}"}
+				if stringSet {
+					step.BodyStringSets = []WorkflowValue{assignment}
+				} else {
+					step.BodySets = append(step.BodySets, assignment)
+				}
+				root := newWorkflowRoot(io.Discard)
+				testutil.NoError(t, BuildWorkflows(root, []WorkflowSpec{{Use: "login",
+					Params: []ParamSpec{{Name: "password", Flag: "password", In: InInput, GoType: "string", Format: "password", Required: true}},
+					Steps:  []WorkflowStepSpec{step},
+				}}))
+				root.SetArgs([]string{"--hostname", srv.URL, "login", "--password-env", "WORKFLOW_TEST_PASSWORD"})
+				testutil.NoError(t, root.Execute())
+				testutil.Require(t, len(bodies) == 1, "request count = %d", len(bodies))
+				got := bodies[0]
+				if template {
+					testutil.Require(t, got["query"] == "login", "template query was lost")
+					got = got["variables"].(map[string]any)
+					testutil.Require(t, got["retained"] == true, "template variable was lost")
+				}
+				want := map[string]any{"username": "alice", "attempt": float64(2), "credentials": map[string]any{"pin": "synthetic-safe-value"}}
+				if template {
+					want["retained"] = true
+				}
+				testutil.Require(t, reflect.DeepEqual(got, want), "workflow body did not preserve its fields")
+			})
+		}
+	}
+}
 
 func TestBuildWorkflows_ExecutesStepsWithReferences(t *testing.T) {
 	isolateRuntime(t)
