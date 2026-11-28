@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Lathe is pre-release (v0.x). Security fixes land on `main` and are published in
-the next release. Older v0.x release lines are not backported.
+Security fixes land on `main` and are published in the latest `v1.x` release line.
+`v0.x` releases are unsupported.
 
 ## Reporting a vulnerability
 

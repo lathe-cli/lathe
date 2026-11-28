@@ -19,7 +19,15 @@ func TestRunWithOutput_RootHelpPrintsSubcommands(t *testing.T) {
 	err := RunWithOutput([]string{"-h"}, &out)
 	testutil.Require(t, errors.Is(err, flag.ErrHelp), "expected flag.ErrHelp, got %v", err)
 	got := out.String()
-	for _, want := range []string{"Usage:", "lathe specsync", "lathe codegen", "lathe bootstrap", "lathe version"} {
+	for _, want := range []string{
+		"Usage:",
+		"  lathe init        Create",
+		"  lathe skill       Manage",
+		"  lathe specsync    Sync",
+		"  lathe codegen     Generate",
+		"  lathe bootstrap   Sync",
+		"  lathe version     Print",
+	} {
 		testutil.Require(t, strings.Contains(got, want), "help output missing %q:\n%s", want, got)
 	}
 }

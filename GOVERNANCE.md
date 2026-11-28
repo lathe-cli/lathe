@@ -36,9 +36,13 @@ For large changes, maintainers may ask for a short design issue before accepting
 
 ## Compatibility
 
-Lathe is pre-1.0. Breaking changes are allowed when they make the generated CLI safer, more correct, or easier to inspect, but they must be documented in release notes.
+Starting with `v1.0.0`, `pkg/config`, `pkg/runtime`, `pkg/lathe`, and `pkg/skillbundle` follow SemVer 2.0.0.
+Generated CLI flags, exit codes, error envelopes, and catalog surfaces stay backward compatible across `v1.x` minor and patch releases.
+Additive catalog schema changes advance `runtime.CatalogSchemaVersion`.
 
-Catalog schema changes should bump `runtime.CatalogSchemaVersion` and explain migration impact.
+Generated Go mount packages in `internal/generated/**` remain strictly pinned to `runtime.SchemaVersion`.
+`runtime.AssertSchema` requires an exact version match.
+When `runtime.SchemaVersion` increases, run `lathe codegen` again before you rebuild the generated CLI.
 
 ## Releases
 
