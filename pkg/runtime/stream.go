@@ -90,6 +90,8 @@ func collectStream(r io.Reader, hint *StreamingHint, live io.Writer, outcome *st
 	return json.Marshal(collected)
 }
 
+const maxSSELineBytes = 1 << 20
+
 func readSSE(r io.Reader, handle func(string, []byte) error) error {
 	reader := bufio.NewReader(r)
 	skipLF := false
@@ -113,6 +115,9 @@ func readSSE(r io.Reader, handle func(string, []byte) error) error {
 			case '\n':
 				return string(line), nil
 			default:
+				if len(line) >= maxSSELineBytes {
+					return "", fmt.Errorf("sse line exceeds %d bytes", maxSSELineBytes)
+				}
 				line = append(line, b)
 			}
 		}
@@ -245,7 +250,7 @@ func writeStreamValue(w io.Writer, value any) error {
 }
 
 func streamEventError(event string, payload any) error {
-	for _, path := range []string{"message", "error"} {
+	for _, path := range []string{"message", "error.message", "error"} {
 		if value, ok := getNestedPath(payload, path); ok {
 			if text, ok := value.(string); ok && text != "" {
 				return fmt.Errorf("stream event %q: %s", event, text)

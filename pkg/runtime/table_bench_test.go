@@ -42,7 +42,7 @@ func BenchmarkFormat(b *testing.B) {
 	}
 
 	for _, name := range []string{"table", "json", "yaml"} {
-		formatter, ok := formatters[name]
+		formatter, ok := lookupFormatter(name)
 		if !ok {
 			b.Fatalf("formatter %q is not registered", name)
 		}
@@ -61,7 +61,7 @@ func BenchmarkFormat(b *testing.B) {
 func BenchmarkFormatTableInferredColumns(b *testing.B) {
 	data := benchListPayload(b, 200)
 	hints := OutputHints{ListPath: "items", ResponseMediaType: "application/json"}
-	formatter := formatters["table"]
+	formatter, _ := lookupFormatter("table")
 	for b.Loop() {
 		if err := formatter.Format(io.Discard, data, hints); err != nil {
 			b.Fatalf("Format: %v", err)

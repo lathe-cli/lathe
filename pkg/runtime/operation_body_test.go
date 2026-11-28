@@ -297,3 +297,24 @@ func TestBuild_RequiredSetOnlyBodyFieldValidatedLocally(t *testing.T) {
 	root.SetArgs([]string{"--hostname", srv.URL, "demo", "keys", "create", "--name", "demo", "--set", "limits.rpm=3"})
 	testutil.NoError(t, root.Execute())
 }
+
+func TestBuild_RejectsFileAndSetsWithoutBodyFlags(t *testing.T) {
+	isolateRuntime(t)
+	path := filepath.Join(t.TempDir(), "body.json")
+	testutil.NoError(t, os.WriteFile(path, []byte(`{"name":"from-file"}`), 0600))
+	for _, flag := range []string{"--set", "--set-str"} {
+		t.Run(flag, func(t *testing.T) {
+			spec := CommandSpec{Group: "Users", Use: "create", Method: "POST", PathTpl: "/users", Security: &SecurityHint{Public: true}, RequestBody: &RequestBody{MediaType: "application/json"}}
+			root, host, recorded := newRecordingRoot(t, spec)
+			root.SetArgs([]string{"demo", "users", "create", "--hostname", host, "--file", path, flag, "name=from-set"})
+			err := root.Execute()
+			if err == nil || ClassifyError(err).Code != CodeUsage {
+				t.Fatalf("expected usage error, got %v", err)
+			}
+			body, _ := recorded()
+			if len(body) != 0 {
+				t.Fatal("invalid body input sent an HTTP request")
+			}
+		})
+	}
+}

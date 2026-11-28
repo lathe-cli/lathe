@@ -43,7 +43,7 @@ func buildCmd(s CommandSpec, parent *cobra.Command) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Root().PersistentFlags().GetString("output")
-			if _, ok := formatters[format]; !ok {
+			if _, ok := lookupFormatter(format); !ok {
 				return UsageError(cmd, WithUsageDetail(fmt.Errorf("unsupported output format"), outputFormatDetail()))
 			}
 			if liveStream && format != "table" {

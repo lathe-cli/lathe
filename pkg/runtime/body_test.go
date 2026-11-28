@@ -391,3 +391,29 @@ func readStdinWithin(t *testing.T, ctx context.Context, r io.Reader, timeout tim
 		return nil, nil
 	}
 }
+
+func TestBuildBodyFromSet_RejectsUnsafeArrayIndices(t *testing.T) {
+	for _, path := range []string{"items[-1]", "items[-999999999999999999999999]", "items[-2].name", "items[10000]"} {
+		t.Run(path, func(t *testing.T) {
+			if _, err := BuildBodyFromSet([]string{path + "=x"}); err == nil {
+				t.Fatal("unsafe array index accepted")
+			}
+		})
+	}
+}
+
+func TestBuildBodyFromSet_PreservesNonJSONNumbersAsStrings(t *testing.T) {
+	for _, value := range []string{"1_000", "1_0.5", "nan", "NaN", "inf", "+Inf", "-Inf", "Infinity"} {
+		t.Run(value, func(t *testing.T) {
+			data, err := BuildBodyFromSet([]string{"value=" + value})
+			if err != nil {
+				t.Fatalf("string input rejected: %v", err)
+			}
+			var body map[string]any
+			testutil.NoError(t, json.Unmarshal(data, &body))
+			if body["value"] != value {
+				t.Fatalf("value = %#v, want string %q", body["value"], value)
+			}
+		})
+	}
+}

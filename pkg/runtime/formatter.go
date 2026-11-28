@@ -3,11 +3,14 @@ package runtime
 import (
 	"io"
 	"sort"
+	"sync"
 )
 
 type Formatter interface {
 	Format(w io.Writer, data []byte, hints OutputHints) error
 }
+
+var formattersMu sync.RWMutex
 
 var formatters = map[string]Formatter{
 	"":      tableFormatter{},
@@ -21,10 +24,21 @@ var formatters = map[string]Formatter{
 var formatterAliases = map[string]string{"yml": "yaml"}
 
 func RegisterFormatter(name string, f Formatter) {
+	formattersMu.Lock()
+	defer formattersMu.Unlock()
 	formatters[name] = f
 }
 
+func lookupFormatter(name string) (Formatter, bool) {
+	formattersMu.RLock()
+	defer formattersMu.RUnlock()
+	formatter, ok := formatters[name]
+	return formatter, ok
+}
+
 func FormatterNames() []string {
+	formattersMu.RLock()
+	defer formattersMu.RUnlock()
 	canonical := []string{"table", "json", "yaml", "raw"}
 	seen := map[string]struct{}{}
 	names := make([]string, 0, len(formatters))

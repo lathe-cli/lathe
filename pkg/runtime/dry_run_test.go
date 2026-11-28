@@ -217,3 +217,56 @@ func TestDryRun_RedactsAuthCookieSharingPublicName(t *testing.T) {
 		testutil.Check(t, !strings.Contains(stdout.String(), secret), "dry-run leaked %s: %s", secret, stdout.String())
 	}
 }
+
+func TestDryRun_RedactsCustomAuthHeaders(t *testing.T) {
+	isolateRuntime(t)
+	hosts, err := config.LoadHosts()
+	testutil.NoError(t, err)
+	hosts.Set("http://127.0.0.1:1", config.HostEntry{AuthType: "apikey", APIKey: "synthetic-auth", APIKeyHeader: "x-custom-auth"})
+	testutil.NoError(t, hosts.Save())
+	root := newExecutionRoot("raw")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(io.Discard)
+	mustBuild(t, root, "demo", []CommandSpec{{Group: "Users", Use: "list", Method: "GET", PathTpl: "/users", Security: &SecurityHint{}}})
+	root.SetArgs([]string{"demo", "users", "list", "--hostname", "http://127.0.0.1:1", "--dry-run"})
+	testutil.NoError(t, root.Execute())
+	var preview DryRunRequest
+	testutil.NoError(t, json.Unmarshal(out.Bytes(), &preview))
+	testutil.Require(t, preview.Headers["X-Custom-Auth"] == "***", "custom auth header was not redacted")
+	testutil.Require(t, !strings.Contains(out.String(), "synthetic-auth"), "credential appeared in preview")
+}
+
+func TestDryRun_RedactsNestedSchemaAndJSONMediaTypes(t *testing.T) {
+	for _, mediaType := range []string{"application/json", "application/problem+json", "application/vnd.api+json; charset=utf-8"} {
+		for _, schema := range []*SchemaSpec{
+			{Properties: map[string]*SchemaSpec{"profile": {Properties: map[string]*SchemaSpec{"opaque": {Format: "password"}}}}},
+			{Properties: map[string]*SchemaSpec{"profile": {Type: "array", Items: &SchemaSpec{Properties: map[string]*SchemaSpec{"opaque": {Format: "password"}}}}}},
+			{AllOf: []*SchemaSpec{{Properties: map[string]*SchemaSpec{"profile": {AllOf: []*SchemaSpec{{Properties: map[string]*SchemaSpec{"opaque": {Format: "password"}}}}}}}}},
+		} {
+			t.Run(mediaType, func(t *testing.T) {
+				body := []byte(`{"profile":{"opaque":"synthetic-private"},"id":9007199254740993}`)
+				if schema.Properties["profile"] != nil && schema.Properties["profile"].Type == "array" {
+					body = []byte(`{"profile":[{"opaque":"synthetic-private"}],"id":9007199254740993}`)
+				}
+				sensitive := sensitiveBodyFields(CommandSpec{RequestBody: &RequestBody{Schema: schema}})
+				debug := redactDebugBody(mediaType, body, sensitive)
+				preview := redactedDryRunBody(mediaType, body, sensitive)
+				_, isObject := preview.(map[string]any)
+				if !isObject {
+					t.Errorf("preview body is %T, want JSON object", preview)
+				}
+				data, err := json.Marshal(preview)
+				testutil.NoError(t, err)
+				for _, output := range [][]byte{debug, data} {
+					if bytes.Contains(output, []byte("synthetic-private")) || !bytes.Contains(output, []byte("***")) {
+						t.Error("schema credential was not redacted")
+					}
+					if !bytes.Contains(output, []byte("9007199254740993")) {
+						t.Error("public integer changed")
+					}
+				}
+			})
+		}
+	}
+}

@@ -146,3 +146,12 @@ func TestDebugTransport_DoesNotPeekStreamingResponse(t *testing.T) {
 	testutil.Require(t, string(body) == "data: first\n\ndata: second\n\n", "response body = %q", body)
 	testutil.Require(t, !strings.Contains(out, "[body"), "debug output unexpectedly dumped streaming body:\n%s", out)
 }
+
+func TestRedactDebugBody_RootArraySchema(t *testing.T) {
+	schema := &SchemaSpec{Type: "array", Items: &SchemaSpec{Properties: map[string]*SchemaSpec{"opaque": {Format: "password"}}}}
+	sensitive := sensitiveBodyFields(CommandSpec{RequestBody: &RequestBody{Schema: schema}})
+	got := redactDebugBody("application/problem+json", []byte(`[{"opaque":"synthetic-private","id":9007199254740993}]`), sensitive)
+	if strings.Contains(string(got), "synthetic-private") || !strings.Contains(string(got), "***") {
+		t.Fatal("root array credential was not redacted")
+	}
+}

@@ -134,7 +134,7 @@ func redactDebugBody(contentType string, body []byte, sensitive map[string]bool)
 		return body
 	}
 	mt, _, _ := mime.ParseMediaType(contentType)
-	if mt == "application/json" && json.Valid(body) {
+	if (mt == "application/json" || strings.HasSuffix(mt, "+json")) && json.Valid(body) {
 		if v, err := decodeNumberPreserving(body); err == nil {
 			if redactDebugJSON(v, sensitive) {
 				redacted, err := json.Marshal(v)
@@ -203,12 +203,26 @@ func sensitiveBodyFields(s CommandSpec) map[string]bool {
 	if s.RequestBody == nil || s.RequestBody.Schema == nil {
 		return out
 	}
-	for name, schema := range s.RequestBody.Schema.Properties {
+	collectSensitiveBodyFields(s.RequestBody.Schema, out, map[*SchemaSpec]bool{})
+	return out
+}
+
+func collectSensitiveBodyFields(s *SchemaSpec, out map[string]bool, visited map[*SchemaSpec]bool) {
+	if s == nil || visited[s] {
+		return
+	}
+	visited[s] = true
+	collectSensitiveBodyFields(s.Items, out, visited)
+	for name, schema := range s.Properties {
 		if schemaUsesPasswordFormat(schema, map[*SchemaSpec]bool{}) {
 			out[name] = true
 		}
 	}
-	return out
+	for _, variants := range [][]*SchemaSpec{s.AnyOf, s.OneOf, s.AllOf} {
+		for _, variant := range variants {
+			collectSensitiveBodyFields(variant, out, visited)
+		}
+	}
 }
 
 func schemaUsesPasswordFormat(s *SchemaSpec, visited map[*SchemaSpec]bool) bool {
@@ -218,6 +232,11 @@ func schemaUsesPasswordFormat(s *SchemaSpec, visited map[*SchemaSpec]bool) bool 
 	visited[s] = true
 	if strings.EqualFold(s.Format, "password") || schemaUsesPasswordFormat(s.Items, visited) {
 		return true
+	}
+	for _, property := range s.Properties {
+		if schemaUsesPasswordFormat(property, visited) {
+			return true
+		}
 	}
 	for _, variants := range [][]*SchemaSpec{s.AnyOf, s.OneOf, s.AllOf} {
 		for _, variant := range variants {

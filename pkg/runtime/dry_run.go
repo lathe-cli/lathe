@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"strings"
 )
 
-func redactedDryRunHeaders(headers map[string][]string, publicPairs map[string]bool) map[string]string {
+func redactedDryRunHeaders(headers map[string][]string, publicPairs map[string]bool, authHeaders map[string]bool) map[string]string {
 	out := make(map[string]string, len(headers))
 	for k, vs := range headers {
 		joined := strings.Join(vs, ", ")
+		if authHeaders[strings.ToLower(k)] && !strings.EqualFold(k, "Cookie") {
+			out[k] = "***"
+			continue
+		}
 		if strings.EqualFold(k, "Cookie") {
 			out[k] = redactCookieHeader(joined, publicPairs)
 			continue
@@ -75,7 +80,8 @@ func redactedDryRunBody(contentType string, body []byte, sensitive map[string]bo
 		return fmt.Sprintf("<multipart body omitted: %d bytes>", len(body))
 	}
 	redacted := redactDebugBody(contentType, body, sensitive)
-	if strings.HasPrefix(contentType, "application/json") && json.Valid(redacted) {
+	mt, _, _ := mime.ParseMediaType(contentType)
+	if (mt == "application/json" || strings.HasSuffix(mt, "+json")) && json.Valid(redacted) {
 		if v, err := decodeNumberPreserving(redacted); err == nil {
 			return v
 		}
@@ -115,7 +121,7 @@ func buildDryRunRequest(ctx context.Context, s CommandSpec, hostname, hostSource
 		URL:        redactDebugURL(req.URL, opts.sensitiveQueryParams),
 		Hostname:   hostname,
 		HostSource: hostSource,
-		Headers:    redactedDryRunHeaders(req.Header, publicCookiePairs(s.Params, opts.Headers["Cookie"])),
+		Headers:    redactedDryRunHeaders(req.Header, publicCookiePairs(s.Params, opts.Headers["Cookie"]), dryRunAuthHeaders(s, opts.Auth)),
 		Body:       redactedDryRunBody(req.Header.Get("Content-Type"), bodyBytes, sensitiveBodyFields(s)),
 		Auth:       dryRunAuthForSpec(s),
 		Output: CatalogOutput{
@@ -132,4 +138,26 @@ func writeDryRun(out DryRunRequest, w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+func dryRunAuthHeaders(s CommandSpec, auth Authenticator) map[string]bool {
+	out := map[string]bool{}
+	switch a := auth.(type) {
+	case APIKeyAuth:
+		out[strings.ToLower(a.header())] = true
+	case *APIKeyAuth:
+		if a != nil {
+			out[strings.ToLower(a.header())] = true
+		}
+	}
+	if s.Security != nil {
+		for _, requirement := range s.Security.Requirements {
+			for _, scheme := range requirement.Schemes {
+				if scheme.Type == "apiKey" && scheme.In == "header" {
+					out[strings.ToLower(scheme.Param)] = true
+				}
+			}
+		}
+	}
+	return out
 }
