@@ -41,7 +41,7 @@ type ClientOptions struct {
 	checkRedirect        func(*http.Request, []*http.Request) error
 }
 
-func BaseURL(hostname string) (string, error) {
+func baseURL(hostname string) (string, error) {
 	h := config.NormalizeHostname(hostname)
 	if h == "" {
 		return "", fmt.Errorf("invalid hostname: expected an HTTP or HTTPS host without userinfo, query, or fragment")
@@ -338,7 +338,7 @@ func isMultipartMediaType(contentType string) bool {
 }
 
 func resolveRequest(ctx context.Context, hostname, method, path string, body any, opts ClientOptions) (*http.Request, []byte, string, error) {
-	base, err := BaseURL(hostname)
+	base, err := baseURL(hostname)
 	if err != nil {
 		return nil, nil, "", err
 	}

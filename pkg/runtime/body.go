@@ -52,13 +52,15 @@ func readStdin(ctx context.Context, r io.Reader) ([]byte, error) {
 	}
 }
 
-func BuildBodyFromSet(sets []string) ([]byte, error) {
-	return buildBodyFromSet(sets, nil)
+type bodyValue struct {
+	path  string
+	value any
+	flag  string
 }
 
-func buildBodyFromSet(sets []string, stringSets []string) ([]byte, error) {
+func buildBodyFromSet(sets []string, stringSets []string, values ...bodyValue) ([]byte, error) {
 	out := map[string]any{}
-	if err := mergeJSONBodySets(out, nil, sets, stringSets); err != nil {
+	if err := mergeJSONBodySets(out, nil, sets, stringSets, values...); err != nil {
 		return nil, err
 	}
 	return json.Marshal(out)
@@ -90,7 +92,7 @@ func jsonBodyFromFlags(s CommandSpec, input OperationInput) (map[string]any, map
 	return out, changed, nil
 }
 
-func mergeJSONBodySets(out map[string]any, flagFields map[string]ParamSpec, sets, stringSets []string) error {
+func mergeJSONBodySets(out map[string]any, flagFields map[string]ParamSpec, sets, stringSets []string, values ...bodyValue) error {
 	for _, kv := range sets {
 		path, value, err := parseSet(kv, "--set")
 		if err != nil {
@@ -112,6 +114,14 @@ func mergeJSONBodySets(out map[string]any, flagFields map[string]ParamSpec, sets
 			return err
 		}
 		if err := setNestedPath(out, path, value); err != nil {
+			return err
+		}
+	}
+	for _, field := range values {
+		if err := rejectBodyFlagSetConflict(field.path, flagFields, field.flag); err != nil {
+			return err
+		}
+		if err := setNestedPath(out, field.path, field.value); err != nil {
 			return err
 		}
 	}
@@ -140,7 +150,10 @@ func rejectBodyFlagSetConflict(path string, flagFields map[string]ParamSpec, set
 	return bodyUsageDetail(format, param.Name, param.Flag)
 }
 
-func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool) ([]byte, error) {
+func buildEnvelopeBody(spec CommandSpec, template, mergePath string, vars map[string]any, sets, stringSets []string, fileData []byte, hasFile bool, values ...bodyValue) ([]byte, error) {
+	if err := validateSensitiveBodySets(spec, sets, stringSets); err != nil {
+		return nil, err
+	}
 	var envelope map[string]any
 	if err := json.Unmarshal([]byte(template), &envelope); err != nil {
 		return nil, fmt.Errorf("invalid request body template: %w", err)
@@ -179,6 +192,11 @@ func buildEnvelopeBody(template, mergePath string, vars map[string]any, sets, st
 			return nil, err
 		}
 		if err := setNestedPath(envelope, joinBodyPath(mergePath, path), value); err != nil {
+			return nil, err
+		}
+	}
+	for _, field := range values {
+		if err := setNestedPath(envelope, joinBodyPath(mergePath, field.path), field.value); err != nil {
 			return nil, err
 		}
 	}

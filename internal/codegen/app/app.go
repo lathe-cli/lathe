@@ -103,12 +103,24 @@ func validateCommandContexts(manifest *config.Manifest, spec runtime.CommandSpec
 		return fmt.Errorf("sets unknown context %q", spec.SetContext.Name)
 	}
 	matches := 0
-	for _, param := range spec.Params {
-		if param.Name == spec.SetContext.Param || param.Flag == spec.SetContext.Param {
-			matches++
-			if param.GoType != "string" {
-				return fmt.Errorf("context source parameter %q must be a string", spec.SetContext.Param)
+	for _, kind := range []string{"key", "flag", "name"} {
+		for _, param := range spec.Params {
+			value := param.Name
+			switch kind {
+			case "key":
+				value = param.Key()
+			case "flag":
+				value = param.Flag
 			}
+			if value == spec.SetContext.Param {
+				matches++
+				if param.GoType != "string" {
+					return fmt.Errorf("context source parameter %q must be a string", spec.SetContext.Param)
+				}
+			}
+		}
+		if matches != 0 {
+			break
 		}
 	}
 	if matches != 1 {

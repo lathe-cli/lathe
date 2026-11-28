@@ -131,7 +131,7 @@ func TestValidateOverlayModule_RejectsUnknownArgumentParameter(t *testing.T) {
 	}}
 
 	err := ValidateOverlayModule(specs, mod)
-	testutil.Require(t, err != nil && strings.Contains(err.Error(), `argument parameter "missing" does not exist`), "validation error = %v", err)
+	testutil.Require(t, err != nil && strings.Contains(err.Error(), `parameter "missing" does not exist`), "validation error = %v", err)
 }
 
 func TestMergeOverlay_ParamRequiredOverride(t *testing.T) {
@@ -147,8 +147,7 @@ func TestMergeOverlay_ParamRequiredOverride(t *testing.T) {
 	merged := mustMergeOverlay(t, specs, map[string]overlay.Override{
 		"get-user": {
 			Params: map[string]overlay.ParamOverride{
-				"type":    {Required: true, Help: "override help"},
-				"missing": {Required: true},
+				"type": {Required: true, Help: "override help"},
 			},
 		},
 	})

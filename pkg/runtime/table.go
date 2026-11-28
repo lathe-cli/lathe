@@ -4,16 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/rivo/uniseg"
 )
 
-// PreferredColumns is the canonical ordering used both by codegen (to derive
-// per-spec DefaultColumns from response schemas) and by runtime (as a fallback
-// when no hints are available). Single source of truth.
-var PreferredColumns = []string{
+var preferredColumns = []string{
 	"metadata.name", "name",
 	"metadata.namespace", "namespace",
 	"status.phase", "phase",
@@ -23,6 +21,10 @@ var PreferredColumns = []string{
 	"status.version", "spec.version",
 	"metadata.creationTimestamp", "creationTimestamp",
 	"id", "uid", "uuid", "modelName",
+}
+
+func PreferredColumns() []string {
+	return slices.Clone(preferredColumns)
 }
 
 const maxColumns = 6
@@ -111,7 +113,7 @@ func pickColumns(rows []map[string]any) []string {
 	used := map[string]struct{}{}
 	picked := []string{}
 
-	for _, p := range PreferredColumns {
+	for _, p := range preferredColumns {
 		if _, ok := pathSet[p]; !ok {
 			continue
 		}

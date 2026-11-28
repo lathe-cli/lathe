@@ -281,7 +281,7 @@ func TestBaseURLValidation(t *testing.T) {
 		{"https:///path", ""}, {"https://example.com:99999", ""},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
-			got, err := BaseURL(tc.input)
+			got, err := baseURL(tc.input)
 			if tc.want == "" {
 				if err == nil {
 					t.Fatalf("accepted invalid URL %q", got)

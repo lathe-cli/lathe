@@ -197,16 +197,40 @@ func validateWorkflowStepParams(step config.WorkflowStep, spec runtime.CommandSp
 	if len(step.Params) == 0 {
 		return nil
 	}
-	allowed := map[string]bool{}
-	for _, param := range spec.Params {
-		allowed[param.Name] = true
-		allowed[param.Flag] = true
-	}
+	seen := map[int]bool{}
 	for key := range step.Params {
-		if !allowed[key] {
+		index := -1
+		for _, kind := range []string{"key", "flag", "name"} {
+			matches := 0
+			for i, param := range spec.Params {
+				value := param.Name
+				switch kind {
+				case "key":
+					value = param.Key()
+				case "flag":
+					value = param.Flag
+				}
+				if key == value {
+					index = i
+					matches++
+				}
+			}
+			if matches > 1 {
+				return fmt.Errorf("param %q is ambiguous in operation %q; use in:name or a unique flag name", key, workflowOperationName(spec))
+			}
+			if matches == 1 {
+				break
+			}
+		}
+		if index < 0 {
 			return fmt.Errorf("param %q does not match operation %q", key, workflowOperationName(spec))
 		}
+		if seen[index] {
+			return fmt.Errorf("param %q is mapped more than once", key)
+		}
+		seen[index] = true
 	}
+
 	return nil
 }
 

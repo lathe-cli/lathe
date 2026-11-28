@@ -189,7 +189,7 @@ func TestAccessHintForPublicOnlyCLI(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		host, opts, err := TryLoadHostOptions(root)
+		host, opts, err := tryLoadHostOptions(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -244,7 +244,7 @@ func TestAccessHintForPublicCLIRefresh(t *testing.T) {
 		if err := hosts.Save(); err != nil {
 			t.Fatal(err)
 		}
-		_, opts, err := LoadHostOptions(root)
+		_, opts, err := loadHostOptions(root)
 		if mode == "reactive" {
 			if err != nil || opts.RefreshAuth == nil {
 				t.Fatalf("reactive setup: %v", err)

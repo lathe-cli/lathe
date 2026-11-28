@@ -1,6 +1,6 @@
 package runtime
 
-const CatalogSchemaVersion = 30
+const CatalogSchemaVersion = 31
 
 const DefaultSearchLimit = 20
 
@@ -169,6 +169,8 @@ type CatalogRuntimeSchema struct {
 }
 
 type CatalogFlag struct {
+	Key           string                 `json:"key"`
+	Hidden        bool                   `json:"hidden,omitempty"`
 	Name          string                 `json:"name"`
 	Flag          string                 `json:"flag"`
 	Aliases       []string               `json:"aliases,omitempty"`

@@ -1,7 +1,10 @@
 package overlay
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,14 +124,14 @@ type Shortcut struct {
 }
 
 type ParamOverride struct {
-	Flag            string `yaml:"flag"`
-	Argument        string `yaml:"argument"`
-	Help            string `yaml:"help"`
-	Required        bool   `yaml:"required"`
-	Default         string `yaml:"default"`
-	DeprecatedAlias bool   `yaml:"hidden"`
-	Deprecated      bool   `yaml:"deprecated"`
-	Context         string `yaml:"context"`
+	Flag       string `yaml:"flag"`
+	Argument   string `yaml:"argument"`
+	Help       string `yaml:"help"`
+	Required   bool   `yaml:"required"`
+	Default    string `yaml:"default"`
+	Hidden     bool   `yaml:"hidden"`
+	Deprecated bool   `yaml:"deprecated"`
+	Context    string `yaml:"context"`
 }
 
 type KnownError struct {
@@ -180,8 +183,14 @@ func LoadDir(dir string) (map[string]Module, error) {
 			return nil, fmt.Errorf("overlay: read %s: %w", path, rerr)
 		}
 		var mod Module
-		if yerr := yaml.Unmarshal(data, &mod); yerr != nil {
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		decoder.KnownFields(true)
+		if yerr := decoder.Decode(&mod); yerr != nil && !errors.Is(yerr, io.EOF) {
 			return nil, fmt.Errorf("overlay: parse %s: %w", path, yerr)
+		}
+		var extra any
+		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("overlay: parse %s: expected one YAML document", path)
 		}
 		module := strings.TrimSuffix(e.Name(), ".yaml")
 		out[module] = mod

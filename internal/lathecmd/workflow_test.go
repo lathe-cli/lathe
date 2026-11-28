@@ -126,3 +126,18 @@ workflow:
 		t.Fatal("expected derived input flag collision error")
 	}
 }
+
+func TestWorkflowQualifiedParameterBindings(t *testing.T) {
+	spec := runtime.CommandSpec{OperationID: "get", Params: []runtime.ParamSpec{
+		{Name: "id", Flag: "query-id", In: runtime.InQuery, GoType: "string"},
+		{Name: "id", Flag: "header-id", In: runtime.InHeader, GoType: "string"},
+	}}
+	for _, key := range []string{"query:id", "header:id", "query-id", "header-id"} {
+		if err := validateWorkflowStepParams(config.WorkflowStep{Params: map[string]string{key: "value"}}, spec); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+	}
+	if err := validateWorkflowStepParams(config.WorkflowStep{Params: map[string]string{"id": "value"}}, spec); err == nil {
+		t.Fatal("ambiguous workflow parameter accepted")
+	}
+}

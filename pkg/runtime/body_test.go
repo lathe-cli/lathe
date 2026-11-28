@@ -132,7 +132,7 @@ func TestBuildBodyFromSet(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			raw, err := BuildBodyFromSet(tc.in)
+			raw, err := buildBodyFromSet(tc.in, nil)
 			testutil.Require(t, err == nil, "unexpected error: %v", err)
 			var got map[string]any
 			testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -145,7 +145,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	const tmpl = `{"query":"mutation($name:String!){createApp(name:$name){id}}","variables":{}}`
 
 	t.Run("merges --set under merge path, keeps baked query", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", nil, []string{"name=demo", "replicas=3"}, nil, nil, false)
+		raw, err := buildEnvelopeBody(CommandSpec{}, tmpl, "variables", nil, []string{"name=demo", "replicas=3"}, nil, nil, false)
 		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
 		testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -157,7 +157,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("merges empty array literal under merge path", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", nil, []string{"input.skillIds=[]"}, nil, nil, false)
+		raw, err := buildEnvelopeBody(CommandSpec{}, tmpl, "variables", nil, []string{"input.skillIds=[]"}, nil, nil, false)
 		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
 		testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -167,7 +167,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("merges typed variable values at merge path", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", map[string]any{"name": "demo", "count": int64(3)}, nil, nil, nil, false)
+		raw, err := buildEnvelopeBody(CommandSpec{}, tmpl, "variables", map[string]any{"name": "demo", "count": int64(3)}, nil, nil, nil, false)
 		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
 		testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -176,7 +176,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("no user input sends template unchanged", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, nil, false)
+		raw, err := buildEnvelopeBody(CommandSpec{}, tmpl, "variables", nil, nil, nil, nil, false)
 		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
 		testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -184,7 +184,7 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("--file replaces merge target", func(t *testing.T) {
-		raw, err := buildEnvelopeBody(tmpl, "variables", nil, nil, nil, []byte(`{"name":"from-file"}`), true)
+		raw, err := buildEnvelopeBody(CommandSpec{}, tmpl, "variables", nil, nil, nil, []byte(`{"name":"from-file"}`), true)
 		testutil.Require(t, err == nil, "unexpected error: %v", err)
 		var got map[string]any
 		testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -192,13 +192,13 @@ func TestBuildEnvelopeBody(t *testing.T) {
 	})
 
 	t.Run("--file with empty merge path is rejected", func(t *testing.T) {
-		if _, err := buildEnvelopeBody(tmpl, "", nil, nil, nil, []byte(`{}`), true); err == nil {
+		if _, err := buildEnvelopeBody(CommandSpec{}, tmpl, "", nil, nil, nil, []byte(`{}`), true); err == nil {
 			t.Fatal("expected error for --file with empty merge path")
 		}
 	})
 
 	t.Run("invalid template is reported", func(t *testing.T) {
-		if _, err := buildEnvelopeBody(`{not json`, "variables", nil, nil, nil, nil, false); err == nil {
+		if _, err := buildEnvelopeBody(CommandSpec{}, `{not json`, "variables", nil, nil, nil, nil, false); err == nil {
 			t.Fatal("expected error for invalid template")
 		}
 	})
@@ -267,7 +267,7 @@ func TestBuildBodyFromSet_ArrayIndex(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			raw, err := BuildBodyFromSet(tc.in)
+			raw, err := buildBodyFromSet(tc.in, nil)
 			testutil.Require(t, err == nil, "unexpected error: %v", err)
 			var got map[string]any
 			testutil.NoError(t, json.Unmarshal(raw, &got))
@@ -287,7 +287,7 @@ func TestBuildBodyFromSet_Errors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := BuildBodyFromSet(tc.in); err == nil {
+			if _, err := buildBodyFromSet(tc.in, nil); err == nil {
 				t.Errorf("expected error for %v", tc.in)
 			}
 		})
@@ -395,7 +395,7 @@ func readStdinWithin(t *testing.T, ctx context.Context, r io.Reader, timeout tim
 func TestBuildBodyFromSet_RejectsUnsafeArrayIndices(t *testing.T) {
 	for _, path := range []string{"items[-1]", "items[-999999999999999999999999]", "items[-2].name", "items[10000]"} {
 		t.Run(path, func(t *testing.T) {
-			if _, err := BuildBodyFromSet([]string{path + "=x"}); err == nil {
+			if _, err := buildBodyFromSet([]string{path + "=x"}, nil); err == nil {
 				t.Fatal("unsafe array index accepted")
 			}
 		})
@@ -405,7 +405,7 @@ func TestBuildBodyFromSet_RejectsUnsafeArrayIndices(t *testing.T) {
 func TestBuildBodyFromSet_PreservesNonJSONNumbersAsStrings(t *testing.T) {
 	for _, value := range []string{"1_000", "1_0.5", "nan", "NaN", "inf", "+Inf", "-Inf", "Infinity"} {
 		t.Run(value, func(t *testing.T) {
-			data, err := BuildBodyFromSet([]string{"value=" + value})
+			data, err := buildBodyFromSet([]string{"value=" + value}, nil)
 			if err != nil {
 				t.Fatalf("string input rejected: %v", err)
 			}

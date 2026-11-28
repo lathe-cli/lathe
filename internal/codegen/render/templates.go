@@ -99,7 +99,12 @@ import (
 	"{{.RuntimePkg}}"
 )
 
+const generatedSchemaVersion = {{.SchemaVersion}}
+
 func Mount(root *cobra.Command) error {
+ if err := runtime.AssertSchema(generatedSchemaVersion); err != nil {
+ return err
+ }
 	return runtime.BuildWorkflows(root, Specs)
 }
 

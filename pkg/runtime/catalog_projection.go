@@ -152,6 +152,8 @@ func catalogFlags(params []ParamSpec) []CatalogFlag {
 			argumentPosition = position
 		}
 		flags = append(flags, CatalogFlag{
+			Key:           p.Key(),
+			Hidden:        p.Hidden,
 			Name:          p.Name,
 			Flag:          p.Flag,
 			Aliases:       append([]string(nil), p.Aliases...),
@@ -207,13 +209,13 @@ func catalogRuntimeSchemaMappings(target CommandSpec, mappings map[string]string
 func catalogContextBindings(params []ParamSpec, mappings map[string]string) []CatalogContextBinding {
 	out := make([]CatalogContextBinding, 0)
 	for _, param := range params {
-		if _, mapped := mappings[param.Name]; mapped {
-			continue
+		mapped := false
+		for key := range mappings {
+			if index, ok := runtimeParamIndex(params, key); ok && params[index].Key() == param.Key() {
+				mapped = true
+			}
 		}
-		if _, mapped := mappings[param.Flag]; mapped {
-			continue
-		}
-		if _, mapped := mappings[boundParamKey(param)]; mapped {
+		if mapped {
 			continue
 		}
 		if binding := catalogContextBinding(param); binding != nil {

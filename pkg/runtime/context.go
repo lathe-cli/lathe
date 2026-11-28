@@ -45,6 +45,12 @@ func contextNeedsStored(param ParamSpec, input OperationInput) bool {
 }
 
 func resolveOperationContexts(spec CommandSpec, input *OperationInput, hostname string) error {
+	canonical, err := canonicalOperationInput(spec.Params, *input)
+	if err != nil {
+		return err
+	}
+	*input = canonical
+
 	var entry config.HostEntry
 	if hostname != "" {
 		hosts, err := config.LoadHosts()
@@ -80,7 +86,7 @@ func resolveOperationContexts(spec CommandSpec, input *OperationInput, hostname 
 			}
 			continue
 		}
-		key := boundParamKey(param)
+		key := param.Key()
 		input.Values[key] = value
 		if input.Changed != nil {
 			input.Changed[key] = true

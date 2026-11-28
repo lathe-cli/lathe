@@ -298,7 +298,7 @@ func accessHostWorkflowChild(t *testing.T) {
 	root.PersistentFlags().Bool("insecure", false, "")
 	root.PersistentFlags().Bool("debug", false, "")
 	root.PersistentFlags().String("output", "json", "")
-	host, opts, err := LoadHostOptions(root)
+	host, opts, err := loadHostOptions(root)
 	if err != nil {
 		t.Fatal(err)
 	}

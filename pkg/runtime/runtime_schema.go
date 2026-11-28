@@ -80,6 +80,11 @@ func requestBodyJSONValue(body any) (any, error) {
 }
 
 func runtimeSchemaInput(target CommandSpec, input OperationInput, binding RuntimeSchemaSpec) (CommandSpec, OperationInput, error) {
+	var err error
+	input, err = canonicalOperationInput(target.Params, input)
+	if err != nil {
+		return CommandSpec{}, OperationInput{}, err
+	}
 	source := binding.Operation
 	source.Params = append([]ParamSpec(nil), binding.Operation.Params...)
 	values := make(map[string]any, len(binding.Params))
@@ -110,25 +115,39 @@ func runtimeSchemaInput(target CommandSpec, input OperationInput, binding Runtim
 				source.Params[sourceIndex].Format = "password"
 			}
 		}
-		key := boundParamKey(source.Params[sourceIndex])
+		key := source.Params[sourceIndex].Key()
 		values[key] = mappedValue
 		changed[key] = true
 	}
 	return source, OperationInput{Values: values, Changed: changed}, nil
 }
 
-func runtimeParamIndex(params []ParamSpec, nameOrFlag string) (int, bool) {
-	index := -1
-	for i, param := range params {
-		if param.Name != nameOrFlag && param.Flag != nameOrFlag {
-			continue
+func runtimeParamIndex(params []ParamSpec, key string) (int, bool) {
+	for _, kind := range []string{"key", "bound", "flag", "name"} {
+		index := -1
+		for i, param := range params {
+			value := param.Name
+			switch kind {
+			case "key":
+				value = param.Key()
+			case "bound":
+				value = boundParamKey(param)
+			case "flag":
+				value = param.Flag
+			}
+			if value != key {
+				continue
+			}
+			if index != -1 {
+				return -1, false
+			}
+			index = i
 		}
 		if index != -1 {
-			return -1, false
+			return index, true
 		}
-		index = i
 	}
-	return index, index != -1
+	return -1, false
 }
 
 func runtimeSchemaReference(value string) (string, bool) {

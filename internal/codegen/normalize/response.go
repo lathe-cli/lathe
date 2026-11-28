@@ -90,7 +90,7 @@ func defaultColumns(itemRef string, defs map[string]*rawir.RawSchema) []string {
 	}
 	picked := []string{}
 	seen := map[string]bool{}
-	for _, p := range runtime.PreferredColumns {
+	for _, p := range runtime.PreferredColumns() {
 		if paths[p] && !seen[p] {
 			picked = append(picked, p)
 			seen[p] = true

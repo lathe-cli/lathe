@@ -99,7 +99,7 @@ func TestLoadHostOptions_UnknownExplicitHostIsActionable(t *testing.T) {
 	root := &cobra.Command{Use: "demo"}
 	root.PersistentFlags().String("hostname", "missing.example.com", "")
 
-	_, _, err := loadHostOptions(root, "", false)
+	_, _, err := loadHostOptionsForHost(root, "", false)
 	testutil.Require(t, errors.Is(err, ErrNotAuthenticated), "err = %v, want ErrNotAuthenticated", err)
 	le := ClassifyError(err)
 	testutil.Require(t, le.Code == CodeNotAuthenticated && le.ExitCode == ExitNotAuthenticated, "classified error = %#v", le)

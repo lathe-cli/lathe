@@ -128,14 +128,26 @@ func operationByID(specs []runtime.CommandSpec, operationID string) (*runtime.Co
 }
 
 func paramByNameOrFlag(params []runtime.ParamSpec, value string) (int, int) {
-	index, count := -1, 0
-	for i, param := range params {
-		if param.Name == value || param.Flag == value {
-			index = i
-			count++
+	for _, kind := range []string{"key", "flag", "name"} {
+		index, count := -1, 0
+		for i, param := range params {
+			candidate := param.Name
+			switch kind {
+			case "key":
+				candidate = param.Key()
+			case "flag":
+				candidate = param.Flag
+			}
+			if candidate == value {
+				index = i
+				count++
+			}
+		}
+		if count != 0 {
+			return index, count
 		}
 	}
-	return index, count
+	return -1, 0
 }
 
 func runtimeSchemaParamReference(value string) (string, bool, bool) {

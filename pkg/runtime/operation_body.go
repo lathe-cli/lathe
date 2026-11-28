@@ -15,7 +15,7 @@ func supportsJSONBodyBuilder(mediaType string) bool {
 
 func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, files map[string][]string, vars map[string]any) (any, error) {
 	if isMultipartMediaType(requestBodyMediaType(s)) {
-		if input.HasFile || len(input.BodySets) > 0 || len(input.BodyStringSets) > 0 {
+		if input.HasFile || len(input.BodySets) > 0 || len(input.BodyStringSets) > 0 || len(input.bodyValues) > 0 {
 			cause := bodyUsageDetail("multipart request bodies accept only part flags; do not pass --%[1]s, --%[2]s, or --%[3]s")
 			err := NewError(CodeUsage, ExitUsage, "multipart request bodies accept only part flags", "run the command with --help and correct the arguments", cause)
 			err.Detail = sanitizeErrorDetail(cause.Error())
@@ -36,9 +36,9 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 		return nil, nil
 	}
 	if s.RequestBody.Template != "" {
-		return buildEnvelopeBody(s.RequestBody.Template, s.RequestBody.MergePath, vars, input.BodySets, input.BodyStringSets, input.FileBody, input.HasFile)
+		return buildEnvelopeBody(s, s.RequestBody.Template, s.RequestBody.MergePath, vars, input.BodySets, input.BodyStringSets, input.FileBody, input.HasFile, input.bodyValues...)
 	}
-	hasSets := len(input.BodySets) > 0 || len(input.BodyStringSets) > 0
+	hasSets := len(input.BodySets) > 0 || len(input.BodyStringSets) > 0 || len(input.bodyValues) > 0
 	flagBody, flagFields, err := jsonBodyFromFlags(s, input)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
 			return nil, bodyUsageDetail("request body media type %[4]s requires --%[1]s; --%[2]s and --%[3]s only support JSON request bodies", s.RequestBody.MediaType)
 		}
-		if err := mergeJSONBodySets(flagBody, flagFields, input.BodySets, input.BodyStringSets); err != nil {
+		if err := mergeJSONBodySets(flagBody, flagFields, input.BodySets, input.BodyStringSets, input.bodyValues...); err != nil {
 			return nil, err
 		}
 		return json.Marshal(flagBody)
@@ -60,7 +60,7 @@ func resolveOperationBody(s CommandSpec, input OperationInput, form url.Values, 
 		if !supportsJSONBodyBuilder(s.RequestBody.MediaType) {
 			return nil, bodyUsageDetail("request body media type %[4]s requires --%[1]s; --%[2]s and --%[3]s only support JSON request bodies", s.RequestBody.MediaType)
 		}
-		return buildBodyFromSet(input.BodySets, input.BodyStringSets)
+		return buildBodyFromSet(input.BodySets, input.BodyStringSets, input.bodyValues...)
 	case input.HasFile:
 		return input.FileBody, nil
 	case s.RequestBody.Required:

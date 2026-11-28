@@ -97,6 +97,9 @@ func renderModuleReference(manifest *config.Manifest, mod SkillModule, flat bool
 				b.WriteString("- Flags:\n")
 				position := 0
 				for _, p := range spec.Params {
+					if p.Hidden {
+						continue
+					}
 					req := ""
 					if p.Required {
 						req = ", required"
@@ -178,15 +181,16 @@ func shortcutPreset(spec runtime.CommandSpec, shortcut runtime.CommandShortcut) 
 	if len(shortcut.Params) == 0 {
 		return ""
 	}
-	flags := make(map[string]string, len(spec.Params)*2)
-	for _, param := range spec.Params {
-		flags[param.Name] = param.Flag
-		flags[param.Flag] = param.Flag
-	}
 	keys := slices.Sorted(maps.Keys(shortcut.Params))
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
-		flag := flags[key]
+		flag := ""
+		if index, count := paramByNameOrFlag(spec.Params, key); count == 1 {
+			if spec.Params[index].Hidden {
+				continue
+			}
+			flag = spec.Params[index].Flag
+		}
 		if flag == "" {
 			flag = key
 		}

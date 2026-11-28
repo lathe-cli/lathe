@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const SchemaVersion = 23
+const SchemaVersion = 24
 
 type CommandSpec struct {
 	Group           string
@@ -75,6 +75,7 @@ type ParamSpec struct {
 	Format        string
 	ContentType   string `json:",omitempty"`
 	Deprecated    bool
+	Hidden        bool   `json:",omitempty"`
 	Context       string `json:",omitempty"`
 	Style         string `json:",omitempty"`
 	Explode       bool   `json:",omitempty"`
@@ -186,7 +187,7 @@ type PaginationHint struct {
 
 type StreamingHint struct {
 	Strategy string
-	Policy   *StreamPolicy `json:"Policy,omitempty"`
+	Policy   *StreamPolicy `json:"policy,omitempty"`
 }
 
 type StreamPolicy struct {
