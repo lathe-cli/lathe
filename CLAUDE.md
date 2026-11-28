@@ -35,7 +35,7 @@ Use `make help` for targets and `go.mod` for the Go version.
 - Run generation with `go run ./cmd/lathe specsync`, `codegen`, or `bootstrap`; use `--help` for flags.
 - Prove the changed behavior with focused package tests or an example run. Add tests when they protect a behavior boundary; use golden fixtures only when serialized output is the contract.
 - Run `make check` before commit or PR: format check, vet, lint, and tests. Documentation-only changes may skip it only with user agreement. CI also builds and runs `go test -race ./...`; for runtime-sensitive changes, run the relevant example script or race tests.
-- For codegen changes, regenerate and exercise the generated CLI. Run `<cli> __lathe verify --json` before broader acceptance checks. Do not commit scratch outputs.
+- For codegen changes, regenerate a scratch copy of an example CLI with `-cache fixtures`. Pass `-overlay overlays` for `petstore`, and build `./cmd/graphqlctl` for `graphql`. Run `<cli> __lathe verify --json` and read `.provenance` before broader acceptance tests. Do not commit scratch outputs.
 - For init or bundled Skill changes, run focused package tests and a scratch init. Skill installation smoke must combine a user-scope dry-run with a project-scope install in scratch; never override `HOME` or write to the real user Skill directory.
 - Report missing dependencies and unrun checks explicitly.
 
@@ -55,10 +55,11 @@ Gate contract. Green on the checks below is the claim that a PR is safe to merge
 | Formatting | `make fmt-check` | `ci.yml`: `make fmt-check` |
 | Tests | `make test` | `ci.yml`: `go test -race ./...` (CI adds `-race`) |
 | Generated Skill Markdown ends with one newline and has no trailing whitespace | `go test ./internal/codegen/render` | `ci.yml`: `go test -race ./...` |
+| Example CLIs regenerate, build, pass `__lathe verify`, and inherit root flags | scratch `codegen -cache fixtures` + `<cli> __lathe verify --json` | `ci.yml`: `generated-clis` |
 | Static security analysis | none | `codeql.yml` on pull requests |
 | Release build and race tests on tags | none | `release.yml` only, on `v*` tags |
 
-Not covered by any check: exercising a generated CLI (`<cli> __lathe verify --json`, example projects under `examples/`), Skill install smoke, compatibility of previously generated CLIs with a new runtime (`runtime.SchemaVersion`, `runtime.CatalogSchemaVersion`), and documentation claims against live behavior.
+Not covered by any automated gate: `proto` example CLI generation, Skill install smoke, compatibility of previously generated CLIs with a new runtime (`runtime.SchemaVersion`, `runtime.CatalogSchemaVersion`), and documentation claims against live behavior.
 
 Human review owns: product scope, agent inspectability of command shape and catalog changes, the architecture boundaries above, and downstream compatibility decisions for `pkg/**`.
 
