@@ -100,7 +100,7 @@ func normalizeParamFlags(params []runtime.ParamSpec) {
 				candidate = "param"
 			}
 			base := candidate
-			for n := 2; used[candidate] || desiredCount[candidate] > 1; n++ {
+			for n := 2; used[candidate] || desiredCount[candidate] > 1 || candidate != base && desiredCount[candidate] > 0; n++ {
 				candidate = fmt.Sprintf("%s-%d", base, n)
 			}
 		}

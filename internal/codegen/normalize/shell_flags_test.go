@@ -11,6 +11,7 @@ import (
 func TestParameterFlagsDoNotRequireShellQuoting(t *testing.T) {
 	specs := Normalize(&rawir.RawModule{Operations: []rawir.RawOperation{{Group: "Items", OperationID: "list", Method: "GET", Path: "/items", Parameters: []rawir.RawParameter{
 		{Name: "filter[status]", In: "query"}, {Name: "filter-status", In: "query"}, {Name: "*?{}", In: "query"},
+		{Name: "a[b]", In: "query"}, {Name: "a-b", In: "query"}, {Name: "a_b_2", In: "query"},
 	}}}})
 	seen := map[string]bool{}
 	for _, p := range specs[0].Params {

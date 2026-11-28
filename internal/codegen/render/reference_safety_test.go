@@ -32,9 +32,14 @@ func TestReferenceTreatsSpecMetadataAsText(t *testing.T) {
 			spec := runtime.CommandSpec{Group: "Items", Use: "list", Method: "GET", PathTpl: "/items", Params: []runtime.ParamSpec{{Flag: "id"}}, RequestBody: &runtime.RequestBody{MediaType: "application/json"}, Output: runtime.OutputHints{ListPath: "items"}}
 			tc.apply(&spec)
 			got := renderModuleReference(manifest, SkillModule{Specs: []runtime.CommandSpec{spec}}, true)
-			for _, raw := range []string{"\n# injected", "\x00", "safe`", "injected|", "<!--"} {
+			for _, raw := range []string{"\n# injected", "\x00", "safe`"} {
 				if strings.Contains(got, raw) {
 					t.Errorf("unsafe metadata %q in reference:\n%s", raw, got)
+				}
+			}
+			if tc.name == "group" || tc.name == "enum" || tc.name == "item-enum" {
+				if strings.Contains(got, "<!--") {
+					t.Error("raw HTML comment in prose")
 				}
 			}
 			if !strings.Contains(got, "injected") {
@@ -51,5 +56,17 @@ func TestNamespacedPathsRejectFoldedGroupCollision(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("case-insensitive group collision accepted")
+	}
+}
+
+func TestReferencePreservesCodeValues(t *testing.T) {
+	spec := runtime.CommandSpec{Group: "Items", Use: "list", Method: "GET", PathTpl: "/items/<id>", Params: []runtime.ParamSpec{
+		{Flag: "color", Default: "#ffffff"}, {Flag: "separator", Default: "a|b"}, {Flag: "empty", Default: "<none>"},
+	}, Example: "demo items list -o json | jq '.items[]'", Output: runtime.OutputHints{DefaultColumns: []string{"<id>"}}}
+	got := renderModuleReference(&config.Manifest{CLI: config.CLIInfo{Name: "demo"}}, SkillModule{Specs: []runtime.CommandSpec{spec}}, true)
+	for _, want := range []string{"`#ffffff`", "`a|b`", "`<none>`", "`GET /items/<id>`", "`<id>`", "`demo items list -o json | jq '.items[]'`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("literal %q missing:\n%s", want, got)
+		}
 	}
 }
