@@ -18,7 +18,7 @@ func TestBuildWorkflowSpecs_CarriesConditions(t *testing.T) {
 		When: []config.WorkflowCondition{{
 			Value:    "${input.kind}",
 			Operator: "in",
-			Values:   config.WorkflowConditionValues{"gpu"},
+			Values:   []string{"gpu"},
 		}},
 	}}), conditionTestModules(), nil)
 	testutil.Require(t, err == nil, "buildWorkflowSpecs: %v", err)
@@ -50,7 +50,7 @@ func TestBuildWorkflowSpecs_RejectsBadConditionReferences(t *testing.T) {
 				When: []config.WorkflowCondition{{
 					Value:    "${input.missing}",
 					Operator: "in",
-					Values:   config.WorkflowConditionValues{"gpu"},
+					Values:   []string{"gpu"},
 				}},
 			}},
 			want: `unknown input "missing"`,
@@ -62,7 +62,7 @@ func TestBuildWorkflowSpecs_RejectsBadConditionReferences(t *testing.T) {
 				When: []config.WorkflowCondition{{
 					Value:    "${steps.later.id}",
 					Operator: "in",
-					Values:   config.WorkflowConditionValues{"gpu"},
+					Values:   []string{"gpu"},
 				}},
 			}, {
 				ID:   "later",

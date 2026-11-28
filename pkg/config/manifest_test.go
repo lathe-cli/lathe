@@ -311,7 +311,7 @@ func TestLoadManifest_WorkflowConditions(t *testing.T) {
 `)
 		cond := m.Workflow.Commands[0].Steps[0].When
 		testutil.Require(t, len(cond) == 1, "conditions = %#v", cond)
-		want := WorkflowConditionValues{"gpu", "404", "cpu", ""}
+		want := []string{"gpu", "404", "cpu", ""}
 		testutil.Require(t, reflect.DeepEqual(cond[0].Values, want), "values = %#v, want %#v", cond[0].Values, want)
 	})
 
@@ -374,7 +374,7 @@ func TestLoadManifest_WorkflowConditionValuesMatchRuntimeFormatting(t *testing.T
               values: [1.0, 1.50, 404, 2.5, gpu, "1.0", true, .nan, .inf, -.inf, null]
 `)
 	got := m.Workflow.Commands[0].Steps[0].When[0].Values
-	want := WorkflowConditionValues{"1", "1.5", "404", "2.5", "gpu", "1.0", "true", "NaN", "+Inf", "-Inf", ""}
+	want := []string{"1", "1.5", "404", "2.5", "gpu", "1.0", "true", "NaN", "+Inf", "-Inf", ""}
 	testutil.Require(t, reflect.DeepEqual(got, want), "values = %#v, want %#v", got, want)
 }
 
@@ -390,5 +390,27 @@ func TestLoadManifest_WorkflowConditionPreservesValueWhitespace(t *testing.T) {
 `)
 	if got := m.Workflow.Commands[0].Steps[0].When[0].Value; got != " ${input.kind} " {
 		t.Fatalf("value = %q, want surrounding spaces preserved", got)
+	}
+}
+
+func TestLoadCLIIdentityBoundary(t *testing.T) {
+	for _, input := range []string{
+		`cli: {name: " "}`, `cli: {name: ../demo}`, `cli: {name: 1demo}`, `cli: {name: "demo/child"}`, `cli: {name: "démo"}`,
+		`cli: {name: demo, config_dir: .}`, `cli: {name: demo, config_dir: ..}`, `cli: {name: demo, config_dir: ../outside}`, `cli: {name: demo, config_dir: 'a\b'}`, `cli: {name: demo, config_dir: /tmp}`,
+		`cli: {name: demo, host_env: BAD-HOST}`, `cli: {name: demo, config_dir_env: 1CONFIG}`, `cli: {name: demo, host_env: SAME, config_dir_env: same}`,
+	} {
+		if _, err := Load([]byte(input)); err == nil {
+			t.Errorf("Load accepted %s", input)
+		}
+	}
+	m, err := Load([]byte(`cli: {name: " tokener-admin.v2 "}`))
+	testutil.NoError(t, err)
+	if m.CLI.Name != "tokener-admin.v2" || m.CLI.HostEnv != "TOKENER_ADMIN_V2_HOST" || m.CLI.ConfigDirEnv != "TOKENER_ADMIN_V2_CONFIG_DIR" {
+		t.Fatalf("identity = %+v", m.CLI)
+	}
+	m, err = Load([]byte(`cli: {name: demo, config_dir: " custom ", host_env: " CUSTOM_HOST ", config_dir_env: " CUSTOM_CONFIG "}`))
+	testutil.NoError(t, err)
+	if m.CLI.ConfigDir != "custom" || m.CLI.HostEnv != "CUSTOM_HOST" || m.CLI.ConfigDirEnv != "CUSTOM_CONFIG" {
+		t.Fatalf("identity = %+v", m.CLI)
 	}
 }

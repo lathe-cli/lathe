@@ -1,6 +1,7 @@
 package lathecmd
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -115,12 +116,20 @@ func loadCodegenManifest(path string) (*config.Manifest, *string, render.SkillIn
 		return nil, nil, render.SkillInclude{}, err
 	}
 	var codegen struct {
-		Skill struct {
+		CLI      config.CLIInfo                `yaml:"cli"`
+		Auth     config.AuthInfo               `yaml:"auth"`
+		Contexts map[string]config.ContextInfo `yaml:"contexts"`
+		Update   config.UpdateInfo             `yaml:"update"`
+		Workflow config.WorkflowInfo           `yaml:"workflow"`
+		Skill    struct {
+			Bundle  bool               `yaml:"bundle"`
 			Root    *string            `yaml:"root"`
 			Include skillIncludeConfig `yaml:"include"`
 		} `yaml:"skill"`
 	}
-	if err := yaml.Unmarshal(data, &codegen); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&codegen); err != nil {
 		return nil, nil, render.SkillInclude{}, fmt.Errorf("parse cli.yaml: %w", err)
 	}
 	return manifest, codegen.Skill.Root, codegen.Skill.Include.SkillInclude, nil

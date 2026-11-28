@@ -135,11 +135,10 @@ func snipSetCmd(m *config.Manifest) *cobra.Command {
 			canonical := formatSnipCommand(tokens)
 			desc := strings.TrimSpace(description)
 			if err := config.MutateSnips(cmd.Context(), func(snips *config.Snips) error {
-				snips.Set(name, config.SnipEntry{
+				return snips.Set(name, config.SnipEntry{
 					Command:     canonical,
 					Description: desc,
 				})
-				return nil
 			}); err != nil {
 				return err
 			}

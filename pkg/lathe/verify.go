@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -114,6 +115,7 @@ func verifyGenerated(root *cobra.Command, m *config.Manifest) verifyReport {
 	}
 	catalog := runtime.BuildCatalog(root, catalogOptions(m, false))
 
+	report.add("environment_variables", verifyEnvironmentVariables(m))
 	report.add("root_help", verifyRootHelp(root, m.CLI.Name))
 	report.add("commands_schema", verifyCommandsSchema(root, catalog))
 	report.add("commands_json", verifyCommandsJSON(catalog))
@@ -197,6 +199,17 @@ func formatVerifySource(src runtime.SourceProvenance) string {
 		b.WriteString(", not reproducible")
 	}
 	return b.String()
+}
+
+func verifyEnvironmentVariables(m *config.Manifest) error {
+	if m == nil {
+		return errors.New("manifest is nil")
+	}
+	pattern := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	if !pattern.MatchString(m.CLI.HostEnv) || !pattern.MatchString(m.CLI.ConfigDirEnv) {
+		return errors.New("host and configuration environment variable names must be POSIX identifiers")
+	}
+	return nil
 }
 
 func verifyRootHelp(root *cobra.Command, cliName string) error {

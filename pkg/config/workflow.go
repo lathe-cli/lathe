@@ -48,17 +48,31 @@ type WorkflowStep struct {
 }
 
 type WorkflowCondition struct {
-	Value    string                  `yaml:"value"`
-	Operator string                  `yaml:"operator"`
-	Values   WorkflowConditionValues `yaml:"values"`
+	Value    string   `yaml:"value"`
+	Operator string   `yaml:"operator"`
+	Values   []string `yaml:"values"`
 }
-type WorkflowConditionValues []string
 
-func (v *WorkflowConditionValues) UnmarshalYAML(node *yaml.Node) error {
+func (c *WorkflowCondition) UnmarshalYAML(unmarshal func(any) error) error {
+	var raw struct {
+		Value    string                  `yaml:"value"`
+		Operator string                  `yaml:"operator"`
+		Values   workflowConditionValues `yaml:"values"`
+	}
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	*c = WorkflowCondition{Value: raw.Value, Operator: raw.Operator, Values: []string(raw.Values)}
+	return nil
+}
+
+type workflowConditionValues []string
+
+func (v *workflowConditionValues) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.SequenceNode {
 		return fmt.Errorf("workflow condition values must be a list")
 	}
-	out := make(WorkflowConditionValues, 0, len(node.Content))
+	out := make(workflowConditionValues, 0, len(node.Content))
 	for _, item := range node.Content {
 		if item.Kind != yaml.ScalarNode {
 			return fmt.Errorf("workflow condition values must contain scalars")

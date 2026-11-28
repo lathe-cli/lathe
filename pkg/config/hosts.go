@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -85,12 +86,20 @@ type HostEntry struct {
 }
 
 type Hosts struct {
-	entries map[string]HostEntry
-	path    string
+	entries  map[string]HostEntry
+	path     string
+	lockHeld *atomic.Bool
 }
 
 func configDir() (string, error) {
 	m := Active().CLI
+	m.ConfigDir = strings.TrimSpace(m.ConfigDir)
+	if m.ConfigDir == "" {
+		m.ConfigDir = strings.TrimSpace(m.Name)
+	}
+	if err := validateConfigDir(m.ConfigDir); err != nil {
+		return "", err
+	}
 	if v := os.Getenv(m.ConfigDirEnv); v != "" {
 		return v, nil
 	}
@@ -191,7 +200,10 @@ func (h *Hosts) Select(hostname string) {
 }
 
 func (h *Hosts) Save() error {
-	return h.saveAtomic()
+	if h.path == "" || h.lockHeld != nil && h.lockHeld.Load() {
+		return h.saveAtomic()
+	}
+	return withFileLock(context.Background(), h.path, h.saveAtomic)
 }
 
 func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
@@ -204,6 +216,9 @@ func MutateHosts(ctx context.Context, mutate func(*Hosts) error) error {
 		if err != nil {
 			return err
 		}
+		h.lockHeld = new(atomic.Bool)
+		h.lockHeld.Store(true)
+		defer h.lockHeld.Store(false)
 		if err := mutate(h); err != nil {
 			return err
 		}
