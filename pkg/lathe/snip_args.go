@@ -234,10 +234,22 @@ func splitTrailingForSavedDash(targetFs *pflag.FlagSet, trailing []string) (flag
 		}
 		if looksLikeFlag(tok) {
 			flagTokens = append(flagTokens, tok)
-			if len(tok) == 2 && targetFs != nil {
-				if f := targetFs.ShorthandLookup(tok[1:2]); f != nil && f.NoOptDefVal == "" && i+1 < len(trailing) {
-					flagTokens = append(flagTokens, trailing[i+1])
-					i++
+			if targetFs != nil {
+				for j := 1; j < len(tok); j++ {
+					if tok[j] == '=' {
+						break
+					}
+					f := targetFs.ShorthandLookup(tok[j : j+1])
+					if f == nil {
+						break
+					}
+					if f.NoOptDefVal == "" {
+						if j == len(tok)-1 && i+1 < len(trailing) {
+							flagTokens = append(flagTokens, trailing[i+1])
+							i++
+						}
+						break
+					}
 				}
 			}
 			continue

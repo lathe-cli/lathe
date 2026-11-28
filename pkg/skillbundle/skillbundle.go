@@ -1,7 +1,10 @@
 package skillbundle
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"strings"
 
@@ -21,33 +24,59 @@ func Mount(root *cobra.Command, fsys fs.FS, dir string) {
 }
 
 func newSkillCommand(opts kitupcobra.Options) *cobra.Command {
-	opts.SkillName = kitup.ValidateSkillBundle(opts.Bundle).SkillName
+	info := kitup.ValidateSkillBundle(opts.Bundle)
+	opts.SkillName = info.SkillName
 	cmd := kitupcobra.NewSkillCommand(opts)
-	status, _, _ := cmd.Find([]string{"status"})
+	oldStatus, _, _ := cmd.Find([]string{"status"})
+	cmd.RemoveCommand(oldStatus)
+	var captured bytes.Buffer
+	statusOpts := opts
+	statusOpts.Out = &captured
+	status := kitupcobra.NewStatusCommand(statusOpts)
 	run := status.RunE
 	status.RunE = func(cmd *cobra.Command, args []string) error {
-		if err := run(cmd, args); err != nil {
-			return err
+		out := opts.Out
+		if out == nil {
+			out = cmd.OutOrStdout()
 		}
-		scope, _ := cmd.Flags().GetString("scope")
-		agents, _ := cmd.Flags().GetStringArray("agent")
-		parsed := kitup.ParseInstallFlags(kitup.InstallFlagValues{Scope: scope, ScopeSet: true, Agents: agents})
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		var report kitup.StatusReport
+		var runErr error
+		if !info.Valid {
+			report = kitup.StatusReport{Installed: []kitup.InstalledTarget{}, Missing: []kitup.TargetResult{}, Conflicts: []kitup.TargetStatus{}, Errors: []kitup.ReportError{{Reason: info.ErrorCode}}}
+			runErr = fmt.Errorf("invalid bundled Skill: %s", info.ErrorCode)
+		} else {
+			captured.Reset()
+			if err := cmd.Flags().Set("json", "true"); err != nil {
+				return err
+			}
+			runErr = run(cmd, args)
+			_ = cmd.Flags().Set("json", fmt.Sprint(jsonOutput))
+			if captured.Len() == 0 {
+				return runErr
+			}
+			if err := json.Unmarshal(captured.Bytes(), &report); err != nil {
+				return err
+			}
+		}
+		if jsonOutput {
+			if err := json.NewEncoder(out).Encode(report); err != nil {
+				return err
+			}
+		} else {
+			renderSkillStatus(out, report)
+		}
+		if runErr != nil {
+			return runErr
+		}
 		hash, err := kitup.ComputeBundleContentHash(opts.Bundle)
 		if err != nil {
 			return err
 		}
-		report, err := kitup.StatusBundledSkill(kitup.StatusOptions{
-			BaseOptions: kitup.BaseOptions{Home: opts.Home, CWD: opts.CWD, HostsFile: opts.HostsFile},
-			AppID:       opts.AppID,
-			SkillName:   opts.SkillName,
-			Scope:       parsed.Scope,
-			Agents:      parsed.Agents,
-		})
-		if err != nil {
-			return err
-		}
-		if len(report.Errors) > 0 {
-			return fmt.Errorf("check bundled Skill updates: %s", report.Errors[0].Reason)
+		scope, _ := cmd.Flags().GetString("scope")
+		stderr := opts.Err
+		if stderr == nil {
+			stderr = cmd.ErrOrStderr()
 		}
 		for _, target := range report.Installed {
 			if target.Metadata.Hash == hash {
@@ -57,9 +86,31 @@ func newSkillCommand(opts kitupcobra.Options) *cobra.Command {
 			if target.HostID != "" {
 				hosts = []string{target.HostID}
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Installed Skill differs from this binary's bundle: %s\nPreview a refresh with `%s skill install --scope %s --agent %s --dry-run`. Refresh only after approval.\n", target.TargetDir, opts.AppID, scope, strings.Join(hosts, ","))
+			fmt.Fprintf(stderr, "Installed Skill differs from this binary's bundle: %s\nPreview a refresh with `%s skill install --scope %s --agent %s --dry-run`. Refresh only after approval.\n", target.TargetDir, opts.AppID, scope, strings.Join(hosts, ","))
 		}
 		return nil
 	}
+	cmd.AddCommand(status)
 	return cmd
+}
+
+func renderSkillStatus(out io.Writer, report kitup.StatusReport) {
+	hosts := func(target kitup.TargetResult) string {
+		if len(target.HostIDs) > 0 {
+			return strings.Join(target.HostIDs, ",")
+		}
+		return target.HostID
+	}
+	for _, item := range report.Installed {
+		fmt.Fprintf(out, "installed\t%s\t%s\n", hosts(item.TargetResult), item.TargetDir)
+	}
+	for _, item := range report.Missing {
+		fmt.Fprintf(out, "missing\t%s\t%s\n", hosts(item), item.TargetDir)
+	}
+	for _, item := range report.Conflicts {
+		fmt.Fprintf(out, "conflict\t%s\t%s\t%s\n", hosts(item.TargetResult), item.TargetDir, item.Reason)
+	}
+	for _, item := range report.Errors {
+		fmt.Fprintf(out, "error\t%s\n", item.Reason)
+	}
 }

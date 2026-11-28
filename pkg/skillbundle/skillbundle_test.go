@@ -96,3 +96,22 @@ func installedFiles(t *testing.T, target string) map[string]string {
 	}
 	return files
 }
+
+func TestStatusReportsInvalidBundle(t *testing.T) {
+	for _, tc := range []struct{ body, code string }{{"invalid", "invalid-frontmatter"}, {"", "missing-skill-md"}} {
+		files := []kitup.SkillFile{}
+		if tc.body != "" {
+			files = append(files, kitup.SkillFile{Path: "SKILL.md", Contents: []byte(tc.body)})
+		}
+		cmd := newSkillCommand(kitupcobra.Options{AppID: "demo", Bundle: kitup.FilesBundle(files), Home: t.TempDir(), CWD: t.TempDir()})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SilenceErrors = true
+		cmd.SetArgs([]string{"status", "--agent", "codex", "--json"})
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(out.String(), tc.code) || strings.Contains(out.String(), "invalid-skill-name") {
+			t.Errorf("status err=%v output=%s want %s", err, out.String(), tc.code)
+		}
+	}
+}

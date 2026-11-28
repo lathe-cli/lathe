@@ -50,6 +50,7 @@ type authStatus struct {
 }
 
 type authStatusHost struct {
+	Insecure         bool   `json:"insecure,omitempty" yaml:"insecure,omitempty"`
 	Hostname         string `json:"hostname"`
 	CloudflareAccess bool   `json:"cloudflare_access,omitempty"`
 	User             string `json:"user,omitempty"`
@@ -91,7 +92,7 @@ func newStatus() *cobra.Command {
 			}
 			for _, n := range names {
 				e, _ := hosts.Get(n)
-				out.Hosts = append(out.Hosts, authStatusHost{Hostname: n, User: e.User, Auth: authTypeLabel(e), CloudflareAccess: e.CloudflareAccess})
+				out.Hosts = append(out.Hosts, authStatusHost{Hostname: n, User: e.User, Auth: authTypeLabel(e), CloudflareAccess: e.CloudflareAccess, Insecure: e.Insecure})
 			}
 
 			if format := rootString(cmd, "output"); format == "json" || format == "yaml" {
@@ -167,6 +168,9 @@ func printStatus(w io.Writer, hostname string, e config.HostEntry, selected bool
 	}
 	credential := maskedCredential(e)
 	fmt.Fprintf(w, "%s%s\n  ✓ Logged in as %s\n  ✓ Auth: %s\n  ✓ Credential: %s\n", hostname, marker, user, authTypeLabel(e), credential)
+	if e.Insecure {
+		fmt.Fprintln(w, "  Warning: TLS certificate verification is disabled for this host.")
+	}
 	if e.CloudflareAccess {
 		fmt.Fprintln(w, "  ✓ Cloudflare Access: enabled (token not checked)")
 	}

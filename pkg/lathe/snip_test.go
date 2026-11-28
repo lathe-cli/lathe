@@ -3,6 +3,7 @@ package lathe
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -210,5 +211,30 @@ func TestSnipValidationAndErrorRedactionContract(t *testing.T) {
 			testutil.Require(t, env.Error.Code == runtime.CodeUsage, "error = %#v", env.Error)
 			testutil.Require(t, !strings.Contains(stderr, "secret"), "machine error leaked user value:\n%s", stderr)
 		}
+	}
+}
+
+func TestSnipBundledShorthandBeforeSavedDash(t *testing.T) {
+	opts := snipTestOptions()
+	opts.Mount = func(root *cobra.Command) error {
+		cmd := &cobra.Command{Use: "echo", RunE: func(cmd *cobra.Command, args []string) error {
+			name, _ := cmd.Flags().GetString("name")
+			fmt.Fprintf(cmd.OutOrStdout(), "%s:%s", name, strings.Join(args, ","))
+			return nil
+		}}
+		cmd.Flags().BoolP("verbose", "v", false, "")
+		cmd.Flags().StringP("name", "n", "", "")
+		root.AddCommand(cmd)
+		return nil
+	}
+	t.Setenv("MYCTL_CONFIG_DIR", t.TempDir())
+	var out, stderr bytes.Buffer
+	if code := run(opts, []string{"snip", "set", "say", "echo -- saved"}, &out, &stderr); code != 0 {
+		t.Fatalf("set: %d %s", code, stderr.String())
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := run(opts, []string{"snip", "say", "-vn", "myval", "pos1"}, &out, &stderr); code != 0 || out.String() != "myval:saved,pos1" {
+		t.Fatalf("run: %d out=%s err=%s", code, out.String(), stderr.String())
 	}
 }

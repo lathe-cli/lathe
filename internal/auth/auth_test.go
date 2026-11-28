@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -344,4 +346,29 @@ func TestOAuthDeviceLoginAcceptsAuthorizationPendingError(t *testing.T) {
 	entry, ok := hosts.Get(srv.URL)
 	testutil.Require(t, ok, "host not saved")
 	testutil.Require(t, entry.AuthType == "bearer" && entry.OAuthToken == "access-1", "entry = %+v", entry)
+}
+
+func TestStatusExposesPersistedInsecure(t *testing.T) {
+	m := &config.Manifest{CLI: config.CLIInfo{Name: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR", HostEnv: "DEMO_HOST"}}
+	config.Bind(m)
+	t.Setenv("DEMO_CONFIG_DIR", t.TempDir())
+	testutil.NoError(t, config.MutateHosts(context.Background(), func(h *config.Hosts) error {
+		h.Set("api.example.com", config.HostEntry{OAuthToken: "test-token", Insecure: true})
+		return nil
+	}))
+	for _, format := range []string{"json", "yaml", "table"} {
+		root := newAuthRoot(m, "api.example.com")
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs([]string{"auth", "status", "--output", format})
+		testutil.NoError(t, root.Execute())
+		if format == "table" {
+			if !strings.Contains(out.String(), "TLS certificate verification is disabled") {
+				t.Errorf("warning missing: %s", out.String())
+			}
+		} else if !strings.Contains(out.String(), "insecure") || !strings.Contains(out.String(), "true") {
+			t.Errorf("insecure missing from %s: %s", format, out.String())
+		}
+	}
 }

@@ -454,17 +454,19 @@ func verifySkillInstall(root *cobra.Command, m *config.Manifest) error {
 		_ = os.RemoveAll(tempHome)
 	}()
 
-	oldHome, hadHome := os.LookupEnv("HOME")
-	if err := os.Setenv("HOME", tempHome); err != nil {
-		return err
-	}
-	defer func() {
-		if hadHome {
-			_ = os.Setenv("HOME", oldHome)
-		} else {
-			_ = os.Unsetenv("HOME")
+	for _, key := range []string{"HOME", "USERPROFILE"} {
+		old, had := os.LookupEnv(key)
+		if err := os.Setenv(key, tempHome); err != nil {
+			return err
 		}
-	}()
+		defer func() {
+			if had {
+				_ = os.Setenv(key, old)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		}()
+	}
 
 	var out bytes.Buffer
 	oldOut := root.OutOrStdout()
