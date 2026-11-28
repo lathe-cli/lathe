@@ -91,7 +91,7 @@ func TestMutateHostsRejectsInvalidHostWithoutWriting(t *testing.T) {
 	t.Setenv("DEMO_CONFIG_DIR", dir)
 	testutil.NoError(t, MutateHosts(context.Background(), func(h *Hosts) error {
 		h.Set("api.example.com", HostEntry{OAuthToken: "existing"})
-		return nil
+		return h.Save()
 	}))
 	path := filepath.Join(dir, "hosts.yml")
 	before, err := os.ReadFile(path)

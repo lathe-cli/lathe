@@ -25,7 +25,10 @@ func TestSnipsPersistenceContract(t *testing.T) {
 		if err := s.Set("zeta", SnipEntry{Command: "users list --limit 20", Description: "List users"}); err != nil {
 			return err
 		}
-		return s.Set("alpha", SnipEntry{Command: "users get --id $1"})
+		if err := s.Set("alpha", SnipEntry{Command: "users get --id $1"}); err != nil {
+			return err
+		}
+		return s.Save()
 	})
 	testutil.NoError(t, err)
 

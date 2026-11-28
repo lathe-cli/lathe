@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
@@ -67,8 +68,9 @@ func (e *snipEntryYAML) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type Snips struct {
-	entries map[string]SnipEntry
-	path    string
+	entries  map[string]SnipEntry
+	path     string
+	lockHeld *atomic.Bool
 }
 
 func snipsPath() (string, error) {
@@ -168,7 +170,7 @@ func (s *Snips) Names() []string {
 }
 
 func (s *Snips) Save() error {
-	if s.path == "" {
+	if s.path == "" || s.lockHeld != nil && s.lockHeld.Load() {
 		return s.saveAtomic()
 	}
 	return withFileLock(context.Background(), s.path, s.saveAtomic)
@@ -184,6 +186,9 @@ func MutateSnips(ctx context.Context, mutate func(*Snips) error) error {
 		if err != nil {
 			return err
 		}
+		s.lockHeld = new(atomic.Bool)
+		s.lockHeld.Store(true)
+		defer s.lockHeld.Store(false)
 		if err := mutate(s); err != nil {
 			return err
 		}
