@@ -133,9 +133,11 @@ func loadHostsPath(p string) (*Hosts, error) {
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
-	// One-time rekey: migrate any legacy keys that include scheme/slashes.
 	for k, v := range raw {
 		norm := NormalizeHostname(k)
+		if norm == "" {
+			norm = k
+		}
 		if _, exists := h.entries[norm]; !exists || norm == k {
 			h.entries[norm] = v
 		}
@@ -229,6 +231,9 @@ func withFileLock(ctx context.Context, p string, fn func() error) error {
 }
 
 func (h *Hosts) saveAtomic() error {
+	if _, exists := h.entries[""]; exists {
+		return fmt.Errorf("invalid hostname: cannot save an empty host key")
+	}
 	data, err := yaml.Marshal(h.entries)
 	if err != nil {
 		return err

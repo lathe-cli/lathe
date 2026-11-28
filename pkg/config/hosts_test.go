@@ -1,6 +1,12 @@
 package config
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"reflect"
+
+	"gopkg.in/yaml.v3"
 	"testing"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
@@ -56,4 +62,45 @@ func TestNormalizeHostnameURLValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHostsPreserveInvalidLegacyKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts.yml")
+	raw := map[string]HostEntry{
+		"api.example.com?tenant=a": {OAuthToken: "first"},
+		"api.example.com#tenant":   {OAuthToken: "second"},
+	}
+	data, err := yaml.Marshal(raw)
+	testutil.NoError(t, err)
+	testutil.NoError(t, os.WriteFile(path, data, 0o600))
+	hosts, err := loadHostsPath(path)
+	testutil.NoError(t, err)
+	testutil.NoError(t, hosts.Save())
+	data, err = os.ReadFile(path)
+	testutil.NoError(t, err)
+	var saved map[string]HostEntry
+	testutil.NoError(t, yaml.Unmarshal(data, &saved))
+	testutil.Require(t, reflect.DeepEqual(saved, raw), "legacy host entries changed")
+}
+
+func TestMutateHostsRejectsInvalidHostWithoutWriting(t *testing.T) {
+	Bind(&Manifest{CLI: CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR"}})
+	dir := t.TempDir()
+	t.Setenv("DEMO_CONFIG_DIR", dir)
+	testutil.NoError(t, MutateHosts(context.Background(), func(h *Hosts) error {
+		h.Set("api.example.com", HostEntry{OAuthToken: "existing"})
+		return nil
+	}))
+	path := filepath.Join(dir, "hosts.yml")
+	before, err := os.ReadFile(path)
+	testutil.NoError(t, err)
+	err = MutateHosts(context.Background(), func(h *Hosts) error {
+		h.Set(NormalizeHostname("api.example.com?tenant=a"), HostEntry{OAuthToken: "new"})
+		h.Select("")
+		return nil
+	})
+	testutil.Require(t, err != nil, "invalid hostname credential mutation succeeded")
+	after, err := os.ReadFile(path)
+	testutil.NoError(t, err)
+	testutil.Require(t, string(before) == string(after), "invalid hostname credential mutation changed hosts.yml")
 }
