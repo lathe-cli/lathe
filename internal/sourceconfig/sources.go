@@ -1,7 +1,9 @@
 package sourceconfig
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -87,8 +89,14 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: invalid sources YAML (check syntax, field names, and value types)", path)
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("parse %s: expected one YAML document", path)
 	}
 	if len(cfg.Sources) == 0 {
 		return nil, fmt.Errorf("%s declares no sources", path)
@@ -97,6 +105,9 @@ func Load(path string) (*Config, error) {
 	for name, src := range cfg.Sources {
 		if err := validateSourceID(name); err != nil {
 			return nil, err
+		}
+		if src == nil {
+			return nil, fmt.Errorf("source %q must be a mapping", name)
 		}
 		src.Name = name
 		if err := validate(src, baseDir); err != nil {
@@ -152,6 +163,9 @@ func validate(s *Source, baseDir string) error {
 	} else {
 		if s.RepoURL == "" {
 			return fmt.Errorf("missing repo_url")
+		}
+		if err := validateRepoURL(s.RepoURL); err != nil {
+			return err
 		}
 		if s.PinnedTag == "" {
 			return fmt.Errorf("missing pinned_tag")
@@ -265,6 +279,9 @@ func validateProtoDependencies(deps []ProtoDependency) error {
 		case ProtoDependencyGit:
 			if dep.RepoURL == "" || dep.PinnedTag == "" {
 				return fmt.Errorf("%s kind=git requires repo_url and pinned_tag", field)
+			}
+			if err := validateRepoURL(dep.RepoURL); err != nil {
+				return fmt.Errorf("%s: %w", field, err)
 			}
 			if err := validateRef(dep.PinnedTag); err != nil {
 				return fmt.Errorf("%s.pinned_tag: %w", field, err)

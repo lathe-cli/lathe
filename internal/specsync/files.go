@@ -35,6 +35,18 @@ func syncFiles(src *sourceconfig.Source, files []string, workDir, syncDir string
 }
 
 func copyFile(src, dst string) error {
+	for _, path := range []string{src, dst} {
+		if _, err := safeJoin(filepath.Dir(path), filepath.Base(path)); err != nil {
+			return err
+		}
+	}
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("source is not a regular file: %s", src)
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}

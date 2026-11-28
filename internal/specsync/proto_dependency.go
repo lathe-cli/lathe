@@ -179,7 +179,7 @@ func verifyBufDependency(dep sourceconfig.ProtoDependency, workRoot string) erro
 func dependencyName(dep sourceconfig.ProtoDependency) string {
 	switch dep.Kind {
 	case sourceconfig.ProtoDependencyGit:
-		return dep.RepoURL + "@" + dep.PinnedTag
+		return sourceconfig.PublicRepoURL(dep.RepoURL) + "@" + dep.PinnedTag
 	case sourceconfig.ProtoDependencyGoModule:
 		return dep.Module + "@" + dep.Version
 	case sourceconfig.ProtoDependencyBuf:

@@ -32,7 +32,7 @@ func LoadState(syncDir string) (*State, error) {
 	}
 	var s State
 	if err := yaml.Unmarshal(data, &s); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid sync-state YAML")
 	}
 	return &s, nil
 }
