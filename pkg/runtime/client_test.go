@@ -294,20 +294,27 @@ func TestBaseURLValidation(t *testing.T) {
 }
 
 func TestDoRawPreservesInternationalHostnameDestination(t *testing.T) {
-	for _, tc := range []struct{ hostname, destination string }{
-		{"http://İbm.test", "xn--ibm-8dc.test:80"},
-		{"http://straẞe.test", "strasse.test:80"},
-	} {
-		t.Run(tc.hostname, func(t *testing.T) {
+	for _, hostname := range []string{"http://İbm.test", "http://straẞe.test"} {
+		t.Run(hostname, func(t *testing.T) {
 			var destination string
 			transport := &http.Transport{DialContext: func(_ context.Context, _, address string) (net.Conn, error) {
 				destination = address
 				return nil, errors.New("probe stopped before network access")
 			}}
 			defer transport.CloseIdleConnections()
-			_, err := DoRaw(t.Context(), tc.hostname, "GET", "/items", nil, ClientOptions{Transport: transport})
-			if err == nil || destination != tc.destination {
-				t.Fatalf("destination=%q error=%v, want %q", destination, err, tc.destination)
+			rawRequest, err := http.NewRequestWithContext(t.Context(), "GET", hostname+"/items", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = transport.RoundTrip(rawRequest)
+			if err == nil || destination == "" {
+				t.Fatalf("raw URL did not reach dial: destination=%q error=%v", destination, err)
+			}
+			want := destination
+			destination = ""
+			_, err = DoRaw(t.Context(), hostname, "GET", "/items", nil, ClientOptions{Transport: transport})
+			if err == nil || destination != want {
+				t.Fatalf("destination=%q error=%v, want %q", destination, err, want)
 			}
 		})
 	}

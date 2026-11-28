@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"testing"
 
 	"gopkg.in/yaml.v3"
-	"testing"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
@@ -103,4 +103,25 @@ func TestMutateHostsRejectsInvalidHostWithoutWriting(t *testing.T) {
 	after, err := os.ReadFile(path)
 	testutil.NoError(t, err)
 	testutil.Require(t, string(before) == string(after), "invalid hostname credential mutation changed hosts.yml")
+}
+
+func TestMutateHostsRejectsCollidingLegacyKeysWithoutWriting(t *testing.T) {
+	Bind(&Manifest{CLI: CLIInfo{Name: "demo", ConfigDir: "demo", ConfigDirEnv: "DEMO_CONFIG_DIR"}})
+	dir := t.TempDir()
+	t.Setenv("DEMO_CONFIG_DIR", dir)
+	path := filepath.Join(dir, "hosts.yml")
+	before, err := yaml.Marshal(map[string]HostEntry{
+		"API.example.com": {OAuthToken: "first"},
+		"Api.example.com": {OAuthToken: "second"},
+	})
+	testutil.NoError(t, err)
+	testutil.NoError(t, os.WriteFile(path, before, 0o600))
+	err = MutateHosts(context.Background(), func(h *Hosts) error {
+		h.Set("other.example.com", HostEntry{OAuthToken: "new"})
+		return nil
+	})
+	testutil.Require(t, err != nil, "colliding hostname credential mutation succeeded")
+	after, err := os.ReadFile(path)
+	testutil.NoError(t, err)
+	testutil.Require(t, string(before) == string(after), "colliding hostname credential mutation changed hosts.yml")
 }

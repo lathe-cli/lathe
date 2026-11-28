@@ -138,9 +138,10 @@ func loadHostsPath(p string) (*Hosts, error) {
 		if norm == "" {
 			norm = k
 		}
-		if _, exists := h.entries[norm]; !exists || norm == k {
-			h.entries[norm] = v
+		if _, exists := h.entries[norm]; exists {
+			return nil, fmt.Errorf("multiple host entries normalize to %q; remove duplicate entries from hosts.yml", norm)
 		}
+		h.entries[norm] = v
 	}
 	return h, nil
 }
