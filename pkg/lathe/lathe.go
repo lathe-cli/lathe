@@ -17,12 +17,10 @@ const (
 	metaCommandName = "__lathe"
 )
 
-// NewApp builds the root cobra command for a lathe-style CLI identified by m.
-// It binds m for package-level helpers before returning the command.
-// Callers that need the standard generated-CLI entrypoint should use Run.
-// Advanced callers may still mount generated module command trees directly
-// onto the returned *cobra.Command and execute it themselves.
 func NewApp(m *config.Manifest) *cobra.Command {
+	if m == nil {
+		panic("lathe: NewApp requires a non-nil manifest")
+	}
 	config.Bind(m)
 
 	cmd := &cobra.Command{

@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	stdruntime "runtime"
-	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -28,10 +27,11 @@ import (
 )
 
 var (
-	updateGitHubAPIBaseURL = "https://api.github.com"
-	updateHTTPClient       = &http.Client{Timeout: 30 * time.Second}
-	installUpdate          = replaceExecutable
-	updateVersionInfo      = VersionInfo
+	updateGitHubAPIBaseURL  = "https://api.github.com"
+	defaultUpdateHTTPClient = &http.Client{Timeout: 30 * time.Second}
+	updateHTTPClient        = defaultUpdateHTTPClient
+	installUpdate           = replaceExecutable
+	updateVersionInfo       = VersionInfo
 )
 
 type githubRelease struct {
@@ -126,7 +126,59 @@ func printSkillStatusHint(cmd *cobra.Command, cli string) {
 	}
 }
 
+const (
+	maxUpdateReleaseBytes  = 4 << 20
+	maxUpdateArchiveBytes  = 256 << 20
+	maxUpdateBinaryBytes   = 128 << 20
+	maxUpdateExpandedBytes = 512 << 20
+)
+
+func validateUpdateURL(u *neturl.URL) error {
+	if u.User != nil || u.Hostname() == "" {
+		return fmt.Errorf("update URL must have a host and no credentials")
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if updateHTTPClient != defaultUpdateHTTPClient && u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
+		return nil
+	}
+	return fmt.Errorf("update URL must use HTTPS")
+}
+
+func updateRequest(req *http.Request) (*http.Response, error) {
+	if err := validateUpdateURL(req.URL); err != nil {
+		return nil, err
+	}
+	client := *updateHTTPClient
+	previousRedirect := client.CheckRedirect
+	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("too many update redirects")
+		}
+		if err := validateUpdateURL(next.URL); err != nil {
+			return err
+		}
+		from := via[len(via)-1].URL
+		sameOrigin := strings.EqualFold(from.Scheme, next.URL.Scheme) && strings.EqualFold(from.Host, next.URL.Host)
+		githubAsset := from.Scheme == "https" && next.URL.Scheme == "https" && from.Host == "github.com" && (next.URL.Host == "release-assets.githubusercontent.com" || next.URL.Host == "objects.githubusercontent.com")
+		if !sameOrigin && !githubAsset {
+			return fmt.Errorf("unsafe update redirect")
+		}
+		if previousRedirect != nil {
+			return previousRedirect(next, via)
+		}
+		return nil
+	}
+	return client.Do(req)
+}
+
 func fetchLatestGitHubRelease(ctx context.Context, gh config.GitHubUpdate) (githubRelease, error) {
+	for _, part := range []string{gh.Owner, gh.Repo} {
+		if strings.TrimSpace(part) == "" || part == "." || part == ".." || strings.ContainsAny(part, `/\`) {
+			return githubRelease{}, fmt.Errorf("invalid GitHub update owner or repository")
+		}
+	}
 	u := strings.TrimRight(updateGitHubAPIBaseURL, "/") + "/repos/" + neturl.PathEscape(gh.Owner) + "/" + neturl.PathEscape(gh.Repo) + "/releases/latest"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -134,7 +186,7 @@ func fetchLatestGitHubRelease(ctx context.Context, gh config.GitHubUpdate) (gith
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	resp, err := updateHTTPClient.Do(req)
+	resp, err := updateRequest(req)
 	if err != nil {
 		return githubRelease{}, fmt.Errorf("fetch latest release: %w", err)
 	}
@@ -142,8 +194,15 @@ func fetchLatestGitHubRelease(ctx context.Context, gh config.GitHubUpdate) (gith
 	if resp.StatusCode != http.StatusOK {
 		return githubRelease{}, fmt.Errorf("fetch latest release: GitHub returned %s", resp.Status)
 	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxUpdateReleaseBytes+1))
+	if err != nil {
+		return githubRelease{}, fmt.Errorf("read latest release: %w", err)
+	}
+	if len(body) > maxUpdateReleaseBytes {
+		return githubRelease{}, fmt.Errorf("latest release exceeds size limit")
+	}
 	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.Unmarshal(body, &release); err != nil {
 		return githubRelease{}, fmt.Errorf("parse latest release: %w", err)
 	}
 	return release, nil
@@ -208,7 +267,7 @@ func downloadReleaseAsset(ctx context.Context, asset githubAsset, expectedDigest
 		return "", err
 	}
 	req.Header.Set("Accept", "application/octet-stream")
-	resp, err := updateHTTPClient.Do(req)
+	resp, err := updateRequest(req)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", asset.Name, err)
 	}
@@ -222,7 +281,10 @@ func downloadReleaseAsset(ctx context.Context, asset githubAsset, expectedDigest
 	}
 	path := f.Name()
 	h := sha256.New()
-	_, copyErr := io.Copy(io.MultiWriter(f, h), resp.Body)
+	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxUpdateArchiveBytes+1))
+	if copyErr == nil && n > maxUpdateArchiveBytes {
+		copyErr = fmt.Errorf("update archive exceeds size limit")
+	}
 	closeErr := f.Close()
 	if copyErr != nil {
 		_ = os.Remove(path)
@@ -262,7 +324,7 @@ func extractTarGzBinary(path, cliName string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = gz.Close() }()
-	tr := tar.NewReader(gz)
+	tr := tar.NewReader(io.LimitReader(gz, maxUpdateExpandedBytes+1))
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -285,7 +347,7 @@ func extractZipBinary(path, cliName string) (string, error) {
 	}
 	defer func() { _ = zr.Close() }()
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || !binaryNameMatches(f.Name, cliName) {
+		if !f.Mode().IsRegular() || !binaryNameMatches(f.Name, cliName) {
 			continue
 		}
 		rc, err := f.Open()
@@ -317,7 +379,10 @@ func writeUpdatePayload(r io.Reader, mode os.FileMode) (string, error) {
 		return "", err
 	}
 	path := f.Name()
-	_, copyErr := io.Copy(f, r)
+	n, copyErr := io.Copy(f, io.LimitReader(r, maxUpdateBinaryBytes+1))
+	if copyErr == nil && n > maxUpdateBinaryBytes {
+		copyErr = fmt.Errorf("update binary exceeds size limit")
+	}
 	if mode == 0 {
 		mode = 0o755
 	}
@@ -376,10 +441,40 @@ func replaceExecutable(src string) error {
 		_ = os.Remove(tmpPath)
 		return closeErr
 	}
-	if err := os.Rename(tmpPath, target); err != nil {
+	if err := replaceUpdateFile(tmpPath, target, stdruntime.GOOS == "windows", os.Rename); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replace %s: %w", target, err)
 	}
+	return nil
+}
+
+func replaceUpdateFile(src, target string, windows bool, rename func(string, string) error) error {
+	err := rename(src, target)
+	if err == nil || !windows {
+		return err
+	}
+	backup, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+"-*.old")
+	if err != nil {
+		return err
+	}
+	old := backup.Name()
+	if err := backup.Close(); err != nil {
+		_ = os.Remove(old)
+		return err
+	}
+	if err := os.Remove(old); err != nil {
+		return err
+	}
+	if err := rename(target, old); err != nil {
+		return err
+	}
+	if err := rename(src, target); err != nil {
+		if restoreErr := rename(old, target); restoreErr != nil {
+			return fmt.Errorf("install update: %v; restore executable from %s: %w", err, old, restoreErr)
+		}
+		return err
+	}
+	_ = os.Remove(old)
 	return nil
 }
 
@@ -393,10 +488,10 @@ func compareVersions(current, latest string) (int, error) {
 		return 0, fmt.Errorf("latest version %q cannot be compared", latest)
 	}
 	for i := range a.parts {
-		if a.parts[i] < b.parts[i] {
+		if compareNumericVersion(a.parts[i], b.parts[i]) < 0 {
 			return -1, nil
 		}
-		if a.parts[i] > b.parts[i] {
+		if compareNumericVersion(a.parts[i], b.parts[i]) > 0 {
 			return 1, nil
 		}
 	}
@@ -409,32 +504,91 @@ func compareVersions(current, latest string) (int, error) {
 	if a.suffix == "" && b.suffix != "" {
 		return 1, nil
 	}
-	return strings.Compare(a.suffix, b.suffix), nil
+	left, right := strings.Split(a.suffix, "."), strings.Split(b.suffix, ".")
+	for i := 0; i < len(left) && i < len(right); i++ {
+		if left[i] == right[i] {
+			continue
+		}
+		ln, rn := numericVersion(left[i]), numericVersion(right[i])
+		if ln && rn {
+			return compareNumericVersion(left[i], right[i]), nil
+		}
+		if ln {
+			return -1, nil
+		}
+		if rn {
+			return 1, nil
+		}
+		return strings.Compare(left[i], right[i]), nil
+	}
+	if len(left) < len(right) {
+		return -1, nil
+	}
+	return 1, nil
 }
 
 type parsedVersion struct {
-	parts  [3]int
+	parts  [3]string
 	suffix string
+}
+
+func numericVersion(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareNumericVersion(a, b string) int {
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	return strings.Compare(a, b)
+}
+
+func validVersionIdentifiers(s string, prerelease bool) bool {
+	for _, part := range strings.Split(s, ".") {
+		if part == "" || (prerelease && numericVersion(part) && len(part) > 1 && part[0] == '0') {
+			return false
+		}
+		for _, r := range part {
+			valid := r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '-'
+			if !valid {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func parseVersion(v string) (parsedVersion, error) {
 	v = cleanVersion(v)
-	core, suffix, _ := strings.Cut(v, "-")
-	fields := strings.Split(core, ".")
-	if len(fields) == 0 || len(fields) > 3 {
+	v, build, hasBuild := strings.Cut(v, "+")
+	if hasBuild && !validVersionIdentifiers(build, false) {
 		return parsedVersion{}, fmt.Errorf("invalid version")
 	}
-	var out parsedVersion
-	out.suffix = suffix
+	core, suffix, hasSuffix := strings.Cut(v, "-")
+	if hasSuffix && !validVersionIdentifiers(suffix, true) {
+		return parsedVersion{}, fmt.Errorf("invalid version")
+	}
+	fields := strings.Split(core, ".")
+	if len(fields) != 3 {
+		return parsedVersion{}, fmt.Errorf("invalid version")
+	}
+	out := parsedVersion{suffix: suffix}
 	for i, field := range fields {
-		if field == "" {
+		if !numericVersion(field) || (len(field) > 1 && field[0] == '0') {
 			return parsedVersion{}, fmt.Errorf("invalid version")
 		}
-		n, err := strconv.Atoi(field)
-		if err != nil {
-			return parsedVersion{}, err
-		}
-		out.parts[i] = n
+		out.parts[i] = field
 	}
 	return out, nil
 }

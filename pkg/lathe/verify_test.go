@@ -101,6 +101,8 @@ func TestRunVerifyGeneratedJSON(t *testing.T) {
 }
 
 func TestVerifyGeneratedSkillInstall(t *testing.T) {
+	t.Setenv("USERPROFILE", t.TempDir())
+	originalProfile := os.Getenv("USERPROFILE")
 	root := NewApp(testManifest())
 	testutil.NoError(t, runtime.Build(root, "demo", []runtime.CommandSpec{{
 		Group:   "Users",
@@ -121,6 +123,9 @@ func TestVerifyGeneratedSkillInstall(t *testing.T) {
 			if !hookRan {
 				return errors.New("pre-run hook did not run")
 			}
+			if os.Getenv("USERPROFILE") != os.Getenv("HOME") || os.Getenv("USERPROFILE") == originalProfile {
+				return errors.New("USERPROFILE is not isolated")
+			}
 			target := filepath.Join(os.Getenv("HOME"), ".agents", "skills", "myctl")
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
@@ -140,6 +145,8 @@ func TestVerifyGeneratedSkillInstall(t *testing.T) {
 	report := verifyGenerated(root, testManifest())
 	testutil.Require(t, verifyReportHasCheck(report, "skill_install"), "report missing skill_install: %+v", report.Checks)
 	testutil.Require(t, hookRan, "skill install hook did not run")
+	testutil.Require(t, os.Getenv("USERPROFILE") == originalProfile, "USERPROFILE was not restored")
+	testutil.Require(t, report.OK, "verify failed: %+v", report)
 }
 
 func TestVerifyGeneratedHiddenWorkflowContract(t *testing.T) {

@@ -68,3 +68,22 @@ func TestSnipsPersistenceContract(t *testing.T) {
 		testutil.Require(t, err != nil, "expected error for invalid snips.yml:\n%s", invalid)
 	}
 }
+
+func TestSnipsRejectInvalidPersistence(t *testing.T) {
+	s := &Snips{entries: map[string]SnipEntry{}, path: filepath.Join(t.TempDir(), "snips.yml")}
+	for _, tc := range []struct{ name, command string }{{" ", "users list"}, {"valid", " "}} {
+		s.Set(tc.name, SnipEntry{Command: tc.command})
+	}
+	if len(s.Names()) != 0 {
+		t.Error("Set retained invalid entries")
+	}
+	s.entries[""] = SnipEntry{Command: "users list"}
+	if err := s.Save(); err == nil {
+		t.Error("Save accepted invalid name")
+	}
+	delete(s.entries, "")
+	s.entries["valid"] = SnipEntry{Command: " "}
+	if err := s.Save(); err == nil {
+		t.Error("Save accepted empty command")
+	}
+}

@@ -238,3 +238,12 @@ func TestRunFormatsStartupErrorAsMachineOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestNewAppNilManifestGuard(t *testing.T) {
+	defer func() {
+		if got := recover(); got != "lathe: NewApp requires a non-nil manifest" {
+			t.Errorf("panic=%v", got)
+		}
+	}()
+	NewApp(nil)
+}

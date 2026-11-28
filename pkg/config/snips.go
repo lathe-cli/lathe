@@ -128,7 +128,14 @@ func loadSnipsPath(p string) (*Snips, error) {
 }
 
 func (s *Snips) Set(name string, e SnipEntry) {
-	s.entries[strings.TrimSpace(name)] = SnipEntry{
+	name = strings.TrimSpace(name)
+	if name == "" || strings.TrimSpace(e.Command) == "" {
+		return
+	}
+	if s.entries == nil {
+		s.entries = map[string]SnipEntry{}
+	}
+	s.entries[name] = SnipEntry{
 		Command:     strings.TrimSpace(e.Command),
 		Description: strings.TrimSpace(e.Description),
 	}
@@ -179,6 +186,11 @@ func MutateSnips(ctx context.Context, mutate func(*Snips) error) error {
 }
 
 func (s *Snips) saveAtomic() error {
+	for name, e := range s.entries {
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(e.Command) == "" {
+			return fmt.Errorf("snip name and command must not be empty")
+		}
+	}
 	data, err := yaml.Marshal(s.entries)
 	if err != nil {
 		return err
