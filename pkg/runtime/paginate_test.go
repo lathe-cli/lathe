@@ -326,3 +326,52 @@ func TestExtractJSONString(t *testing.T) {
 		t.Errorf("got %q for non-string field, want empty", got)
 	}
 }
+
+func TestPaginateAllPreservesCallerBody(t *testing.T) {
+	for _, path := range []string{"variables.after", "variables.pages[0].after"} {
+		t.Run(path, func(t *testing.T) {
+			body := map[string]any{"variables": map[string]any{"after": "original", "pages": []any{map[string]any{"after": "original"}}}}
+			before, _ := json.Marshal(body)
+			hits := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				if hits == 1 {
+					_, _ = w.Write([]byte(`{"items":[1],"endCursor":"next","hasNextPage":true}`))
+				} else {
+					_, _ = w.Write([]byte(`{"items":[2],"hasNextPage":false}`))
+				}
+			}))
+			defer srv.Close()
+			_, err := PaginateAll(context.Background(), srv.URL, "POST", "/query", body, ClientOptions{}, PaginationHint{Strategy: "body-cursor", TokenField: "endCursor", TokenParam: path}, "items", 2)
+			after, _ := json.Marshal(body)
+			if err != nil || string(before) != string(after) {
+				t.Fatalf("caller body changed: %s -> %s, err=%v", before, after, err)
+			}
+		})
+	}
+}
+
+func TestPaginateAllRootRelayAndEmptyOutput(t *testing.T) {
+	for _, listPath := range []string{"", "items"} {
+		t.Run(listPath, func(t *testing.T) {
+			hits := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				if listPath == "" {
+					_, _ = w.Write([]byte(`[]`))
+				} else {
+					_, _ = w.Write([]byte(`{"items":[],"endCursor":"stale","hasNextPage":false}`))
+				}
+			}))
+			defer srv.Close()
+			got, err := PaginateAll(context.Background(), srv.URL, "POST", "/query", map[string]any{}, ClientOptions{}, PaginationHint{Strategy: "body-cursor", TokenField: "endCursor", TokenParam: "after"}, listPath, 3)
+			want := "[]"
+			if listPath != "" {
+				want = `{"items":[]}`
+			}
+			if err != nil || string(got) != want || hits != 1 {
+				t.Fatalf("got=%s hits=%d err=%v, want=%s hits=1", got, hits, err, want)
+			}
+		})
+	}
+}

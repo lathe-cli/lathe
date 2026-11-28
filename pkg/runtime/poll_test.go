@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -175,12 +176,10 @@ func TestPollUntilDone_TimeoutBoundsRequestAndBackoff(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			// The caller deadline is a watchdog, not the polling budget. A poll
-			// timeout must win even while the request or initial backoff waits.
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			defer cancel()
 			_, err := PollUntilDone(ctx, srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 50*time.Millisecond)
-			if err == nil || err.Error() != "polling timed out after 50ms" {
+			if err == nil || !strings.Contains(err.Error(), "polling timed out after 50ms") || !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("PollUntilDone error = %v, want polling timeout", err)
 			}
 			if got := ClassifyError(err).Code; got != CodeAPIError {
@@ -255,4 +254,41 @@ func TestPollUntilDone_ContextCancel(t *testing.T) {
 
 	_, err := PollUntilDone(ctx, srv.URL, "/status", ClientOptions{Timeout: 5 * time.Second}, 30*time.Second)
 	testutil.Require(t, err != nil, "expected context error")
+}
+
+func TestPollUntilDoneBasePath(t *testing.T) {
+	for _, location := range []string{"/V1/ops/1?x=1", "ops/1?x=1", "absolute"} {
+		t.Run(location, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.URL.RequestURI(); _, _ = w.Write([]byte(`{}`)) }))
+			defer srv.Close()
+			if location == "absolute" {
+				location = srv.URL + "/V1/ops/1?x=1"
+			}
+			_, err := PollUntilDone(context.Background(), srv.URL+"/V1", location, ClientOptions{}, time.Second)
+			if err != nil || got != "/V1/ops/1?x=1" {
+				t.Fatalf("path=%q, err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestPollUntilDoneDeadlineClassification(t *testing.T) {
+	for _, parent := range []bool{false, true} {
+		t.Run(fmt.Sprint(parent), func(t *testing.T) {
+			ctx := context.Background()
+			budget := 10 * time.Millisecond
+			if parent {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+				budget = time.Second
+			}
+			opts := ClientOptions{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) { <-r.Context().Done(); return nil, r.Context().Err() })}
+			_, err := PollUntilDone(ctx, "example.com", "/ops/1", opts, budget)
+			if !errors.Is(err, context.DeadlineExceeded) || ClassifyError(err).Code != CodeAPIError {
+				t.Fatalf("error=%v, code=%s", err, ClassifyError(err).Code)
+			}
+		})
+	}
 }

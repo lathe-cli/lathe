@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/lathe-cli/lathe/pkg/config"
 )
 
 type ClientOptions struct {
@@ -39,18 +41,19 @@ type ClientOptions struct {
 	checkRedirect        func(*http.Request, []*http.Request) error
 }
 
-// BaseURL normalizes a user-facing hostname into an absolute URL base.
-// Accepts: "host", "host:port", "https://host", "https://host:port".
-// Default scheme is https; no default port (standard 443).
 func BaseURL(hostname string) (string, error) {
-	h := strings.TrimSpace(hostname)
+	h := config.NormalizeHostname(hostname)
 	if h == "" {
-		return "", fmt.Errorf("empty hostname")
+		return "", fmt.Errorf("invalid hostname: expected an HTTP or HTTPS host without userinfo, query, or fragment")
 	}
-	if !strings.HasPrefix(h, "http://") && !strings.HasPrefix(h, "https://") {
+	if !strings.HasPrefix(h, "http://") {
 		h = "https://" + h
 	}
-	return strings.TrimRight(h, "/"), nil
+	u, err := url.Parse(h)
+	if err != nil {
+		return "", fmt.Errorf("invalid hostname")
+	}
+	return u.String(), nil
 }
 
 func HTTPClient(opts ClientOptions) *http.Client {
@@ -152,6 +155,10 @@ func doRawFullConsume(ctx context.Context, hostname, method, path string, body a
 }
 
 func encodeRequestBody(body any) ([]byte, string, error) {
+	return encodeRequestBodyContext(context.Background(), body)
+}
+
+func encodeRequestBodyContext(ctx context.Context, body any) ([]byte, string, error) {
 	if body != nil {
 		switch b := body.(type) {
 		case []byte:
@@ -159,7 +166,7 @@ func encodeRequestBody(body any) ([]byte, string, error) {
 		case url.Values:
 			return []byte(b.Encode()), "application/x-www-form-urlencoded", nil
 		case multipartForm:
-			return encodeMultipartForm(b)
+			return encodeMultipartForm(ctx, b)
 		default:
 			raw, err := json.Marshal(b)
 			if err != nil {
@@ -171,7 +178,7 @@ func encodeRequestBody(body any) ([]byte, string, error) {
 	return nil, "", nil
 }
 
-func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
+func encodeMultipartForm(ctx context.Context, form multipartForm) ([]byte, string, error) {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	fieldNames := make([]string, 0, len(form.Fields))
@@ -194,7 +201,7 @@ func encodeMultipartForm(form multipartForm) ([]byte, string, error) {
 	sort.Strings(fileNames)
 	for _, name := range fileNames {
 		for _, path := range form.Files[name] {
-			data, err := ReadBody(path)
+			data, err := ReadBodyContext(ctx, path)
 			if err != nil {
 				return nil, "", fmt.Errorf("read multipart file %q: %w", path, err)
 			}
@@ -335,7 +342,7 @@ func resolveRequest(ctx context.Context, hostname, method, path string, body any
 	if err != nil {
 		return nil, nil, "", err
 	}
-	bodyBytes, contentType, err := encodeRequestBody(body)
+	bodyBytes, contentType, err := encodeRequestBodyContext(ctx, body)
 	if err != nil {
 		return nil, nil, "", err
 	}

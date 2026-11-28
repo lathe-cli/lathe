@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lathe-cli/lathe/internal/testutil"
 )
@@ -184,4 +186,35 @@ func TestInvokeOperation_MultipartRejectsJSONBodyFile(t *testing.T) {
 func TestContentDispositionEscapesHeaderBreaks(t *testing.T) {
 	got := contentDisposition("a\"\r\nX-Evil: 1", "f\\\n.png")
 	testutil.Require(t, got == `form-data; name="a\"%0D%0AX-Evil: 1"; filename="f\\%0A.png"`, "Content-Disposition = %q", got)
+}
+
+func TestBuildMultipartStdinCancellation(t *testing.T) {
+	isolateRuntime(t)
+	reader, writer, err := os.Pipe()
+	testutil.NoError(t, err)
+	previous := os.Stdin
+	os.Stdin = reader
+	defer func() { os.Stdin = previous; _ = reader.Close(); _ = writer.Close() }()
+	root := newExecutionRoot("raw")
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	mustBuild(t, root, "demo", []CommandSpec{{Group: "Uploads", Use: "create", Method: "POST", PathTpl: "/uploads", Security: &SecurityHint{Public: true}, Params: []ParamSpec{{Name: "file", Flag: "file", In: InFormData, GoType: "string", Format: "binary"}}, RequestBody: &RequestBody{MediaType: "multipart/form-data"}}})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	root.SetContext(ctx)
+	root.SetArgs([]string{"demo", "uploads", "create", "--hostname", "example.com", "--file", "-"})
+	done := make(chan error, 1)
+	go func() { done <- root.Execute() }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v", err)
+		}
+	case <-time.After(time.Second):
+		_ = writer.Close()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("multipart stdin ignored cancellation: %v", err)
+		}
+		t.Fatal("multipart stdin ignored cancellation")
+	}
 }

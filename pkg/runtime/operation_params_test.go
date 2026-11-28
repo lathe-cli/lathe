@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -197,4 +200,54 @@ func TestBuild_IntListVariableSentAsJSONNumbers(t *testing.T) {
 	vars, _ := got["variables"].(map[string]any)
 	ids, ok := vars["ids"].([]any)
 	testutil.Check(t, ok && len(ids) == 2 && ids[0] == float64(1) && ids[1] == float64(2), "variables.ids = %#v, want [1,2] as JSON numbers", vars["ids"])
+}
+
+func TestInvokeOperationTypedQueryValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, goType, style, want string
+		value                     any
+	}{
+		{"float", "float64", "", "value=1.25", 1.25},
+		{"integers", "[]int64", "form", "value=1,2", []int64{1, 2}},
+		{"floats", "[]float64", "pipeDelimited", "value=1.25%7C2.5", []float64{1.25, 2.5}},
+		{"booleans", "[]bool", "spaceDelimited", "value=true%20false", []bool{true, false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.URL.RawQuery; _, _ = w.Write([]byte(`{}`)) }))
+			defer srv.Close()
+			_, err := InvokeOperation(context.Background(), CommandSpec{Method: "GET", PathTpl: "/items", Security: &SecurityHint{Public: true}, Params: []ParamSpec{{Name: "value", Flag: "value", In: InQuery, GoType: tc.goType, Style: tc.style}}}, OperationInput{Values: map[string]any{"value": tc.value}}, OperationOptions{Hostname: srv.URL})
+			if err != nil || got != tc.want {
+				t.Fatalf("query=%q, err=%v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestInvokeOperationRejectsUnsupportedParameters(t *testing.T) {
+	for _, tc := range []struct {
+		name, location, goType, style string
+		value                         any
+	}{
+		{"path object", InPath, "string", "", map[string]any{"id": "x"}},
+		{"path slice for scalar", InPath, "string", "", []string{"x"}},
+		{"path empty array", InPath, "[]string", "", []string{}},
+		{"header object", InHeader, "string", "", map[string]any{}},
+		{"cookie array for scalar", InCookie, "string", "", []bool{true}},
+		{"query object", InQuery, "string", "", map[string]any{}},
+		{"query unsupported style", InQuery, "[]string", "deepObject", []string{"a", "b"}},
+		{"path unsupported style", InPath, "string", "deepObject", "x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			opts := OperationOptions{Hostname: "example.com", Client: ClientOptions{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				called = true
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: http.NoBody}, nil
+			})}}
+			_, err := InvokeOperation(context.Background(), CommandSpec{Method: "DELETE", PathTpl: "/items/{value}", Security: &SecurityHint{Public: true}, Params: []ParamSpec{{Name: "value", Flag: "value", In: tc.location, GoType: tc.goType, Style: tc.style}}}, OperationInput{Values: map[string]any{"value": tc.value}}, opts)
+			if err == nil || called {
+				t.Fatalf("err=%v, sent request=%v", err, called)
+			}
+		})
+	}
 }

@@ -115,6 +115,20 @@ func boundParamKey(p ParamSpec) string {
 }
 
 func coerceOperationValue(v any, p ParamSpec) (any, error) {
+	if p.In == InPath || p.In == InQuery || p.In == InHeader || p.In == InCookie || p.In == InFormData {
+		array := false
+		switch v.(type) {
+		case string, *string, json.Number, int, int64, *int64, float64, *float64, bool, *bool:
+		case []string, *[]string, []int64, *[]int64, []float64, *[]float64, []bool, *[]bool:
+			array = true
+		default:
+			return nil, fmt.Errorf("unsupported value for %s parameter %q", p.In, p.Name)
+		}
+		if array && !strings.HasPrefix(p.GoType, "[]") {
+			return nil, fmt.Errorf("%s parameter %q requires a scalar value", p.In, p.Name)
+		}
+	}
+
 	switch tv := v.(type) {
 	case *string:
 		return *tv, nil

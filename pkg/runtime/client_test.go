@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -266,5 +267,55 @@ func TestDoRawFull_StreamCancellationClosesResponse(t *testing.T) {
 		testutil.Require(t, errors.Is(err, context.Canceled), "stream error = %v, want context canceled", err)
 	case <-time.After(time.Second):
 		t.Fatal("stream call did not return after cancellation")
+	}
+}
+
+func TestBaseURLValidation(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"HTTPS://API.Example.COM:443/V1/", "https://api.example.com/V1"},
+		{"HTTP://API.Example.COM:80/V1/", "http://api.example.com/V1"},
+		{"https://[::1]:443/V1", "https://[::1]/V1"},
+		{"https://example.com?x=1", ""}, {"https://example.com?", ""},
+		{"https://example.com#fragment", ""}, {"https://example.com#", ""},
+		{"https://user:password@example.com", ""}, {"ftp://example.com", ""},
+		{"https:///path", ""}, {"https://example.com:99999", ""},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := BaseURL(tc.input)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("accepted invalid URL %q", got)
+				}
+			} else if err != nil || got != tc.want {
+				t.Fatalf("got %q, err=%v, want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDoRawPreservesInternationalHostnameDestination(t *testing.T) {
+	for _, hostname := range []string{"http://İbm.test", "http://straẞe.test"} {
+		t.Run(hostname, func(t *testing.T) {
+			var destination string
+			transport := &http.Transport{DialContext: func(_ context.Context, _, address string) (net.Conn, error) {
+				destination = address
+				return nil, errors.New("probe stopped before network access")
+			}}
+			defer transport.CloseIdleConnections()
+			rawRequest, err := http.NewRequestWithContext(t.Context(), "GET", hostname+"/items", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = transport.RoundTrip(rawRequest)
+			if err == nil || destination == "" {
+				t.Fatalf("raw URL did not reach dial: destination=%q error=%v", destination, err)
+			}
+			want := destination
+			destination = ""
+			_, err = DoRaw(t.Context(), hostname, "GET", "/items", nil, ClientOptions{Transport: transport})
+			if err == nil || destination != want {
+				t.Fatalf("destination=%q error=%v, want %q", destination, err, want)
+			}
+		})
 	}
 }

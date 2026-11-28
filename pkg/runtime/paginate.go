@@ -83,9 +83,20 @@ func setBodyParam(body any, path string, value string) ([]byte, error) {
 			return nil, fmt.Errorf("pagination body is not JSON: %w", err)
 		}
 	case map[string]any:
-		root = v
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("encode pagination body: %w", err)
+		}
+		decoded, err := decodeNumberPreserving(raw)
+		if err != nil {
+			return nil, fmt.Errorf("decode pagination body: %w", err)
+		}
+		root, _ = decoded.(map[string]any)
 	default:
 		return nil, fmt.Errorf("pagination body must be JSON")
+	}
+	if root == nil {
+		root = map[string]any{}
 	}
 	if err := setNestedPath(root, path, value); err != nil {
 		return nil, err
@@ -163,6 +174,9 @@ func extractJSONBool(data []byte, field string) (bool, bool) {
 }
 
 func relayHasNextPath(tokenField string) string {
+	if tokenField == "endCursor" {
+		return "hasNextPage"
+	}
 	return strings.TrimSuffix(tokenField, ".endCursor") + ".hasNextPage"
 }
 
@@ -195,6 +209,9 @@ func setQueryParam(basePath, key, value string) string {
 }
 
 func buildMergedJSON(items []json.RawMessage, listPath string) ([]byte, error) {
+	if items == nil {
+		items = []json.RawMessage{}
+	}
 	if listPath == "" {
 		return json.Marshal(items)
 	}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,16 +16,17 @@ const (
 	pollMaxBackoff     = 30 * time.Second
 )
 
-// PollUntilDone polls until a response is no longer accepted. The timeout bounds
-// both requests and backoff waits; nonpositive values use DefaultPollTimeout.
 func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOptions, timeout time.Duration) ([]byte, error) {
 	if timeout <= 0 {
 		timeout = DefaultPollTimeout
 	}
-	pollCtx, cancel := context.WithTimeoutCause(ctx, timeout, newAPIError(fmt.Errorf("polling timed out after %s", timeout), 0))
+	pollCtx, cancel := context.WithTimeoutCause(ctx, timeout, newAPIError(fmt.Errorf("polling timed out after %s: %w", timeout, context.DeadlineExceeded), 0))
 	defer cancel()
 	pollError := func() error {
 		if err := ctx.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return newAPIError(err, 0)
+			}
 			return err
 		}
 		return context.Cause(pollCtx)
@@ -50,6 +52,11 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 			return ""
 		}
 	}
+	baseURL.Path += "/"
+	if baseURL.RawPath != "" {
+		baseURL.RawPath += "/"
+	}
+	origin := baseURL.Scheme + "://" + baseURL.Host
 	opts.checkRedirect = func(req *http.Request, _ []*http.Request) error {
 		if !strings.EqualFold(req.URL.Scheme, baseURL.Scheme) || !strings.EqualFold(req.URL.Hostname(), baseURL.Hostname()) || port(req.URL) != port(baseURL) {
 			return fmt.Errorf("cross-host polling redirect %q", redactDebugURL(req.URL, opts.sensitiveQueryParams))
@@ -72,10 +79,11 @@ func PollUntilDone(ctx context.Context, hostname, location string, opts ClientOp
 			return nil, newAPIError(fmt.Errorf("cross-host polling location %q", redactDebugURLString(location, opts.sensitiveQueryParams)), 0)
 		}
 		location = resolved.RequestURI()
-		r, err := DoRawFull(pollCtx, hostname, "GET", location, nil, opts)
+		baseURL = resolved
+		r, err := DoRawFull(pollCtx, origin, "GET", location, nil, opts)
 		if err != nil {
-			if ctx.Err() == nil && pollCtx.Err() != nil {
-				return nil, context.Cause(pollCtx)
+			if pollCtx.Err() != nil {
+				return nil, pollError()
 			}
 			return nil, err
 		}

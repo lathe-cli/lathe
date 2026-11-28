@@ -219,3 +219,18 @@ func TestBuildWorkflows_RunningStepLoadsAuth(t *testing.T) {
 	err := root.Execute()
 	testutil.Require(t, errors.Is(err, ErrNotAuthenticated), "error = %v, want ErrNotAuthenticated once the step actually runs", err)
 }
+
+func TestBuildWorkflowsRejectsUnknownConditionOperator(t *testing.T) {
+	isolateRuntime(t)
+	var paths []string
+	srv := workflowServer(t, &paths, `{}`)
+	root := newWorkflowRoot(io.Discard)
+	testutil.NoError(t, BuildWorkflows(root, []WorkflowSpec{{
+		Use:   "fetch",
+		Steps: []WorkflowStepSpec{{ID: "fetch", Operation: publicGetSpec("fetch", "/items"), When: []WorkflowCondition{{Value: "yes", Operator: "contains", Values: []string{"yes"}}}}},
+	}}))
+	root.SetArgs([]string{"--hostname", srv.URL, "fetch"})
+	if err := root.Execute(); err == nil || len(paths) != 0 {
+		t.Fatalf("error=%v requests=%v", err, paths)
+	}
+}
